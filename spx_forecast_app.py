@@ -1,71 +1,102 @@
-from datetime import datetime, timedelta
 import streamlit as st
-import pandas as pd
+from datetime import datetime, timedelta
 
-# --- CONFIG ---
-st.set_page_config(page_title="SPX Forecast App", layout="centered")
-DEFAULT_SLOPE = -0.3
+# --- Default Slopes ---
+SLOPES = {
+    "SPX_HIGH": -0.048837,
+    "SPX_CLOSE": -0.048837,
+    "SPX_LOW": -0.048837,
+    "TSLA": -0.1508,
+    "NVDA": -0.0504,
+    "AAPL": -0.1156,
+    "AMZN": -0.0782,
+    "GOOGL": -0.0485,
+}
 
-st.title("📈 SPX Multi-Line Forecast App")
-st.markdown("Enter your high, close, and low anchors to forecast SPX price for a given target time.")
+# --- Generate 30-min Forecast Slots (8:30 AM – 2:30 PM) ---
+def generate_time_blocks():
+    base = datetime.strptime("08:30", "%H:%M")
+    return [(base + timedelta(minutes=30 * i)).strftime("%H:%M") for i in range(13)]
 
-# --- SIDEBAR INPUTS ---
-st.sidebar.header("🔧 Input Settings")
+# --- Block Difference Calculator (excluding 4–5PM pause and weekend gap) ---
+def calculate_blocks(anchor_time, target_time):
+    total_blocks = 0
+    while anchor_time < target_time:
+        if anchor_time.weekday() >= 5:  # Skip weekends
+            anchor_time += timedelta(days=1)
+            anchor_time = anchor_time.replace(hour=5, minute=0)
+            continue
+        if anchor_time.hour == 16:  # Skip 4–5PM break
+            anchor_time += timedelta(hours=1)
+            continue
+        anchor_time += timedelta(minutes=30)
+        total_blocks += 1
+    return total_blocks
 
-def get_anchor_input(label, default_dt, default_price):
-    date = st.sidebar.date_input(f"{label} Date", value=default_dt.date(), key=f"{label}_date")
-    time = st.sidebar.time_input(f"{label} Time", value=default_dt.time(), key=f"{label}_time")
-    price = st.sidebar.number_input(f"{label} Price", value=default_price, key=f"{label}_price")
-    return datetime.combine(date, time), price
+# --- Forecast Table Generator ---
+def generate_forecast(anchor_price, slope, anchor_dt):
+    time_blocks = generate_time_blocks()
+    forecast = []
+    for t in time_blocks:
+        hour, minute = map(int, t.split(":"))
+        today_forecast_time = anchor_dt.replace(hour=hour, minute=minute) + timedelta(days=1)
+        block_diff = calculate_blocks(anchor_dt, today_forecast_time)
+        price = anchor_price + (slope * block_diff)
+        forecast.append({"Time": t, "Forecast Price": round(price, 2)})
+    return forecast
 
-# High Anchor
-high_time, high_price = get_anchor_input("High", datetime(2025, 6, 27, 11, 30), 6185.8)
+# --- Page Setup ---
+st.set_page_config("DrSPX Forecast App", layout="wide")
+st.title("📊 DrSPX Forecast App")
 
-# Mid (Close) Anchor
-mid_time, mid_price = get_anchor_input("Close", datetime(2025, 6, 27, 15, 0), 6170.2)
+tab_spx, tab_tsla, tab_nvda, tab_aapl, tab_amzn, tab_googl = st.tabs([
+    "🧭 SPX", "🚗 TSLA", "🧠 NVDA", "🍎 AAPL", "📦 AMZN", "🔍 GOOGL"
+])
 
-# Low Anchor
-low_time, low_price = get_anchor_input("Low", datetime(2025, 6, 27, 13, 30), 6131.83)
+# --- SPX Tab ---
+with tab_spx:
+    st.subheader("SPX Forecast (High / Close / Low Anchors)")
+    col1, col2, col3 = st.columns(3)
+    high_price = col1.number_input("High Price", value=6185.8)
+    high_time = col1.time_input("High Time", value=datetime(2025, 6, 27, 11, 30).time())
 
-# Target
-st.sidebar.markdown("---")
-st.sidebar.markdown("🎯 **Target Time**")
-target_date = st.sidebar.date_input("Target Date", value=datetime(2025, 6, 30).date())
-target_time = st.sidebar.time_input("Target Time", value=datetime(2025, 6, 30, 12, 30).time())
-target_datetime = datetime.combine(target_date, target_time)
+    close_price = col2.number_input("Close Price", value=6170.2)
+    close_time = col2.time_input("Close Time", value=datetime(2025, 6, 27, 15, 0).time())
 
-# --- BLOCK COUNTING ---
-def count_30min_blocks(start: datetime, end: datetime) -> int:
-    if end <= start:
-        return 0
-    blocks = 0
-    current = start
-    while current < end:
-        # Skip 4-5pm pause
-        if not (current.hour == 16):
-            # Skip from Friday 4pm until Sunday 5pm
-            if not (
-                (current.weekday() == 4 and current.hour >= 16) or
-                (current.weekday() == 5) or
-                (current.weekday() == 6 and current.hour < 17)
-            ):
-                blocks += 1
-        current += timedelta(minutes=30)
-    return blocks
+    low_price = col3.number_input("Low Price", value=6131.83)
+    low_time = col3.time_input("Low Time", value=datetime(2025, 6, 27, 13, 30).time())
 
-# --- FORECAST CALCULATION ---
-def forecast(anchor_label, anchor_time, anchor_price):
-    blocks = count_30min_blocks(anchor_time, target_datetime)
-    projected = anchor_price + (blocks * DEFAULT_SLOPE)
-    return {"Anchor": anchor_label, "Blocks": blocks, "Forecast Price": round(projected, 2)}
+    forecast_date = st.date_input("Forecast Date", value=datetime(2025, 6, 30).date())
 
-# --- RUN FORECAST ---
-if st.button("📊 Generate Forecast Table"):
-    results = [
-        forecast("High", high_time, high_price),
-        forecast("Close", mid_time, mid_price),
-        forecast("Low", low_time, low_price)
-    ]
-    df = pd.DataFrame(results)
-    st.write("### 📋 Forecast Results")
-    st.dataframe(df, use_container_width=True)
+    if st.button("Generate SPX Forecast"):
+        anchor_dt_high = datetime.combine(forecast_date - timedelta(days=1), high_time)
+        anchor_dt_close = datetime.combine(forecast_date - timedelta(days=1), close_time)
+        anchor_dt_low = datetime.combine(forecast_date - timedelta(days=1), low_time)
+
+        st.write("### High Anchor Forecast")
+        st.dataframe(generate_forecast(high_price, SLOPES["SPX_HIGH"], anchor_dt_high), use_container_width=True)
+
+        st.write("### Close Anchor Forecast")
+        st.dataframe(generate_forecast(close_price, SLOPES["SPX_CLOSE"], anchor_dt_close), use_container_width=True)
+
+        st.write("### Low Anchor Forecast")
+        st.dataframe(generate_forecast(low_price, SLOPES["SPX_LOW"], anchor_dt_low), use_container_width=True)
+
+# --- Ticker Forecast Tab Function ---
+def ticker_tab(tab, label, default_price, slope_key):
+    with tab:
+        st.subheader(f"{label} Forecast")
+        anchor_price = st.number_input(f"{label} Anchor Price", value=default_price, key=f"{label}_price")
+        anchor_time = st.time_input(f"{label} Anchor Time", value=datetime(2025, 6, 27, 3, 0).time(), key=f"{label}_time")
+        forecast_date = st.date_input(f"{label} Forecast Date", value=datetime(2025, 6, 28).date(), key=f"{label}_date")
+
+        if st.button(f"Generate {label} Forecast"):
+            anchor_dt = datetime.combine(forecast_date - timedelta(days=1), anchor_time)
+            table = generate_forecast(anchor_price, SLOPES[slope_key], anchor_dt)
+            st.dataframe(table, use_container_width=True)
+
+ticker_tab(tab_tsla, "TSLA", 261.4, "TSLA")
+ticker_tab(tab_nvda, "NVDA", 131.68, "NVDA")
+ticker_tab(tab_aapl, "AAPL", 197.37, "AAPL")
+ticker_tab(tab_amzn, "AMZN", 189.14, "AMZN")
+ticker_tab(tab_googl, "GOOGL", 169.77, "GOOGL")
