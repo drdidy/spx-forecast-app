@@ -7,7 +7,7 @@ SLOPES = {
     "SPX_HIGH": -0.2792,
     "SPX_CLOSE": -0.2792,
     "SPX_LOW": -0.2792,
-    "TSLA": -0.1508,
+    "TSLA": -0.1180,
     "NVDA": -0.0485,
     "AAPL": -0.1137,
     "MSFT": -0.1574,
