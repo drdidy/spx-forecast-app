@@ -1,17 +1,16 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
-import random
+import numpy as np
 
 # Page configuration
 st.set_page_config(
-    page_title="TradeMax Pro - Portfolio Dashboard",
+    page_title="TradePro Securities",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # Custom CSS for professional styling
@@ -23,266 +22,205 @@ st.markdown("""
         color: #1f2937;
         margin-bottom: 0.5rem;
     }
-    .account-balance {
+    .portfolio-value {
         font-size: 3rem;
         font-weight: 800;
         color: #059669;
         margin: 0;
     }
     .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 12px;
-        color: white;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    .portfolio-section {
-        background: #f8fafc;
-        padding: 2rem;
-        border-radius: 12px;
-        border-left: 4px solid #3b82f6;
-        margin: 1rem 0;
-    }
-    .news-item {
         background: white;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 3px solid #10b981;
-        margin: 0.5rem 0;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        padding: 1.5rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-left: 4px solid #3b82f6;
     }
-    .sidebar-logo {
-        text-align: center;
-        font-size: 1.8rem;
-        font-weight: bold;
-        color: #1f2937;
-        margin-bottom: 2rem;
+    .status-positive {
+        color: #059669;
+        font-weight: 600;
+    }
+    .status-negative {
+        color: #dc2626;
+        font-weight: 600;
+    }
+    .sidebar-content {
+        background: #f8fafc;
         padding: 1rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
         border-radius: 8px;
+    }
+    .nav-header {
+        background: linear-gradient(90deg, #1e40af, #3b82f6);
+        color: white;
+        padding: 1rem;
+        margin: -1rem -1rem 2rem -1rem;
+        border-radius: 0.5rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Sidebar
-with st.sidebar:
-    st.markdown('<div class="sidebar-logo">📈 TradeMax Pro</div>', unsafe_allow_html=True)
-    
-    st.markdown("### Navigation")
-    menu_options = ["Dashboard", "Portfolio", "Trading", "Research", "Reports", "Settings"]
-    selected = st.selectbox("", menu_options, index=0)
-    
-    st.markdown("---")
-    st.markdown("### Quick Actions")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.button("🔥 Buy", use_container_width=True)
-    with col2:
-        st.button("📉 Sell", use_container_width=True)
-    
-    st.markdown("---")
-    st.markdown("### Market Status")
-    st.success("🟢 Markets Open")
-    st.caption("NYSE: 9:30 AM - 4:00 PM EST")
-    
-    st.markdown("---")
-    st.markdown("### Support")
-    st.info("📞 1-800-TRADEMAX\n💬 Live Chat Available")
+# Navigation Header
+st.markdown("""
+<div class="nav-header">
+    <h1 style="margin:0; font-size: 1.8rem;">📈 TradePro Securities</h1>
+    <p style="margin:0.5rem 0 0 0; opacity: 0.9;">Professional Trading Platform</p>
+</div>
+""", unsafe_allow_html=True)
 
-# Main content
-col1, col2 = st.columns([3, 1])
-
-with col1:
-    st.markdown('<h1 class="main-header">Welcome back, Alex Richardson</h1>', unsafe_allow_html=True)
-    st.markdown("*Last login: Today, 8:47 AM EST*")
-
-with col2:
-    st.markdown("### Account Balance")
-    st.markdown('<p class="account-balance">₦9,203.36</p>', unsafe_allow_html=True)
-
-# Portfolio Overview Section
-st.markdown("---")
-st.markdown("## 📊 Portfolio Overview")
-
-# Create sample portfolio data
-portfolio_data = {
-    'Symbol': ['AAPL', 'GOOGL', 'MSFT', 'TSLA', 'AMZN', 'NVDA', 'META'],
-    'Company': ['Apple Inc.', 'Alphabet Inc.', 'Microsoft Corp.', 'Tesla Inc.', 'Amazon.com Inc.', 'NVIDIA Corp.', 'Meta Platforms'],
-    'Shares': [25, 8, 15, 12, 6, 20, 10],
-    'Price': [182.52, 138.21, 378.85, 248.50, 146.80, 875.28, 325.16],
-    'Change': ['+2.45%', '-0.82%', '+1.23%', '+4.67%', '-1.45%', '+3.21%', '+0.95%'],
-    'Value': [4563.00, 1105.68, 5682.75, 2982.00, 880.80, 17505.60, 3251.60]
-}
-
-df_portfolio = pd.DataFrame(portfolio_data)
-
-# Portfolio metrics
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric(
-        label="Total Portfolio Value",
-        value="₦35,971.43",
-        delta="₦1,247.89 (+3.59%)"
-    )
-
-with col2:
-    st.metric(
-        label="Today's Change",
-        value="₦847.23",
-        delta="+2.41%"
-    )
-
-with col3:
-    st.metric(
-        label="Total Positions",
-        value="7",
-        delta="2 new this week"
-    )
-
-with col4:
-    st.metric(
-        label="Buying Power",
-        value="₦9,203.36",
-        delta="Available"
-    )
-
-# Portfolio allocation chart
-fig_pie = px.pie(
-    df_portfolio, 
-    values='Value', 
-    names='Symbol',
-    title='Portfolio Allocation by Holdings',
-    color_discrete_sequence=px.colors.qualitative.Set3
-)
-fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-fig_pie.update_layout(height=400)
-
-col1, col2 = st.columns([1, 1])
-
-with col1:
-    st.plotly_chart(fig_pie, use_container_width=True)
-
-with col2:
-    # Performance chart
-    dates = pd.date_range(start='2024-01-01', end='2024-08-13', freq='D')
-    portfolio_values = np.cumsum(np.random.randn(len(dates)) * 50) + 30000
-    
-    fig_line = go.Figure()
-    fig_line.add_trace(go.Scatter(
-        x=dates,
-        y=portfolio_values,
-        mode='lines',
-        name='Portfolio Value',
-        line=dict(color='#059669', width=3)
-    ))
-    fig_line.update_layout(
-        title='Portfolio Performance (YTD)',
-        xaxis_title='Date',
-        yaxis_title='Portfolio Value (₦)',
-        height=400,
-        showlegend=False
-    )
-    st.plotly_chart(fig_line, use_container_width=True)
-
-# Holdings table
-st.markdown("### 📈 Current Holdings")
-st.dataframe(
-    df_portfolio,
-    column_config={
-        "Symbol": st.column_config.TextColumn("Symbol", width="small"),
-        "Company": st.column_config.TextColumn("Company", width="large"),
-        "Shares": st.column_config.NumberColumn("Shares", format="%d"),
-        "Price": st.column_config.NumberColumn("Price", format="₦%.2f"),
-        "Change": st.column_config.TextColumn("Change", width="small"),
-        "Value": st.column_config.NumberColumn("Market Value", format="₦%.2f"),
-    },
-    hide_index=True,
-    use_container_width=True
-)
-
-# Market overview
-st.markdown("---")
-st.markdown("## 📊 Market Overview")
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.metric("S&P 500", "4,471.07", "+23.45 (+0.53%)")
-    st.metric("NASDAQ", "13,722.02", "+87.65 (+0.64%)")
-
-with col2:
-    st.metric("DOW JONES", "34,837.71", "+156.82 (+0.45%)")
-    st.metric("RUSSELL 2000", "2,084.43", "+12.33 (+0.59%)")
-
-with col3:
-    st.metric("VIX", "13.45", "-0.87 (-6.08%)")
-    st.metric("10Y Treasury", "4.23%", "+0.02 (+0.47%)")
-
-# Watchlist
-st.markdown("---")
+# Main dashboard
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    st.markdown("## 👀 Watchlist")
+    st.markdown('<h2 class="main-header">Portfolio Overview</h2>', unsafe_allow_html=True)
     
-    watchlist_data = {
-        'Symbol': ['NFLX', 'CRM', 'SHOP', 'SQ', 'ZOOM'],
-        'Company': ['Netflix Inc.', 'Salesforce Inc.', 'Shopify Inc.', 'Block Inc.', 'Zoom Video'],
-        'Price': [445.23, 245.67, 67.89, 58.34, 64.12],
-        'Change': ['+2.34%', '-1.23%', '+5.67%', '+3.21%', '-0.45%'],
-        'Alert': ['📈', '📉', '🚀', '📈', '⚠️']
-    }
+    # Portfolio value display
+    col_val1, col_val2, col_val3 = st.columns([2, 1, 1])
     
-    watchlist_df = pd.DataFrame(watchlist_data)
-    st.dataframe(watchlist_df, hide_index=True, use_container_width=True)
+    with col_val1:
+        st.markdown('<p class="portfolio-value">$9,203.36</p>', unsafe_allow_html=True)
+        st.markdown('<p style="color: #6b7280; font-size: 1.1rem; margin-top: -1rem;">Total Portfolio Value</p>', unsafe_allow_html=True)
+    
+    with col_val2:
+        st.metric("Today's Change", "+$127.42", "+1.40%")
+    
+    with col_val3:
+        st.metric("Total Return", "+$1,203.36", "+15.04%")
+
+    # Portfolio performance chart
+    st.markdown("### Portfolio Performance")
+    
+    # Generate sample performance data
+    dates = pd.date_range(start=datetime.now() - timedelta(days=30), end=datetime.now(), freq='D')
+    np.random.seed(42)
+    base_value = 8000
+    returns = np.random.normal(0.001, 0.02, len(dates))
+    portfolio_values = [base_value]
+    
+    for ret in returns[1:]:
+        portfolio_values.append(portfolio_values[-1] * (1 + ret))
+    
+    # Adjust final value to match our target
+    portfolio_values = np.array(portfolio_values)
+    portfolio_values = portfolio_values * (9203.36 / portfolio_values[-1])
+    
+    chart_data = pd.DataFrame({
+        'Date': dates,
+        'Portfolio Value': portfolio_values
+    })
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=chart_data['Date'], 
+        y=chart_data['Portfolio Value'],
+        mode='lines',
+        name='Portfolio Value',
+        line=dict(color='#3b82f6', width=2),
+        fill='tonexty',
+        fillcolor='rgba(59, 130, 246, 0.1)'
+    ))
+    
+    fig.update_layout(
+        title="30-Day Portfolio Performance",
+        xaxis_title="Date",
+        yaxis_title="Portfolio Value ($)",
+        height=400,
+        showlegend=False,
+        template="plotly_white"
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    st.markdown("## 📰 Market News")
+    st.markdown("### Account Summary")
     
-    news_items = [
-        {
-            'title': 'Fed Hints at Rate Cuts',
-            'time': '2 hours ago',
-            'source': 'Reuters'
-        },
-        {
-            'title': 'Tech Earnings Beat Expectations',
-            'time': '4 hours ago',
-            'source': 'Bloomberg'
-        },
-        {
-            'title': 'Oil Prices Surge on Supply Concerns',
-            'time': '6 hours ago',
-            'source': 'WSJ'
-        },
-        {
-            'title': 'Crypto Rally Continues',
-            'time': '8 hours ago',
-            'source': 'CNBC'
-        }
-    ]
+    # Account metrics
+    st.metric("Buying Power", "$2,847.22", "+$340.15")
+    st.metric("Cash Balance", "$1,526.89", "-$180.50")
+    st.metric("Margin Used", "$0.00", "0%")
     
-    for news in news_items:
-        st.markdown(f"""
-        <div class="news-item">
-            <strong>{news['title']}</strong><br>
-            <small style="color: #6b7280;">{news['time']} • {news['source']}</small>
-        </div>
-        """, unsafe_allow_html=True)
+    st.markdown("---")
+    
+    # Quick actions
+    st.markdown("### Quick Actions")
+    if st.button("🛒 Place Order", use_container_width=True):
+        st.success("Redirecting to order placement...")
+    
+    if st.button("📊 Research", use_container_width=True):
+        st.info("Opening research center...")
+    
+    if st.button("📈 Watchlist", use_container_width=True):
+        st.info("Loading watchlist...")
+    
+    if st.button("💰 Deposit Funds", use_container_width=True):
+        st.success("Opening deposit interface...")
+    
+    st.markdown("---")
+    
+    # Market status
+    st.markdown("### Market Status")
+    market_status = "🟢 OPEN" if datetime.now().weekday() < 5 and 9 <= datetime.now().hour <= 16 else "🔴 CLOSED"
+    st.markdown(f"**Status:** {market_status}")
+    st.markdown("**Next Close:** 4:00 PM ET")
+
+# Holdings section
+st.markdown("---")
+st.markdown("### Current Holdings")
+
+# Sample holdings data
+holdings_data = {
+    'Symbol': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA'],
+    'Company': ['Apple Inc.', 'Microsoft Corp.', 'Alphabet Inc.', 'Amazon.com Inc.', 'Tesla Inc.', 'NVIDIA Corp.'],
+    'Shares': [15, 8, 3, 5, 12, 6],
+    'Avg Cost': [180.50, 320.25, 2650.00, 3200.15, 245.80, 875.60],
+    'Current Price': [185.20, 335.80, 2680.45, 3150.22, 268.90, 920.15],
+    'Market Value': [2778.00, 2686.40, 8041.35, 15751.10, 3226.80, 5520.90],
+    'Day Change': ['+2.1%', '+4.8%', '+1.1%', '-1.6%', '+9.4%', '+5.1%'],
+    'Total Return': ['+4.7%', '+4.9%', '+1.1%', '-1.6%', '+9.4%', '+5.1%']
+}
+
+holdings_df = pd.DataFrame(holdings_data)
+
+# Adjust market values to sum closer to our portfolio total
+holdings_df['Market Value'] = [1556.80, 1493.20, 804.14, 1575.11, 1932.08, 1842.03]
+
+# Display holdings table
+st.dataframe(
+    holdings_df,
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "Market Value": st.column_config.NumberColumn("Market Value", format="$%.2f"),
+        "Avg Cost": st.column_config.NumberColumn("Avg Cost", format="$%.2f"),
+        "Current Price": st.column_config.NumberColumn("Current Price", format="$%.2f"),
+    }
+)
+
+# Recent activity
+st.markdown("### Recent Activity")
+activity_data = {
+    'Date': ['2024-08-13', '2024-08-12', '2024-08-12', '2024-08-09'],
+    'Action': ['BUY', 'SELL', 'BUY', 'DIVIDEND'],
+    'Symbol': ['NVDA', 'AAPL', 'MSFT', 'AAPL'],
+    'Quantity': [2, 5, 3, 15],
+    'Price': [920.15, 182.30, 335.80, 0.25],
+    'Total': [-1840.30, 911.50, -1007.40, 3.75]
+}
+
+activity_df = pd.DataFrame(activity_data)
+st.dataframe(
+    activity_df,
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "Price": st.column_config.NumberColumn("Price", format="$%.2f"),
+        "Total": st.column_config.NumberColumn("Total", format="$%.2f"),
+    }
+)
 
 # Footer
 st.markdown("---")
-col1, col2, col3 = st.columns([1, 2, 1])
-
-with col2:
-    st.markdown("""
-    <div style='text-align: center; color: #6b7280; font-size: 0.9rem;'>
-        <p>© 2024 TradeMax Pro. All rights reserved. | 
-        <a href='#'>Terms</a> | 
-        <a href='#'>Privacy</a> | 
-        <a href='#'>Contact</a></p>
-        <p>Securities offered through TradeMax Securities LLC, Member FINRA/SIPC</p>
-    </div>
-    """, unsafe_allow_html=True)
+st.markdown("""
+<div style="text-align: center; color: #6b7280; font-size: 0.9rem; padding: 2rem;">
+    <p>TradePro Securities | Member SIPC | Professional Trading Platform</p>
+    <p>Market data delayed by 15 minutes | Last updated: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S ET") + """</p>
+</div>
+""", unsafe_allow_html=True)
