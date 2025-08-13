@@ -2,9 +2,8 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import numpy as np
-import pytz
 
 # Page configuration
 st.set_page_config(
@@ -110,9 +109,10 @@ st.markdown("""
 # Welcome message
 col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
-    # Get current Central Time
-    central_tz = pytz.timezone('US/Central')
-    central_time = datetime.now(central_tz)
+    # Get current Central Time (UTC-6 or UTC-5 depending on DST)
+    # Central Time is UTC-5 during DST (March-November)
+    central_offset = timezone(timedelta(hours=-5))  # CDT (Central Daylight Time)
+    central_time = datetime.now(central_offset)
     
     st.markdown(f"""
     ### Welcome back, David Okanlawon
@@ -122,10 +122,6 @@ with col1:
     """)
 
 with col3:
-    # Get NYSE closing time in Central Time
-    eastern_tz = pytz.timezone('US/Eastern')
-    central_tz = pytz.timezone('US/Central')
-    
     # NYSE closes at 4 PM Eastern, which is 3 PM Central
     st.markdown("""
     <div class="sidebar-info">
