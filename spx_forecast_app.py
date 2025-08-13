@@ -1,315 +1,306 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import plotly.express as px
 from datetime import datetime, timedelta
 import numpy as np
 
 # Page configuration
 st.set_page_config(
-    page_title="TradeMaster Pro",
+    page_title="TradePro Securities",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # Custom CSS for professional styling
 st.markdown("""
 <style>
     .main-header {
-        background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        margin-bottom: 2rem;
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: #1f2937;
+        margin-bottom: 0.5rem;
+    }
+    .portfolio-value {
+        font-size: 3rem;
+        font-weight: 800;
+        color: #059669;
+        margin: 0;
+    }
+    .gain-positive {
+        color: #059669;
+        font-weight: 600;
+        font-size: 1.2rem;
+    }
+    .gain-negative {
+        color: #dc2626;
+        font-weight: 600;
+        font-size: 1.2rem;
     }
     .metric-card {
         background: white;
         padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        border-left: 4px solid #3b82f6;
-    }
-    .positive-change {
-        color: #16a34a;
-        font-weight: bold;
-    }
-    .negative-change {
-        color: #dc2626;
-        font-weight: bold;
-    }
-    .sidebar-content {
-        background-color: #f8fafc;
-        padding: 1rem;
         border-radius: 8px;
-        margin-bottom: 1rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     }
-    .portfolio-summary {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 2rem;
-        border-radius: 15px;
+    .nav-bar {
+        background: #f8fafc;
+        padding: 1rem 0;
+        border-bottom: 1px solid #e5e7eb;
         margin-bottom: 2rem;
     }
-    .trade-button {
-        background-color: #16a34a;
-        color: white;
-        padding: 0.5rem 2rem;
-        border: none;
-        border-radius: 5px;
-        font-weight: bold;
-        cursor: pointer;
-    }
-    .market-status {
-        background-color: #16a34a;
-        color: white;
-        padding: 0.3rem 1rem;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        display: inline-block;
+    .status-badge {
+        background: #dcfce7;
+        color: #166534;
+        padding: 0.25rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.875rem;
+        font-weight: 500;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Header
-st.markdown("""
-<div class="main-header">
-    <h1 style="color: white; margin: 0; display: flex; align-items: center;">
-        📈 TradeMaster Pro
-        <span style="margin-left: auto; font-size: 0.6em; background-color: rgba(255,255,255,0.2); padding: 0.3rem 1rem; border-radius: 20px;">
-            Market Open
-        </span>
-    </h1>
-    <p style="color: #e2e8f0; margin: 0.5rem 0 0 0;">Professional Trading Platform</p>
-</div>
-""", unsafe_allow_html=True)
+# Header and Navigation
+st.markdown('<div class="nav-bar">', unsafe_allow_html=True)
+col1, col2, col3 = st.columns([2, 1, 1])
+with col1:
+    st.markdown("# 📈 TradePro Securities")
+with col2:
+    st.markdown('<span class="status-badge">● Markets Open</span>', unsafe_allow_html=True)
+with col3:
+    st.markdown("**Welcome, Alex Johnson**")
+st.markdown('</div>', unsafe_allow_html=True)
 
-# Sidebar
-with st.sidebar:
-    st.markdown("## Account Dashboard")
-    
-    st.markdown("""
-    <div class="sidebar-content">
-        <h4>Quick Actions</h4>
-        <button class="trade-button">🛒 Buy Stocks</button><br><br>
-        <button class="trade-button">🏷️ Sell Stocks</button><br><br>
-        <button class="trade-button">📊 View Reports</button>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("### Market Status")
-    st.markdown('<span class="market-status">🟢 Markets Open</span>', unsafe_allow_html=True)
-    st.write(f"**Current Time:** {datetime.now().strftime('%I:%M %p ET')}")
-    
-    st.markdown("### Quick Stats")
-    st.metric("S&P 500", "4,832.12", "12.34 (0.26%)")
-    st.metric("NASDAQ", "15,180.43", "-5.67 (-0.04%)")
-    st.metric("DOW", "37,689.54", "89.23 (0.24%)")
+# Main portfolio overview
+st.markdown('<h2 class="main-header">Portfolio Overview</h2>', unsafe_allow_html=True)
 
-# Main content
-col1, col2, col3, col4 = st.columns(4)
+# Portfolio metrics row
+col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
 
 with col1:
-    st.metric(
-        label="Portfolio Value",
-        value="$9,203.36",
-        delta="$630.24 (7.36%)",
-        delta_color="normal"
-    )
+    st.markdown('<p class="portfolio-value">$9,203.36</p>', unsafe_allow_html=True)
+    st.markdown("**Total Portfolio Value**")
+    st.markdown('<span class="gain-positive">+$630.24 (+7.35%) Today</span>', unsafe_allow_html=True)
 
 with col2:
     st.metric(
-        label="Today's Change",
-        value="$630.24",
-        delta="7.36%",
-        delta_color="normal"
+        label="Available Cash",
+        value="$1,247.82",
+        delta="Ready to invest"
     )
 
 with col3:
     st.metric(
-        label="Available Cash",
-        value="$1,247.89",
-        delta="Ready to invest"
+        label="Day's Range",
+        value="$8,573.12 - $9,203.36",
+        delta=None
     )
 
 with col4:
     st.metric(
-        label="Total Return",
-        value="$2,891.47",
-        delta="45.76%",
-        delta_color="normal"
+        label="Buying Power",
+        value="$12,847.92",
+        delta="+$630.24"
     )
 
-# Portfolio Summary Section
-st.markdown("## Portfolio Overview")
+st.divider()
 
+# Charts and Performance Section
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    # Generate sample portfolio performance data
-    dates = pd.date_range(start=datetime.now() - timedelta(days=90), end=datetime.now(), freq='D')
+    st.subheader("Portfolio Performance (30 Days)")
+    
+    # Generate sample portfolio data
+    dates = pd.date_range(start=datetime.now() - timedelta(days=30), end=datetime.now(), freq='D')
+    np.random.seed(42)
     base_value = 8500
-    returns = np.random.normal(0.001, 0.02, len(dates))
+    returns = np.random.normal(0.005, 0.025, len(dates))
     portfolio_values = [base_value]
     
     for return_rate in returns[1:]:
         portfolio_values.append(portfolio_values[-1] * (1 + return_rate))
     
-    # Ensure the last value is our target portfolio value
+    # Ensure final value matches our target
     portfolio_values[-1] = 9203.36
     
-    df = pd.DataFrame({
+    portfolio_df = pd.DataFrame({
         'Date': dates,
-        'Portfolio Value': portfolio_values
+        'Portfolio_Value': portfolio_values
     })
     
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=df['Date'],
-        y=df['Portfolio Value'],
+        x=portfolio_df['Date'],
+        y=portfolio_df['Portfolio_Value'],
         mode='lines',
         name='Portfolio Value',
-        line=dict(color='#3b82f6', width=3),
+        line=dict(color='#059669', width=3),
         fill='tonexty',
-        fillcolor='rgba(59, 130, 246, 0.1)'
+        fillcolor='rgba(5, 150, 105, 0.1)'
     ))
     
     fig.update_layout(
-        title="Portfolio Performance (90 Days)",
-        xaxis_title="Date",
-        yaxis_title="Portfolio Value ($)",
         height=400,
         showlegend=False,
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        xaxis=dict(showgrid=True, gridcolor='#f3f4f6'),
+        yaxis=dict(showgrid=True, gridcolor='#f3f4f6', tickformat='$,.0f'),
+        margin=dict(l=0, r=0, t=20, b=0)
     )
-    
-    fig.update_xaxes(showgrid=True, gridcolor='rgba(128,128,128,0.2)')
-    fig.update_yaxes(showgrid=True, gridcolor='rgba(128,128,128,0.2)')
     
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    # Asset allocation pie chart
-    assets = {
-        'Technology': 35.2,
-        'Healthcare': 18.7,
-        'Financial': 15.3,
-        'Consumer Goods': 12.8,
-        'Energy': 8.9,
-        'Cash': 9.1
+    st.subheader("Asset Allocation")
+    
+    # Sample allocation data
+    allocation_data = {
+        'Asset Type': ['US Stocks', 'ETFs', 'International', 'Bonds', 'Cash'],
+        'Value': [4521.65, 2876.43, 1205.28, 352.18, 247.82],
+        'Percentage': [49.1, 31.3, 13.1, 3.8, 2.7]
     }
     
-    fig_pie = go.Figure(data=[go.Pie(
-        labels=list(assets.keys()),
-        values=list(assets.values()),
-        hole=.4,
-        marker_colors=['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6b7280']
-    )])
+    allocation_df = pd.DataFrame(allocation_data)
+    
+    fig_pie = px.pie(
+        allocation_df, 
+        values='Value', 
+        names='Asset Type',
+        color_discrete_sequence=['#059669', '#0ea5e9', '#8b5cf6', '#f59e0b', '#6b7280']
+    )
+    
+    fig_pie.update_traces(
+        textposition='inside',
+        textinfo='percent+label',
+        hovertemplate='%{label}<br>$%{value:,.2f}<br>%{percent}<extra></extra>'
+    )
     
     fig_pie.update_layout(
-        title="Asset Allocation",
         height=400,
-        showlegend=True,
-        legend=dict(orientation="v", yanchor="middle", y=0.5)
+        showlegend=False,
+        margin=dict(l=0, r=0, t=20, b=0),
+        paper_bgcolor='white'
     )
     
     st.plotly_chart(fig_pie, use_container_width=True)
 
-# Holdings Table
-st.markdown("## Current Holdings")
+st.divider()
 
-holdings_data = {
-    'Symbol': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'JNJ', 'V', 'WMT'],
-    'Company': ['Apple Inc.', 'Microsoft Corp.', 'Alphabet Inc.', 'Amazon.com Inc.', 
-                'Tesla Inc.', 'NVIDIA Corp.', 'Meta Platforms', 'Johnson & Johnson', 
-                'Visa Inc.', 'Walmart Inc.'],
-    'Shares': [15, 8, 3, 5, 12, 6, 7, 20, 9, 25],
-    'Current Price': [189.84, 428.67, 2734.23, 147.92, 248.50, 875.30, 325.67, 
-                      168.45, 267.89, 159.32],
-    'Market Value': [2847.60, 3429.36, 8202.69, 739.60, 2982.00, 5251.80, 
-                     2279.69, 3369.00, 2411.01, 3983.00],
-    'Day Change': ['+2.34%', '+1.87%', '+3.21%', '-0.45%', '+4.67%', '+2.91%', 
-                   '+1.23%', '-0.12%', '+0.78%', '+1.45%']
-}
-
-holdings_df = pd.DataFrame(holdings_data)
-
-# Format the dataframe for better display
-formatted_df = holdings_df.copy()
-formatted_df['Current Price'] = formatted_df['Current Price'].apply(lambda x: f"${x:.2f}")
-formatted_df['Market Value'] = formatted_df['Market Value'].apply(lambda x: f"${x:.2f}")
-
-st.dataframe(
-    formatted_df,
-    use_container_width=True,
-    hide_index=True
-)
-
-# Recent Activity
-st.markdown("## Recent Activity")
-
-activity_data = {
-    'Date': [datetime.now().strftime('%m/%d/%Y')] * 4,
-    'Time': ['09:32 AM', '10:45 AM', '02:15 PM', '03:28 PM'],
-    'Action': ['BUY', 'SELL', 'BUY', 'DIVIDEND'],
-    'Symbol': ['NVDA', 'AAPL', 'MSFT', 'JNJ'],
-    'Quantity': [2, 5, 3, '-'],
-    'Price': ['$875.30', '$187.50', '$426.80', '$0.68/share'],
-    'Amount': ['+$1,750.60', '-$937.50', '+$1,280.40', '+$13.60']
-}
-
-activity_df = pd.DataFrame(activity_data)
-st.dataframe(activity_df, use_container_width=True, hide_index=True)
-
-# Market News
-st.markdown("## Market News & Insights")
-
+# Holdings and Watchlist
 col1, col2 = st.columns(2)
 
 with col1:
-    st.markdown("""
-    **📈 Tech Stocks Rally on AI Optimism**
-    *2 hours ago*
+    st.subheader("Top Holdings")
     
-    Technology shares continued their upward momentum as investors remain bullish on artificial intelligence developments...
+    holdings_data = {
+        'Symbol': ['AAPL', 'MSFT', 'GOOGL', 'TSLA', 'NVDA', 'AMZN'],
+        'Shares': [25, 15, 8, 12, 6, 10],
+        'Current Price': [175.84, 342.56, 138.21, 248.50, 421.63, 142.05],
+        'Market Value': [4396.00, 5138.40, 1105.68, 2982.00, 2529.78, 1420.50],
+        'Day Change': ['+2.34%', '+1.87%', '-0.45%', '+4.21%', '+3.67%', '+0.92%']
+    }
     
-    **🏦 Federal Reserve Maintains Interest Rates**
-    *4 hours ago*
+    holdings_df = pd.DataFrame(holdings_data)
     
-    The Federal Reserve decided to keep interest rates unchanged, citing economic stability and inflation targets...
+    # Style the dataframe
+    def color_change(val):
+        if '+' in str(val):
+            return 'color: #059669'
+        elif '-' in str(val):
+            return 'color: #dc2626'
+        return ''
     
-    **⚡ Energy Sector Shows Mixed Results**
-    *6 hours ago*
-    
-    Oil prices fluctuated amid global supply chain concerns, affecting energy sector performance...
-    """)
+    st.dataframe(
+        holdings_df.style.applymap(color_change, subset=['Day Change']).format({
+            'Current Price': '${:.2f}',
+            'Market Value': '${:,.2f}'
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
 
 with col2:
-    st.markdown("""
-    **💼 Earnings Season Highlights**
-    *1 hour ago*
+    st.subheader("Watchlist")
     
-    Several major companies reported stronger-than-expected quarterly earnings, boosting market confidence...
+    watchlist_data = {
+        'Symbol': ['META', 'NFLX', 'AMD', 'CRM', 'UBER'],
+        'Price': [298.35, 445.67, 112.84, 218.92, 65.43],
+        'Change': ['+1.25%', '-0.87%', '+2.14%', '+0.56%', '+3.21%'],
+        'Volume': ['2.3M', '1.8M', '4.1M', '1.2M', '5.7M']
+    }
     
-    **🌐 Global Markets Update**
-    *3 hours ago*
+    watchlist_df = pd.DataFrame(watchlist_data)
     
-    International markets showed resilience despite geopolitical tensions affecting certain sectors...
+    st.dataframe(
+        watchlist_df.style.applymap(color_change, subset=['Change']).format({
+            'Price': '${:.2f}'
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+
+st.divider()
+
+# Market Overview and Recent Activity
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Market Overview")
     
-    **📊 Market Analysis: Q3 Outlook**
-    *5 hours ago*
+    market_data = {
+        'Index': ['S&P 500', 'Dow Jones', 'NASDAQ', 'Russell 2000'],
+        'Value': [4387.16, 34312.03, 13661.17, 1995.34],
+        'Change': ['+0.85%', '+0.72%', '+1.23%', '+0.91%'],
+        'Points': ['+36.98', '+245.86', '+166.44', '+17.98']
+    }
     
-    Analysts project continued growth in the third quarter, with particular strength in technology and healthcare...
-    """)
+    market_df = pd.DataFrame(market_data)
+    
+    st.dataframe(
+        market_df.style.applymap(color_change, subset=['Change']).format({
+            'Value': '{:,.2f}'
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+
+with col2:
+    st.subheader("Recent Activity")
+    
+    activity_data = {
+        'Time': ['09:32 AM', '09:45 AM', '10:15 AM', '11:30 AM'],
+        'Action': ['BUY', 'SELL', 'BUY', 'BUY'],
+        'Symbol': ['NVDA', 'AAPL', 'MSFT', 'TSLA'],
+        'Quantity': [2, 5, 3, 1],
+        'Price': ['$421.63', '$175.20', '$341.89', '$247.85']
+    }
+    
+    activity_df = pd.DataFrame(activity_data)
+    
+    def color_action(val):
+        if val == 'BUY':
+            return 'color: #059669; font-weight: bold'
+        elif val == 'SELL':
+            return 'color: #dc2626; font-weight: bold'
+        return ''
+    
+    st.dataframe(
+        activity_df.style.applymap(color_action, subset=['Action']),
+        use_container_width=True,
+        hide_index=True
+    )
 
 # Footer
 st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: #64748b; padding: 1rem;">
-    <p>TradeMaster Pro • Professional Trading Platform • 
-    <a href="#" style="color: #3b82f6;">Support</a> • 
-    <a href="#" style="color: #3b82f6;">Privacy Policy</a> • 
-    <a href="#" style="color: #3b82f6;">Terms of Service</a></p>
-    <p><small>Investment products and services are provided by TradeMaster Securities LLC, Member FINRA/SIPC.</small></p>
-</div>
-""", unsafe_allow_html=True)
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.markdown("**Market Status:** Open until 4:00 PM ET")
+with col2:
+    st.markdown("**Last Updated:** " + datetime.now().strftime("%I:%M %p ET"))
+with col3:
+    st.markdown("**Account Type:** Individual Taxable")
