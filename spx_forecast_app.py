@@ -59,18 +59,28 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Navigation Header
-st.markdown("""
-<div class="nav-header">
-    <h1 style="margin:0; font-size: 1.8rem;">📈 TradePro Securities</h1>
-    <p style="margin:0.5rem 0 0 0; opacity: 0.9;">Professional Trading Platform</p>
-</div>
-""", unsafe_allow_html=True)
+col_nav1, col_nav2 = st.columns([3, 1])
+with col_nav1:
+    st.markdown("""
+    <div class="nav-header">
+        <h1 style="margin:0; font-size: 1.8rem;">📈 TradePro Securities</h1>
+        <p style="margin:0.5rem 0 0 0; opacity: 0.9;">Professional Trading Platform</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_nav2:
+    st.markdown("""
+    <div style="text-align: right; padding: 1rem; color: #374151;">
+        <p style="margin: 0; font-size: 1.1rem; font-weight: 600;">Welcome back,</p>
+        <p style="margin: 0; font-size: 1.3rem; font-weight: 700; color: #1f2937;">David Okanlawon</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # Main dashboard
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    st.markdown('<h2 class="main-header">Portfolio Overview</h2>', unsafe_allow_html=True)
+    st.markdown('<h2 class="main-header">David\'s Portfolio Overview</h2>', unsafe_allow_html=True)
     
     # Portfolio value display
     col_val1, col_val2, col_val3 = st.columns([2, 1, 1])
@@ -130,7 +140,7 @@ with col1:
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    st.markdown("### Account Summary")
+    st.markdown("### David's Account Summary")
     
     # Account metrics
     st.metric("Buying Power", "$2,847.22", "+$340.15")
@@ -221,6 +231,6 @@ st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #6b7280; font-size: 0.9rem; padding: 2rem;">
     <p>TradePro Securities | Member SIPC | Professional Trading Platform</p>
-    <p>Market data delayed by 15 minutes | Last updated: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S ET") + """</p>
+    <p>Account: David Okanlawon | Market data delayed by 15 minutes | Last updated: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S ET") + """</p>
 </div>
 """, unsafe_allow_html=True)
