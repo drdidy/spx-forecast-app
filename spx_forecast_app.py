@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
 import numpy as np
+import pytz
 
 # Page configuration
 st.set_page_config(
@@ -109,19 +110,28 @@ st.markdown("""
 # Welcome message
 col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
+    # Get current Central Time
+    central_tz = pytz.timezone('US/Central')
+    central_time = datetime.now(central_tz)
+    
     st.markdown(f"""
     ### Welcome back, David Okanlawon
     **Account:** Individual Trading Account  
     **Account Number:** ****-****-7892  
-    **Last Login:** {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
+    **Last Login:** {central_time.strftime("%B %d, %Y at %I:%M %p CT")}
     """)
 
 with col3:
+    # Get NYSE closing time in Central Time
+    eastern_tz = pytz.timezone('US/Eastern')
+    central_tz = pytz.timezone('US/Central')
+    
+    # NYSE closes at 4 PM Eastern, which is 3 PM Central
     st.markdown("""
     <div class="sidebar-info">
         <strong>Market Status</strong><br>
         <span style="color: #10b981;">● OPEN</span><br>
-        <small>NYSE closes at 4:00 PM ET</small>
+        <small>NYSE closes at 3:00 PM CT</small>
     </div>
     """, unsafe_allow_html=True)
 
