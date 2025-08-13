@@ -20,6 +20,10 @@ st.markdown("""
         padding-top: 0rem;
     }
     
+    .stApp {
+        background-color: #f8fdf9;
+    }
+    
     .metric-card {
         background: white;
         padding: 1.5rem;
