@@ -23,17 +23,19 @@ st.markdown("""
         margin-bottom: 0.5rem;
     }
     .portfolio-value {
-        font-size: 3.5rem;
+        font-size: 5rem;
         font-weight: 900;
         color: #059669;
         margin: 0;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
-        border: 3px solid #059669;
+        text-shadow: 3px 3px 6px rgba(0,0,0,0.2);
+        border: 4px solid #059669;
         background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
-        padding: 1rem 2rem;
-        border-radius: 15px;
+        padding: 2rem 3rem;
+        border-radius: 20px;
         display: inline-block;
-        box-shadow: 0 4px 8px rgba(5, 150, 105, 0.2);
+        box-shadow: 0 8px 16px rgba(5, 150, 105, 0.3);
+        letter-spacing: -2px;
+        transform: scale(1.05);
     }
     .metric-card {
         background: white;
@@ -78,8 +80,8 @@ with col_nav1:
 with col_nav2:
     st.markdown("""
     <div style="text-align: right; padding: 1rem; color: #374151;">
-        <p style="margin: 0; font-size: 1.1rem; font-weight: 600;">Welcome back,</p>
-        <p style="margin: 0; font-size: 1.3rem; font-weight: 700; color: #1f2937;">David Okanlawon</p>
+        <p style="margin: 0; font-size: 1.5rem; font-weight: 700; color: #1f2937;">Welcome Back,</p>
+        <p style="margin: 0; font-size: 1.8rem; font-weight: 800; color: #3b82f6;">David Okanlawon</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -93,8 +95,8 @@ with col1:
     col_val1, col_val2, col_val3 = st.columns([2, 1, 1])
     
     with col_val1:
-        st.markdown('<div style="text-align: center;"><p class="portfolio-value">$9,203.36</p></div>', unsafe_allow_html=True)
-        st.markdown('<p style="color: #6b7280; font-size: 1.1rem; margin-top: 0.5rem; text-align: center; font-weight: 600;">Total Portfolio Value</p>', unsafe_allow_html=True)
+        st.markdown('<div style="text-align: center; margin: 2rem 0;"><p class="portfolio-value">$9,203.36</p></div>', unsafe_allow_html=True)
+        st.markdown('<p style="color: #6b7280; font-size: 1.3rem; margin-top: 1rem; text-align: center; font-weight: 700;">Total Portfolio Value</p>', unsafe_allow_html=True)
     
     with col_val2:
         st.metric("Today's Change", "+$630.42", "+7.35%")
