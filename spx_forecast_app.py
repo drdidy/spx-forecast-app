@@ -23,10 +23,17 @@ st.markdown("""
         margin-bottom: 0.5rem;
     }
     .portfolio-value {
-        font-size: 3rem;
-        font-weight: 800;
+        font-size: 3.5rem;
+        font-weight: 900;
         color: #059669;
         margin: 0;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        border: 3px solid #059669;
+        background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+        padding: 1rem 2rem;
+        border-radius: 15px;
+        display: inline-block;
+        box-shadow: 0 4px 8px rgba(5, 150, 105, 0.2);
     }
     .metric-card {
         background: white;
@@ -86,11 +93,11 @@ with col1:
     col_val1, col_val2, col_val3 = st.columns([2, 1, 1])
     
     with col_val1:
-        st.markdown('<p class="portfolio-value">$9,203.36</p>', unsafe_allow_html=True)
-        st.markdown('<p style="color: #6b7280; font-size: 1.1rem; margin-top: -1rem;">Total Portfolio Value</p>', unsafe_allow_html=True)
+        st.markdown('<div style="text-align: center;"><p class="portfolio-value">$9,203.36</p></div>', unsafe_allow_html=True)
+        st.markdown('<p style="color: #6b7280; font-size: 1.1rem; margin-top: 0.5rem; text-align: center; font-weight: 600;">Total Portfolio Value</p>', unsafe_allow_html=True)
     
     with col_val2:
-        st.metric("Today's Change", "+$127.42", "+1.40%")
+        st.metric("Today's Change", "+$630.42", "+7.35%")
     
     with col_val3:
         st.metric("Total Return", "+$1,203.36", "+15.04%")
