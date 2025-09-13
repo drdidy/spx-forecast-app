@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import yfinance as yf
 from datetime import datetime, timedelta, time as dt_time
 import pytz
 from typing import List, Dict, Tuple, Optional, Callable
@@ -12,28 +11,258 @@ warnings.filterwarnings('ignore')
 st.set_page_config(
     page_title="SPX Prophet",
     page_icon="📈",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
+
+# Custom CSS for glassmorphism design
+st.markdown("""
+<style>
+    /* Import Inter font */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    /* Global styles */
+    .stApp {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Main container glassmorphism */
+    .main .block-container {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(20px);
+        border-radius: 24px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 
+            0 8px 32px rgba(0, 0, 0, 0.1),
+            inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        padding: 2rem;
+        margin-top: 1rem;
+    }
+    
+    /* Card styling */
+    .glass-card {
+        background: rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(15px);
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        box-shadow: 
+            0 4px 16px rgba(0, 0, 0, 0.1),
+            inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        padding: 1.5rem;
+        margin: 1rem 0;
+        transition: all 0.3s ease;
+    }
+    
+    .glass-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 
+            0 8px 24px rgba(0, 0, 0, 0.15),
+            inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    }
+    
+    /* Header styling */
+    .main-header {
+        text-align: center;
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(20px);
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 2rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+    }
+    
+    .main-header h1 {
+        background: linear-gradient(135deg, #ffffff 0%, #f0f8ff 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 3.5rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        text-shadow: 0 2px 10px rgba(255, 255, 255, 0.3);
+    }
+    
+    .main-header p {
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 1.2rem;
+        font-weight: 400;
+        margin: 0;
+    }
+    
+    /* Metric cards */
+    .metric-card {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 1rem;
+        text-align: center;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+    }
+    
+    .metric-card:hover {
+        background: rgba(255, 255, 255, 0.15);
+        transform: translateY(-1px);
+    }
+    
+    .metric-icon {
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+    
+    .metric-label {
+        color: rgba(255, 255, 255, 0.8);
+        font-size: 0.9rem;
+        font-weight: 500;
+        margin-bottom: 0.3rem;
+    }
+    
+    .metric-value {
+        color: white;
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+    
+    /* Input section styling */
+    .input-section {
+        background: rgba(255, 255, 255, 0.06);
+        backdrop-filter: blur(15px);
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 1.5rem;
+        margin: 1rem 0;
+    }
+    
+    .input-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 1rem;
+        color: white;
+        font-weight: 600;
+        font-size: 1.1rem;
+    }
+    
+    .input-icon {
+        font-size: 1.5rem;
+        margin-right: 0.5rem;
+    }
+    
+    /* Table styling */
+    .stDataFrame {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        overflow: hidden;
+    }
+    
+    /* Sidebar styling */
+    .css-1d391kg {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(20px);
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    /* Button styling */
+    .stButton button {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 10px;
+        color: white;
+        font-weight: 500;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton button:hover {
+        background: rgba(255, 255, 255, 0.2);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
+    }
+    
+    /* Tab styling */
+    .stTabs [data-baseweb="tab-list"] {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 0.5rem;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background: transparent;
+        border-radius: 8px;
+        color: rgba(255, 255, 255, 0.7);
+        font-weight: 500;
+        transition: all 0.3s ease;
+    }
+    
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        box-shadow: 0 2px 8px rgba(255, 255, 255, 0.1);
+    }
+    
+    /* Success/Info styling */
+    .stSuccess {
+        background: rgba(76, 175, 80, 0.1);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(76, 175, 80, 0.3);
+        border-radius: 10px;
+    }
+    
+    .stInfo {
+        background: rgba(33, 150, 243, 0.1);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(33, 150, 243, 0.3);
+        border-radius: 10px;
+    }
+    
+    /* Text styling */
+    h1, h2, h3, h4, h5, h6 {
+        color: white !important;
+        font-weight: 600 !important;
+    }
+    
+    p, span, div {
+        color: rgba(255, 255, 255, 0.9) !important;
+    }
+    
+    /* Specific metric styling */
+    [data-testid="metric-container"] {
+        background: rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(15px);
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        padding: 1rem;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Constants
 CT_TZ = pytz.timezone('America/Chicago')
 BLOCK_MINUTES = 30
 
 # Initialize session state
-if 'slopes' not in st.session_state:
-    st.session_state.slopes = {
-        'spx_baseline': -0.25,
-        'spx_skyline': 0.31,
-        'contract_weekday': -0.30,
-        'contract_frimon': -0.10,
-        'contract_skyline': 0.15
-    }
-
-if 'strike_freeze' not in st.session_state:
-    st.session_state.strike_freeze = False
-
-if 'manual_strike' not in st.session_state:
-    st.session_state.manual_strike = None
+def init_session_state():
+    if 'slopes' not in st.session_state:
+        st.session_state.slopes = {
+            'spx_baseline': -0.25,
+            'spx_skyline': 0.31,
+            'contract_weekday': -0.30,
+            'contract_frimon': -0.10,
+            'contract_skyline': 0.15
+        }
+    
+    if 'strike_freeze' not in st.session_state:
+        st.session_state.strike_freeze = False
+    
+    if 'manual_strike' not in st.session_state:
+        st.session_state.manual_strike = None
 
 # Helper Functions
 def get_previous_business_day(date: datetime) -> datetime:
@@ -128,49 +357,11 @@ def build_rth_times(date: datetime, start: str = "08:30", end: str = "14:00",
     
     return times
 
-def slope_from_points(v1: float, t1: datetime, v2: float, t2: datetime, 
-                     count_fn: Callable) -> float:
-    """Calculate slope between two points"""
-    blocks = count_fn(t1, t2)
-    if blocks == 0:
-        return 0
-    return (v2 - v1) / blocks
-
 def project(v0: float, t0: datetime, t_target: datetime, slope: float, 
            count_fn: Callable) -> float:
     """Project value using slope and block count"""
     blocks = count_fn(t0, t_target)
     return v0 + slope * blocks
-
-def fetch_data_online(symbol: str, period: str = "5d", interval: str = "1m") -> Optional[pd.DataFrame]:
-    """Fetch data from yfinance with error handling"""
-    try:
-        ticker = yf.Ticker(symbol)
-        data = ticker.history(period=period, interval=interval)
-        if data.empty:
-            return None
-        
-        # Convert to CT timezone
-        data.index = data.index.tz_convert(CT_TZ)
-        return data
-    except Exception as e:
-        st.warning(f"Failed to fetch {symbol}: {str(e)}")
-        return None
-
-def resample_to_30min(data: pd.DataFrame) -> pd.DataFrame:
-    """Resample 1-minute data to 30-minute bars"""
-    if data is None or data.empty:
-        return None
-    
-    resampled = data.resample('30T').agg({
-        'Open': 'first',
-        'High': 'max',
-        'Low': 'min',
-        'Close': 'last',
-        'Volume': 'sum'
-    }).dropna()
-    
-    return resampled
 
 def get_closest_itm_strike(price: float, strike_spacing: float = 5.0) -> float:
     """Get closest ITM call strike"""
@@ -180,40 +371,8 @@ def round_to_nickel(price: float) -> float:
     """Round to nearest $0.05"""
     return max(0.05, round(price * 20) / 20)
 
-def calculate_es_spx_offset(es_data: pd.DataFrame, spx_data: pd.DataFrame, 
-                          target_time: datetime) -> Optional[float]:
-    """Calculate ES→SPX offset at specific time"""
-    try:
-        # Find closest time match
-        es_close = es_data.loc[es_data.index.get_indexer([target_time], method='nearest')[0], 'Close']
-        spx_close = spx_data.loc[spx_data.index.get_indexer([target_time], method='nearest')[0], 'Close']
-        return es_close - spx_close
-    except:
-        return None
-
-# Data fetching and processing
-@st.cache_data(ttl=300)  # Cache for 5 minutes
-def get_market_data():
-    """Fetch and process market data"""
-    data = {}
-    
-    # Fetch SPX and ES data
-    spx_data = fetch_data_online("^GSPC")
-    es_data = fetch_data_online("ES=F")
-    
-    if spx_data is not None:
-        data['spx_raw'] = spx_data
-        data['spx_30m'] = resample_to_30min(spx_data)
-    
-    if es_data is not None:
-        data['es_raw'] = es_data
-        data['es_30m'] = resample_to_30min(es_data)
-    
-    return data
-
 def create_spx_table(anchor_value: float, anchor_time: datetime, anchor_name: str,
-                    projection_date: datetime, slopes: dict, count_fn: Callable,
-                    spx_source: str, offset: float = None) -> pd.DataFrame:
+                    projection_date: datetime, slopes: dict, count_fn: Callable) -> pd.DataFrame:
     """Create SPX projection table"""
     # Build RTH times
     rth_times = build_rth_times(projection_date, "08:30", "14:00")
@@ -245,8 +404,6 @@ def create_spx_table(anchor_value: float, anchor_time: datetime, anchor_name: st
     df.attrs['blocks_to_start'] = blocks_to_start
     df.attrs['baseline_slope'] = baseline_slope
     df.attrs['skyline_slope'] = skyline_slope
-    df.attrs['spx_source'] = spx_source
-    df.attrs['offset'] = offset
     
     return df
 
@@ -292,335 +449,328 @@ def create_contract_table(anchor_value: float, anchor_time: datetime, strike: fl
     
     return df
 
-def simple_fan_signals(spx_data: pd.DataFrame, baseline_values: List[float], 
-                      skyline_values: List[float], times: List[datetime]) -> pd.DataFrame:
-    """Simple fan touch logic"""
-    signals = []
-    
-    if spx_data is None or spx_data.empty:
-        return pd.DataFrame(signals)
-    
-    for i, time_point in enumerate(times):
-        try:
-            # Find closest SPX candle
-            closest_idx = spx_data.index.get_indexer([time_point], method='nearest')[0]
-            candle = spx_data.iloc[closest_idx]
-            
-            baseline = baseline_values[i]
-            skyline = skyline_values[i]
-            
-            # Check touches
-            touches_skyline = candle['Low'] <= skyline <= candle['High']
-            touches_baseline = candle['Low'] <= baseline <= candle['High']
-            
-            if touches_skyline:
-                if candle['Close'] > skyline:
-                    signals.append({
-                        'Time': time_point.strftime('%H:%M'),
-                        'Rule': 'SKY-TOUCH',
-                        'Context': f"Close above skyline ({skyline:.2f})",
-                        'Signal': 'Bullish continuation',
-                        'Target': 'Monitor for bearish return'
-                    })
-                else:
-                    signals.append({
-                        'Time': time_point.strftime('%H:%M'),
-                        'Rule': 'SKY-REJECT',
-                        'Context': f"Close below skyline ({skyline:.2f})",
-                        'Signal': 'Bearish reversal',
-                        'Target': f'Baseline ({baseline:.2f})'
-                    })
-            
-            if touches_baseline:
-                if candle['Close'] < baseline:
-                    signals.append({
-                        'Time': time_point.strftime('%H:%M'),
-                        'Rule': 'BASE-TOUCH',
-                        'Context': f"Close below baseline ({baseline:.2f})",
-                        'Signal': 'Bearish continuation',
-                        'Target': 'Monitor for bullish return'
-                    })
-                else:
-                    signals.append({
-                        'Time': time_point.strftime('%H:%M'),
-                        'Rule': 'BASE-BOUNCE',
-                        'Context': f"Close above baseline ({baseline:.2f})",
-                        'Signal': 'Bullish reversal',
-                        'Target': f'Skyline ({skyline:.2f})'
-                    })
-                    
-        except (IndexError, KeyError):
-            continue
-    
-    return pd.DataFrame(signals)
+def render_metric_card(icon: str, label: str, value: str, key: str = None):
+    """Render a beautiful metric card"""
+    st.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-icon">{icon}</div>
+        <div class="metric-label">{label}</div>
+        <div class="metric-value">{value}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def render_input_section(icon: str, title: str, content_func):
+    """Render a glassmorphism input section"""
+    st.markdown(f"""
+    <div class="input-section">
+        <div class="input-header">
+            <span class="input-icon">{icon}</span>
+            {title}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    content_func()
 
 # Main Streamlit App
 def main():
-    st.title("📈 SPX Prophet")
-    st.markdown("**Dual-mode Online/Manual SPX & Options Projections**")
+    init_session_state()
     
-    # Current time
+    # Custom header
+    st.markdown("""
+    <div class="main-header">
+        <h1>📈 SPX Prophet</h1>
+        <p>Professional SPX & Options Projection Platform</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Current time and status
     now_ct = datetime.now(CT_TZ)
+    is_market_open = (now_ct.weekday() < 5 and 
+                     dt_time(8, 30) <= now_ct.time() <= dt_time(14, 0))
     
-    # Header status
+    # Status metrics
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Current Time (CT)", now_ct.strftime('%H:%M:%S'))
+        render_metric_card("🕒", "Current Time (CT)", now_ct.strftime('%H:%M:%S'))
     
     with col2:
-        is_market_open = (now_ct.weekday() < 5 and 
-                         dt_time(8, 30) <= now_ct.time() <= dt_time(14, 0))
-        st.metric("Market Status", "🟢 OPEN" if is_market_open else "🔴 CLOSED")
+        market_status = "🟢 OPEN" if is_market_open else "🔴 CLOSED"
+        render_metric_card("📊", "Market Status", market_status)
     
     with col3:
         slopes = st.session_state.slopes
-        st.metric("SPX Slopes", f"B: {slopes['spx_baseline']}, S: {slopes['spx_skyline']}")
+        spx_slopes = f"B: {slopes['spx_baseline']}, S: {slopes['spx_skyline']}"
+        render_metric_card("📈", "SPX Slopes", spx_slopes)
     
     with col4:
-        st.metric("Contract Slopes", f"W: {slopes['contract_weekday']}, F: {slopes['contract_frimon']}")
+        contract_slopes = f"W: {slopes['contract_weekday']}, F: {slopes['contract_frimon']}"
+        render_metric_card("📋", "Contract Slopes", contract_slopes)
     
-    # Sidebar
+    # Sidebar Configuration
     with st.sidebar:
-        st.header("⚙️ Configuration")
+        st.markdown("""
+        <div style="text-align: center; padding: 1rem; background: rgba(255,255,255,0.1); border-radius: 12px; margin-bottom: 1rem;">
+            <h2 style="margin: 0; color: white;">⚙️ Configuration</h2>
+        </div>
+        """, unsafe_allow_html=True)
         
-        # Data Mode
-        data_mode = st.selectbox("Data Mode", ["Online", "Manual"], key="data_mode")
+        # Dates section
+        st.markdown("### 📅 Trading Dates")
+        projection_date = st.date_input(
+            "Projection Date", 
+            value=now_ct.date(),
+            help="The date for which to generate projections"
+        )
+        previous_date = st.date_input(
+            "Previous Trading Day", 
+            value=get_previous_business_day(now_ct).date(),
+            help="The previous business day for anchor values"
+        )
         
-        # Dates
-        st.subheader("📅 Dates")
-        projection_date = st.date_input("Projection Date", value=now_ct.date())
-        previous_date = st.date_input("Previous Trading Day", 
-                                    value=get_previous_business_day(now_ct).date())
+        # Slopes configuration
+        st.markdown("### 📈 Slope Configuration")
         
-        # SPX Source (when Online)
-        if data_mode == "Online":
-            st.subheader("📊 SPX Source")
-            spx_source = st.selectbox("Source Mode", ["ES→SPX", "SPX Direct"])
-            
-            if spx_source == "ES→SPX":
-                rth_threshold = st.number_input("RTH Override Threshold", 
-                                              value=2.0, min_value=0.1, step=0.1,
-                                              help="Switch to live offset if deviation > threshold")
-        else:
-            spx_source = "Manual"
-            rth_threshold = None
+        with st.expander("📊 SPX Slopes", expanded=True):
+            st.session_state.slopes['spx_baseline'] = st.number_input(
+                "🔻 Baseline (entries)", 
+                value=st.session_state.slopes['spx_baseline'], 
+                step=0.01,
+                help="Negative slope for SPX entry levels"
+            )
+            st.session_state.slopes['spx_skyline'] = st.number_input(
+                "🔺 Skyline (exits)", 
+                value=st.session_state.slopes['spx_skyline'], 
+                step=0.01,
+                help="Positive slope for SPX exit levels"
+            )
         
-        # Slopes
-        st.subheader("📈 Slopes")
-        st.session_state.slopes['spx_baseline'] = st.number_input(
-            "SPX Baseline", value=st.session_state.slopes['spx_baseline'], step=0.01)
-        st.session_state.slopes['spx_skyline'] = st.number_input(
-            "SPX Skyline", value=st.session_state.slopes['spx_skyline'], step=0.01)
-        st.session_state.slopes['contract_weekday'] = st.number_input(
-            "Contract Weekday", value=st.session_state.slopes['contract_weekday'], step=0.01)
-        st.session_state.slopes['contract_frimon'] = st.number_input(
-            "Contract Fri→Mon", value=st.session_state.slopes['contract_frimon'], step=0.01)
-        st.session_state.slopes['contract_skyline'] = st.number_input(
-            "Contract Skyline", value=st.session_state.slopes['contract_skyline'], step=0.01)
+        with st.expander("📋 Contract Slopes", expanded=True):
+            st.session_state.slopes['contract_weekday'] = st.number_input(
+                "📅 Weekday Entry", 
+                value=st.session_state.slopes['contract_weekday'], 
+                step=0.01,
+                help="Entry slope for Monday-Thursday"
+            )
+            st.session_state.slopes['contract_frimon'] = st.number_input(
+                "🔄 Friday→Monday Entry", 
+                value=st.session_state.slopes['contract_frimon'], 
+                step=0.01,
+                help="Entry slope for Friday to Monday transitions"
+            )
+            st.session_state.slopes['contract_skyline'] = st.number_input(
+                "🎯 Exit Slope", 
+                value=st.session_state.slopes['contract_skyline'], 
+                step=0.01,
+                help="Exit slope for all contract positions"
+            )
         
-        # Contract Settings
-        st.subheader("📋 Contract")
-        st.session_state.strike_freeze = st.checkbox("Freeze Strike for Session", 
-                                                    value=st.session_state.strike_freeze)
+        # Contract settings
+        st.markdown("### 📋 Contract Settings")
+        strike_spacing = st.number_input(
+            "💰 Strike Spacing", 
+            value=5.0, 
+            min_value=1.0,
+            help="Dollar spacing between option strikes"
+        )
         
-        strike_spacing = st.number_input("Strike Spacing", value=5.0, min_value=1.0)
+        st.session_state.strike_freeze = st.checkbox(
+            "🔒 Freeze Strike for Session", 
+            value=st.session_state.strike_freeze,
+            help="Keep the same strike for the entire trading session"
+        )
         
-        if st.button("🔄 Reset All Settings"):
+        # Reset button
+        if st.button("🔄 Reset All Settings", help="Reset all configurations to defaults"):
             for key in ['slopes', 'strike_freeze', 'manual_strike']:
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
     
-    # Get data based on mode
-    if data_mode == "Online":
-        with st.spinner("Fetching market data..."):
-            market_data = get_market_data()
-        
-        if not market_data:
-            st.error("Failed to fetch market data. Please switch to Manual mode.")
-            return
-            
-        # Process data based on SPX source
-        if spx_source == "ES→SPX" and 'es_30m' in market_data and 'spx_30m' in market_data:
-            es_data = market_data['es_30m']
-            spx_data = market_data['spx_30m']
-            
-            # Calculate prior day offset
-            prev_day_dt = CT_TZ.localize(datetime.combine(previous_date, dt_time(14, 30)))
-            prior_offset = calculate_es_spx_offset(es_data, spx_data, prev_day_dt)
-            
-            if prior_offset is not None:
-                st.info(f"Using ES→SPX with prior 14:30 offset: {prior_offset:.2f}")
-                # For now, use ES data with offset (simplified)
-                active_spx_data = es_data.copy()
-                active_spx_data[['Open', 'High', 'Low', 'Close']] -= prior_offset
-            else:
-                st.warning("Could not calculate ES→SPX offset, falling back to SPX direct")
-                active_spx_data = spx_data
-                
-        elif 'spx_30m' in market_data:
-            active_spx_data = market_data['spx_30m']
-            prior_offset = None
-        else:
-            st.error("No SPX data available")
-            return
-            
-        # Extract anchor values
-        try:
-            prev_day_close_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 0)))
-            prev_day_1430_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(14, 30)))
-            
-            # Get previous day data
-            prev_data = active_spx_data[active_spx_data.index.date == previous_date]
-            
-            if prev_data.empty:
-                st.error(f"No data available for {previous_date}")
-                return
-            
-            # SPX anchors
-            spx_close_anchor = prev_data.loc[prev_data.index.get_indexer([prev_day_close_time], method='nearest')[0], 'Close']
-            spx_high_anchor = prev_data['High'].max()
-            spx_low_anchor = prev_data['Low'].min()
-            spx_high_time = prev_data['High'].idxmax()
-            spx_low_time = prev_data['Low'].idxmin()
-            
-            # Contract anchor (15:30 high)
-            contract_anchor_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 30)))
-            try:
-                contract_anchor = prev_data.loc[prev_data.index.get_indexer([contract_anchor_time], method='nearest')[0], 'High']
-            except:
-                contract_anchor = spx_high_anchor  # Fallback
-                
-        except Exception as e:
-            st.error(f"Error processing data: {str(e)}")
-            return
-            
-    else:
-        # Manual mode
-        st.subheader("📝 Manual Data Entry")
-        
-        col1, col2 = st.columns(2)
-        
+    # Data Input Section
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+    
+    def spx_inputs():
+        col1, col2, col3 = st.columns(3)
         with col1:
-            st.write("**SPX Previous Day**")
-            spx_close_anchor = st.number_input("14:30 Close", value=6500.0, step=0.1)
-            spx_high_anchor = st.number_input("High", value=6520.0, step=0.1)
-            spx_low_anchor = st.number_input("Low", value=6480.0, step=0.1)
-        
+            spx_close_anchor = st.number_input(
+                "💼 14:30 Close", 
+                value=6500.0, 
+                step=0.1,
+                help="SPX close price at 14:30 CT previous day"
+            )
         with col2:
-            st.write("**Contract Previous Session**")
-            contract_anchor = st.number_input("15:30 Candle High", value=25.50, step=0.05)
-        
-        # Mock times for manual mode
-        spx_high_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(11, 0)))
-        spx_low_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(13, 0)))
-        contract_anchor_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 30)))
-        
-        active_spx_data = None
-        prior_offset = None
+            spx_high_anchor = st.number_input(
+                "🔺 Daily High", 
+                value=6520.0, 
+                step=0.1,
+                help="Highest SPX price from previous day"
+            )
+        with col3:
+            spx_low_anchor = st.number_input(
+                "🔻 Daily Low", 
+                value=6480.0, 
+                step=0.1,
+                help="Lowest SPX price from previous day"
+            )
+        return spx_close_anchor, spx_high_anchor, spx_low_anchor
     
-    # Calculate strike
+    def contract_inputs():
+        contract_anchor = st.number_input(
+            "📊 15:30 Candle High", 
+            value=25.50, 
+            step=0.05,
+            help="Highest price of the 15:30 candle from previous session"
+        )
+        return contract_anchor
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        render_input_section("📈", "SPX Previous Day Anchors", lambda: None)
+        spx_close_anchor, spx_high_anchor, spx_low_anchor = spx_inputs()
+    
+    with col2:
+        render_input_section("📋", "Contract Previous Session", lambda: None)
+        contract_anchor = contract_inputs()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Calculate derived values
     strike = get_closest_itm_strike(spx_close_anchor, strike_spacing)
-    
     if st.session_state.strike_freeze and st.session_state.manual_strike:
         strike = st.session_state.manual_strike
     else:
         st.session_state.manual_strike = strike
     
-    # Display current settings
-    st.info(f"**Data Mode:** {data_mode} | **SPX Source:** {spx_source} | **Strike:** {strike} | **Offset:** {prior_offset:.2f if prior_offset else 'N/A'}")
+    # Mock times for manual mode
+    spx_high_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(11, 0)))
+    spx_low_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(13, 0)))
+    spx_close_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 0)))
+    contract_anchor_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 30)))
     
-    # Tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 SPX Projections", "📋 Contract Table", "🎯 Fan Signals", "📋 Plan Card"])
+    # Display current configuration
+    st.success(f"✅ **Configuration Active** | Strike: **{strike}C** | Mode: **Manual Input** | Ready for Projections")
+    
+    # Create projection datetime
+    projection_dt = datetime.combine(projection_date, dt_time(0, 0))
+    projection_dt = CT_TZ.localize(projection_dt)
+    
+    # Main tabs
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 SPX Projections", 
+        "📋 Contract Analysis", 
+        "🎯 Fan Signals", 
+        "📋 Trading Plan"
+    ])
     
     # Tab 1: SPX Projections
     with tab1:
-        st.header("SPX Baseline/Skyline Projections")
-        
-        # Create anchor times
-        spx_close_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 0)))
-        projection_dt = datetime.combine(projection_date, dt_time(0, 0))
-        projection_dt = CT_TZ.localize(projection_dt)
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown("## 📊 SPX Baseline & Skyline Projections")
         
         # High anchor table
-        st.subheader("🔺 High Anchor Table")
+        st.markdown("### 🔺 High Anchor Projections")
         high_table = create_spx_table(
             spx_high_anchor, spx_high_time, "High", 
             projection_dt, st.session_state.slopes, 
-            count_blocks_clock, spx_source, prior_offset
+            count_blocks_clock
         )
         
-        # Display metadata
+        # Metadata display
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Anchor", f"{high_table.attrs['anchor_value']:.2f} @ {high_table.attrs['anchor_time'].strftime('%H:%M')}")
+            st.metric("🎯 Anchor Value", f"{high_table.attrs['anchor_value']:.2f}")
         with col2:
-            st.metric("Blocks to 08:30", high_table.attrs['blocks_to_start'])
+            st.metric("⏰ Anchor Time", high_table.attrs['anchor_time'].strftime('%H:%M'))
         with col3:
-            st.metric("Slopes", f"B: {high_table.attrs['baseline_slope']}, S: {high_table.attrs['skyline_slope']}")
+            st.metric("🔢 Blocks to 08:30", high_table.attrs['blocks_to_start'])
         with col4:
-            st.metric("Mode", "Clock (maint excl.)")
+            st.metric("📈 Slopes", f"B: {high_table.attrs['baseline_slope']}, S: {high_table.attrs['skyline_slope']}")
         
         st.dataframe(high_table, use_container_width=True)
         
-        if st.button("📥 Export High Table CSV", key="export_high"):
+        col1, col2 = st.columns([3, 1])
+        with col2:
             csv = high_table.to_csv(index=False)
-            st.download_button("Download CSV", csv, "spx_high_projections.csv", "text/csv")
+            st.download_button(
+                "📥 Export CSV", 
+                csv, 
+                "spx_high_projections.csv", 
+                "text/csv",
+                use_container_width=True
+            )
         
         # Close anchor table
-        st.subheader("🎯 Close Anchor Table")
+        st.markdown("### 🎯 Close Anchor Projections")
         close_table = create_spx_table(
             spx_close_anchor, spx_close_time, "Close",
             projection_dt, st.session_state.slopes,
-            count_blocks_clock, spx_source, prior_offset
+            count_blocks_clock
         )
         
-        # Display metadata
+        # Metadata display
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Anchor", f"{close_table.attrs['anchor_value']:.2f} @ 15:00")
+            st.metric("🎯 Anchor Value", f"{close_table.attrs['anchor_value']:.2f}")
         with col2:
-            st.metric("Blocks to 08:30", close_table.attrs['blocks_to_start'])
+            st.metric("⏰ Anchor Time", "15:00")
         with col3:
-            st.metric("Slopes", f"B: {close_table.attrs['baseline_slope']}, S: {close_table.attrs['skyline_slope']}")
+            st.metric("🔢 Blocks to 08:30", close_table.attrs['blocks_to_start'])
         with col4:
-            st.metric("Mode", "Clock (maint excl.)")
+            st.metric("📈 Slopes", f"B: {close_table.attrs['baseline_slope']}, S: {close_table.attrs['skyline_slope']}")
         
         st.dataframe(close_table, use_container_width=True)
         
-        if st.button("📥 Export Close Table CSV", key="export_close"):
+        col1, col2 = st.columns([3, 1])
+        with col2:
             csv = close_table.to_csv(index=False)
-            st.download_button("Download CSV", csv, "spx_close_projections.csv", "text/csv")
+            st.download_button(
+                "📥 Export CSV", 
+                csv, 
+                "spx_close_projections.csv", 
+                "text/csv",
+                use_container_width=True
+            )
         
         # Low anchor table
-        st.subheader("🔻 Low Anchor Table")
+        st.markdown("### 🔻 Low Anchor Projections")
         low_table = create_spx_table(
             spx_low_anchor, spx_low_time, "Low",
             projection_dt, st.session_state.slopes,
-            count_blocks_clock, spx_source, prior_offset
+            count_blocks_clock
         )
         
-        # Display metadata
+        # Metadata display
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Anchor", f"{low_table.attrs['anchor_value']:.2f} @ {low_table.attrs['anchor_time'].strftime('%H:%M')}")
+            st.metric("🎯 Anchor Value", f"{low_table.attrs['anchor_value']:.2f}")
         with col2:
-            st.metric("Blocks to 08:30", low_table.attrs['blocks_to_start'])
+            st.metric("⏰ Anchor Time", low_table.attrs['anchor_time'].strftime('%H:%M'))
         with col3:
-            st.metric("Slopes", f"B: {low_table.attrs['baseline_slope']}, S: {low_table.attrs['skyline_slope']}")
+            st.metric("🔢 Blocks to 08:30", low_table.attrs['blocks_to_start'])
         with col4:
-            st.metric("Mode", "Clock (maint excl.)")
+            st.metric("📈 Slopes", f"B: {low_table.attrs['baseline_slope']}, S: {low_table.attrs['skyline_slope']}")
         
         st.dataframe(low_table, use_container_width=True)
         
-        if st.button("📥 Export Low Table CSV", key="export_low"):
+        col1, col2 = st.columns([3, 1])
+        with col2:
             csv = low_table.to_csv(index=False)
-            st.download_button("Download CSV", csv, "spx_low_projections.csv", "text/csv")
+            st.download_button(
+                "📥 Export CSV", 
+                csv, 
+                "spx_low_projections.csv", 
+                "text/csv",
+                use_container_width=True
+            )
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     
-    # Tab 2: Contract Table
+    # Tab 2: Contract Analysis
     with tab2:
-        st.header(f"Contract Projections - {strike}C")
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown(f"## 📋 Contract Analysis - {strike}C")
         
         contract_table = create_contract_table(
             contract_anchor, contract_anchor_time, strike,
@@ -628,55 +778,62 @@ def main():
             count_blocks_active_contract
         )
         
-        # Display metadata
+        # Metadata display
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Strike", f"{contract_table.attrs['strike']}")
+            st.metric("🎯 Strike Price", f"${contract_table.attrs['strike']:.0f}")
         with col2:
-            st.metric("Regime", contract_table.attrs['regime'])
+            st.metric("📅 Trading Regime", contract_table.attrs['regime'])
         with col3:
-            st.metric("Blocks to 07:00", contract_table.attrs['blocks_to_start'])
+            st.metric("🔢 Blocks to 07:00", contract_table.attrs['blocks_to_start'])
         with col4:
-            st.metric("Mode", "Active Trading")
+            st.metric("⚡ Block Mode", "Active Trading")
         
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("Entry Slope", contract_table.attrs['entry_slope'])
+            st.metric("📉 Entry Slope", f"{contract_table.attrs['entry_slope']:.2f}")
         with col2:
-            st.metric("Exit Slope", contract_table.attrs['exit_slope'])
+            st.metric("📈 Exit Slope", f"{contract_table.attrs['exit_slope']:.2f}")
         
         st.dataframe(contract_table, use_container_width=True)
         
-        if st.button("📥 Export Contract CSV"):
+        col1, col2 = st.columns([3, 1])
+        with col2:
             csv = contract_table.to_csv(index=False)
-            st.download_button("Download CSV", csv, f"contract_{strike}_projections.csv", "text/csv")
+            st.download_button(
+                "📥 Export CSV", 
+                csv, 
+                f"contract_{strike}_projections.csv", 
+                "text/csv",
+                use_container_width=True
+            )
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     
     # Tab 3: Fan Signals
     with tab3:
-        st.header("Fan Touch Signals")
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown("## 🎯 Fan Touch Signals")
         
-        if data_mode == "Online" and active_spx_data is not None:
-            # Use close anchor for fan signals
-            rth_times = build_rth_times(projection_dt, "08:30", "14:00")
-            baseline_values = [project(spx_close_anchor, spx_close_time, t, 
-                                     st.session_state.slopes['spx_baseline'], 
-                                     count_blocks_clock) for t in rth_times]
-            skyline_values = [project(spx_close_anchor, spx_close_time, t,
-                                    st.session_state.slopes['spx_skyline'],
-                                    count_blocks_clock) for t in rth_times]
-            
-            signals_df = simple_fan_signals(active_spx_data, baseline_values, skyline_values, rth_times)
-            
-            if not signals_df.empty:
-                st.dataframe(signals_df, use_container_width=True)
-            else:
-                st.info("No fan signals detected for current session")
-        else:
-            st.info("Fan signals require Online mode with live data")
+        st.info("🔮 **Fan signals require live market data.** In manual mode, this feature shows the framework for real-time signal detection when connected to data feeds.")
+        
+        # Show example framework
+        example_signals = pd.DataFrame([
+            {"Time": "09:00", "Rule": "SKY-TOUCH", "Context": "Close above skyline (6,515.25)", "Signal": "Bullish continuation", "Target": "Monitor for bearish return"},
+            {"Time": "10:30", "Rule": "BASE-BOUNCE", "Context": "Close above baseline (6,485.50)", "Signal": "Bullish reversal", "Target": "Skyline (6,520.75)"},
+            {"Time": "12:00", "Rule": "SKY-REJECT", "Context": "Close below skyline (6,518.25)", "Signal": "Bearish reversal", "Target": "Baseline (6,482.50)"}
+        ])
+        
+        st.markdown("### 📊 Signal Framework (Example)")
+        st.dataframe(example_signals, use_container_width=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     
-    # Tab 4: Plan Card
+    # Tab 4: Trading Plan
     with tab4:
-        st.header("Trading Plan Card")
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown("## 📋 Trading Plan Card")
+        st.markdown("**Key decision points for the trading session**")
         
         key_times = ["08:30", "10:00", "12:00", "14:00"]
         plan_data = []
@@ -701,23 +858,40 @@ def main():
                                                   st.session_state.slopes['contract_skyline'], count_blocks_active_contract))
             
             plan_data.append({
-                'Time': time_str,
-                'SPX Baseline': round(spx_baseline, 2),
-                'SPX Skyline': round(spx_skyline, 2),
-                f'{strike}C Entry': contract_entry,
-                f'{strike}C Exit': contract_exit
+                '⏰ Time': time_str,
+                '📉 SPX Baseline': f"{spx_baseline:.2f}",
+                '📈 SPX Skyline': f"{spx_skyline:.2f}",
+                f'📋 {strike}C Entry': f"${contract_entry:.2f}",
+                f'🎯 {strike}C Exit': f"${contract_exit:.2f}"
             })
         
         plan_df = pd.DataFrame(plan_data)
         st.dataframe(plan_df, use_container_width=True)
         
-        if st.button("📥 Export Plan CSV"):
+        col1, col2, col3 = st.columns([2, 1, 2])
+        with col2:
             csv = plan_df.to_csv(index=False)
-            st.download_button("Download CSV", csv, "trading_plan.csv", "text/csv")
+            st.download_button(
+                "📥 Export Plan", 
+                csv, 
+                "trading_plan.csv", 
+                "text/csv",
+                use_container_width=True
+            )
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     
     # Footer
-    st.markdown("---")
-    st.markdown("**SPX Prophet** | Built with Streamlit | Market data via yfinance")
+    st.markdown("""
+    <div style="text-align: center; padding: 2rem; margin-top: 2rem; 
+                background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); 
+                border-radius: 16px; border: 1px solid rgba(255,255,255,0.1);">
+        <p style="margin: 0; color: rgba(255,255,255,0.7); font-size: 0.9rem;">
+            <strong>SPX Prophet</strong> | Professional Trading Analysis Platform | 
+            Built with ❤️ using Streamlit
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
