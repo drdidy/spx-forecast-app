@@ -739,7 +739,7 @@ def main():
         with col1:
             st.metric("🎯 Anchor Value", f"{close_table.attrs['anchor_value']:.2f}")
         with col2:
-            st.metric("⏰ Anchor Time", "15:00")
+            st.metric("⏰ Anchor Time", "3:00 PM")
         with col3:
             st.metric("🔢 Blocks to 08:30", close_table.attrs['blocks_to_start'])
         with col4:
