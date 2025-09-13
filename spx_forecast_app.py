@@ -620,10 +620,10 @@ def main():
         col1, col2, col3 = st.columns(3)
         with col1:
             spx_close_anchor = st.number_input(
-                "💼 14:30 Close", 
+                "💼 3:00 PM Close", 
                 value=6500.0, 
                 step=0.1,
-                help="SPX close price at 14:30 CT previous day"
+                help="SPX close price at 15:00 CT (3:00 PM) previous day"
             )
         with col2:
             spx_high_anchor = st.number_input(
@@ -643,10 +643,10 @@ def main():
     
     def contract_inputs():
         contract_anchor = st.number_input(
-            "📊 15:30 Candle High", 
+            "📊 3:30 PM Candle High", 
             value=25.50, 
             step=0.05,
-            help="Highest price of the 15:30 candle from previous session"
+            help="Highest price of the 3:30 PM (15:30 CT) candle from previous session"
         )
         return contract_anchor
     
