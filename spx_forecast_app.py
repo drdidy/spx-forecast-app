@@ -771,7 +771,8 @@ def main():
                 "💼 3:00 PM Close", 
                 value=6500.0, 
                 step=0.1,
-                help="SPX close price at 15:00 CT (3:00 PM) previous day"
+                help="SPX close price at 15:00 CT (3:00 PM) previous day",
+                key="spx_close_price"
             )
         with col2:
             st.markdown("**🔺 Daily High**")
@@ -780,13 +781,13 @@ def main():
                 value=6520.0, 
                 step=0.1,
                 help="Highest SPX price from previous day",
-                key="high_price"
+                key="spx_high_price"
             )
             spx_high_time_input = st.time_input(
                 "High Time", 
-                value=dt_time(11, 0),
-                help="Time when daily high was made",
-                key="high_time"
+                value=dt_time(10, 30),
+                help="Time when daily high was made (8:30 AM - 4:00 PM CT)",
+                key="spx_high_time"
             )
         with col3:
             st.markdown("**🔻 Daily Low**")
@@ -795,15 +796,96 @@ def main():
                 value=6480.0, 
                 step=0.1,
                 help="Lowest SPX price from previous day",
-                key="low_price"
+                key="spx_low_price"
             )
             spx_low_time_input = st.time_input(
                 "Low Time", 
-                value=dt_time(13, 0),
-                help="Time when daily low was made",
-                key="low_time"
+                value=dt_time(14, 15),
+                help="Time when daily low was made (8:30 AM - 4:00 PM CT)",
+                key="spx_low_time"
             )
-        return spx_close_anchor, spx_high_anchor, spx_low_anchor, spx_high_time_input, spx_low_time_input
+        
+        # Add 3:30 PM high and overnight high for dynamic skyline
+        st.markdown("---")
+        st.markdown("**🌙 Dynamic Skyline (3:30 PM → Overnight)**")
+        col1, col2 = st.columns(2)
+        with col1:
+            spx_330_high = st.number_input(
+                "3:30 PM High", 
+                value=6525.0, 
+                step=0.1,
+                help="SPX high at 3:30 PM previous day (skyline anchor start)",
+                key="spx_330_high"
+            )
+        with col2:
+            spx_overnight_high = st.number_input(
+                "Overnight High Price", 
+                value=6545.0, 
+                step=0.1,
+                help="Highest SPX price during overnight session",
+                key="spx_overnight_high_price"
+            )
+        
+        spx_overnight_time = st.time_input(
+            "Overnight High Time", 
+            value=dt_time(6, 15),
+            help="Time when overnight high was made",
+            key="spx_overnight_high_time"
+        )
+        
+        # Smart Baseline Detection
+        st.markdown("---")
+        st.markdown("**🎯 Smart Baseline Detection**")
+        
+        baseline_follows_high = st.checkbox(
+            "✅ Baseline follows high pattern (-0.25 slope)",
+            value=True,
+            help="Uncheck if price falls below baseline during ETH - use overnight lows instead",
+            key="baseline_pattern_check"
+        )
+        
+        overnight_low_start = None
+        overnight_low_start_time = None
+        overnight_low_end = None
+        overnight_low_end_time = None
+        
+        if not baseline_follows_high:
+            st.markdown("**📉 Dynamic Baseline (Overnight Lows)**")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("*Start Low*")
+                overnight_low_start = st.number_input(
+                    "Start Low Price", 
+                    value=6475.0, 
+                    step=0.1,
+                    help="First overnight low price",
+                    key="overnight_low_start_price"
+                )
+                overnight_low_start_time = st.time_input(
+                    "Start Low Time", 
+                    value=dt_time(18, 30),
+                    help="Time of first overnight low",
+                    key="overnight_low_start_time"
+                )
+            with col2:
+                st.markdown("*End Low*")
+                overnight_low_end = st.number_input(
+                    "End Low Price", 
+                    value=6485.0, 
+                    step=0.1,
+                    help="Second overnight low price",
+                    key="overnight_low_end_price"
+                )
+                overnight_low_end_time = st.time_input(
+                    "End Low Time", 
+                    value=dt_time(7, 45),
+                    help="Time of second overnight low",
+                    key="overnight_low_end_time"
+                )
+            
+        return (spx_close_anchor, spx_high_anchor, spx_low_anchor, spx_high_time_input, spx_low_time_input, 
+                spx_330_high, spx_overnight_high, spx_overnight_time, baseline_follows_high,
+                overnight_low_start, overnight_low_start_time, overnight_low_end, overnight_low_end_time)
     
     def contract_inputs():
         if strategy_mode == "Put Entries (Overnight Anchor)":
@@ -856,7 +938,7 @@ def main():
     
     with col1:
         render_input_section("📈", "SPX Previous Day Anchors", lambda: None)
-        st.info("💡 **Important:** High/Low times affect block counting and projection accuracy. Enter exact times when these levels were hit.")
+        st.info("🎯 **Smart Detection System:** Skyline is dynamic (3:30 PM High → Overnight High). Baseline can be fixed from high or dynamic from overnight lows when price breaks below during ETH.")
         (spx_close_anchor, spx_high_anchor, spx_low_anchor, spx_high_time_input, spx_low_time_input, 
          spx_330_high, spx_overnight_high, spx_overnight_time, baseline_follows_high,
          overnight_low_start, overnight_low_start_time, overnight_low_end, overnight_low_end_time) = spx_inputs()
@@ -967,11 +1049,10 @@ def main():
     # Create projection datetime (timezone-naive for proper handling)
     projection_dt = datetime.combine(projection_date, dt_time(0, 0))
     
-    # Main tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
+    # Main tabs (3 essential tabs only)
+    tab1, tab2, tab3 = st.tabs([
         "📊 SPX Projections", 
         "📋 Contract Analysis", 
-        "🎯 Fan Signals", 
         "📋 Trading Plan"
     ])
     
@@ -1167,27 +1248,8 @@ def main():
         
         st.markdown('</div>', unsafe_allow_html=True)
     
-    # Tab 3: Fan Signals
+    # Tab 3: Trading Plan
     with tab3:
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.markdown("## 🎯 Fan Touch Signals")
-        
-        st.info("🔮 **Fan signals require live market data.** In manual mode, this feature shows the framework for real-time signal detection when connected to data feeds.")
-        
-        # Show example framework
-        example_signals = pd.DataFrame([
-            {"Time": "09:00", "Rule": "SKY-TOUCH", "Context": "Close above skyline (6,515.25)", "Signal": "Bullish continuation", "Target": "Monitor for bearish return"},
-            {"Time": "10:30", "Rule": "BASE-BOUNCE", "Context": "Close above baseline (6,485.50)", "Signal": "Bullish reversal", "Target": "Skyline (6,520.75)"},
-            {"Time": "12:00", "Rule": "SKY-REJECT", "Context": "Close below skyline (6,518.25)", "Signal": "Bearish reversal", "Target": "Baseline (6,482.50)"}
-        ])
-        
-        st.markdown("### 📊 Signal Framework (Example)")
-        st.dataframe(example_signals, use_container_width=True)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Tab 4: Trading Plan
-    with tab4:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.markdown("## 📋 Trading Plan Card")
         st.markdown("**Key decision points for the trading session**")
@@ -1324,14 +1386,42 @@ def main():
                  help=f"Should be {expected_blocks} blocks (excluding 4:00-5:00 PM maintenance)")
         
         st.markdown("### ⚙️ Configuration Summary")
-        st.info(f"""
-        **Current Settings:**
-        • SPX Close: {spx_close_anchor:.2f} @ 3:00 PM
-        • SPX High: {spx_high_anchor:.2f} @ {spx_high_time_input.strftime('%I:%M %p')}
-        • SPX Low: {spx_low_anchor:.2f} @ {spx_low_time_input.strftime('%I:%M %p')}
-        • Contract Anchor: ${contract_anchor:.2f} @ 3:30 PM
-        • Strike: {strike}C
-        """)
+        st.markdown("### ⚙️ Configuration Summary")
+        if strategy_mode == "Put Entries (Overnight Anchor)":
+            overnight_time_str = overnight_high_time.strftime('%I:%M %p') if overnight_high_time else 'N/A'
+            spx_overnight_str = spx_overnight_time.strftime('%I:%M %p') if spx_overnight_time else 'N/A'
+            baseline_pattern = "High Pattern" if baseline_follows_high else "Dynamic Lows"
+            st.info(f"""
+            **Current Settings:**
+            • **Strategy:** {strategy_mode}
+            • SPX Close: {spx_close_anchor:.2f} @ 3:00 PM
+            • SPX High: {spx_high_anchor:.2f} @ {spx_high_time_input.strftime('%I:%M %p')}
+            • SPX Low: {spx_low_anchor:.2f} @ {spx_low_time_input.strftime('%I:%M %p')}
+            • **SPX 3:30 PM High:** {spx_330_high:.2f} (skyline anchor)
+            • **SPX Overnight High:** {spx_overnight_high:.2f} @ {spx_overnight_str}
+            • **Baseline Pattern:** {baseline_pattern}
+            • Contract 3:30 Close: ${contract_close_330:.2f} (put entry anchor)
+            • Contract 3:30 High: ${contract_anchor:.2f} (put exit anchor)
+            • Contract Overnight High: ${overnight_high_price:.2f} @ {overnight_time_str}
+            • Strike: {strike}P (based on SPX high)
+            • **Skyline:** Dynamic (3:30 PM High → Overnight High)
+            """)
+        else:
+            spx_overnight_str = spx_overnight_time.strftime('%I:%M %p') if spx_overnight_time else 'N/A'
+            baseline_pattern = "High Pattern" if baseline_follows_high else "Dynamic Lows"
+            st.info(f"""
+            **Current Settings:**
+            • **Strategy:** {strategy_mode}
+            • SPX Close: {spx_close_anchor:.2f} @ 3:00 PM
+            • SPX High: {spx_high_anchor:.2f} @ {spx_high_time_input.strftime('%I:%M %p')}
+            • SPX Low: {spx_low_anchor:.2f} @ {spx_low_time_input.strftime('%I:%M %p')}
+            • **SPX 3:30 PM High:** {spx_330_high:.2f} (skyline anchor)
+            • **SPX Overnight High:** {spx_overnight_high:.2f} @ {spx_overnight_str}
+            • **Baseline Pattern:** {baseline_pattern}
+            • Contract Anchor: ${contract_anchor:.2f} @ 3:30 PM
+            • Strike: {strike}C (based on SPX high)
+            • **Skyline:** Dynamic (3:30 PM High → Overnight High)
+            """)
     
     # Footer
     st.markdown("""
