@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for glassmorphism design
+# Custom CSS for light mode glassmorphism design
 st.markdown("""
 <style>
     /* Import Inter font */
@@ -23,32 +23,32 @@ st.markdown("""
     
     /* Global styles */
     .stApp {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
         font-family: 'Inter', sans-serif;
     }
     
     /* Main container glassmorphism */
     .main .block-container {
-        background: rgba(255, 255, 255, 0.05);
+        background: rgba(255, 255, 255, 0.25);
         backdrop-filter: blur(20px);
         border-radius: 24px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.3);
         box-shadow: 
             0 8px 32px rgba(0, 0, 0, 0.1),
-            inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            inset 0 1px 0 rgba(255, 255, 255, 0.4);
         padding: 2rem;
         margin-top: 1rem;
     }
     
     /* Card styling */
     .glass-card {
-        background: rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.3);
         backdrop-filter: blur(15px);
         border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.4);
         box-shadow: 
-            0 4px 16px rgba(0, 0, 0, 0.1),
-            inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            0 4px 16px rgba(0, 0, 0, 0.08),
+            inset 0 1px 0 rgba(255, 255, 255, 0.3);
         padding: 1.5rem;
         margin: 1rem 0;
         transition: all 0.3s ease;
@@ -57,53 +57,53 @@ st.markdown("""
     .glass-card:hover {
         transform: translateY(-2px);
         box-shadow: 
-            0 8px 24px rgba(0, 0, 0, 0.15),
-            inset 0 1px 0 rgba(255, 255, 255, 0.15);
+            0 8px 24px rgba(0, 0, 0, 0.12),
+            inset 0 1px 0 rgba(255, 255, 255, 0.4);
     }
     
     /* Header styling */
     .main-header {
         text-align: center;
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.35);
         backdrop-filter: blur(20px);
         border-radius: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.5);
         padding: 2rem;
         margin-bottom: 2rem;
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
     }
     
     .main-header h1 {
-        background: linear-gradient(135deg, #ffffff 0%, #f0f8ff 100%);
+        background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         font-size: 3.5rem;
         font-weight: 700;
         margin-bottom: 0.5rem;
-        text-shadow: 0 2px 10px rgba(255, 255, 255, 0.3);
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     }
     
     .main-header p {
-        color: rgba(255, 255, 255, 0.9);
+        color: #34495e;
         font-size: 1.2rem;
-        font-weight: 400;
+        font-weight: 500;
         margin: 0;
     }
     
     /* Metric cards */
     .metric-card {
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.4);
         backdrop-filter: blur(10px);
         border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.5);
         padding: 1rem;
         text-align: center;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
         transition: all 0.3s ease;
     }
     
     .metric-card:hover {
-        background: rgba(255, 255, 255, 0.15);
+        background: rgba(255, 255, 255, 0.5);
         transform: translateY(-1px);
     }
     
@@ -114,24 +114,24 @@ st.markdown("""
     }
     
     .metric-label {
-        color: rgba(255, 255, 255, 0.8);
+        color: #5a6c7d;
         font-size: 0.9rem;
         font-weight: 500;
         margin-bottom: 0.3rem;
     }
     
     .metric-value {
-        color: white;
+        color: #2c3e50;
         font-size: 1.1rem;
         font-weight: 600;
     }
     
     /* Input section styling */
     .input-section {
-        background: rgba(255, 255, 255, 0.06);
+        background: rgba(255, 255, 255, 0.25);
         backdrop-filter: blur(15px);
         border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.3);
         padding: 1.5rem;
         margin: 1rem 0;
     }
@@ -140,7 +140,7 @@ st.markdown("""
         display: flex;
         align-items: center;
         margin-bottom: 1rem;
-        color: white;
+        color: #2c3e50;
         font-weight: 600;
         font-size: 1.1rem;
     }
@@ -152,70 +152,70 @@ st.markdown("""
     
     /* Table styling */
     .stDataFrame {
-        background: rgba(255, 255, 255, 0.05);
+        background: rgba(255, 255, 255, 0.3);
         backdrop-filter: blur(10px);
         border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.4);
         overflow: hidden;
     }
     
     /* Sidebar styling */
     .css-1d391kg {
-        background: rgba(255, 255, 255, 0.05);
+        background: rgba(255, 255, 255, 0.2);
         backdrop-filter: blur(20px);
-        border-right: 1px solid rgba(255, 255, 255, 0.1);
+        border-right: 1px solid rgba(255, 255, 255, 0.3);
     }
     
     /* Button styling */
     .stButton button {
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.3);
         backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.4);
         border-radius: 10px;
-        color: white;
+        color: #2c3e50;
         font-weight: 500;
         transition: all 0.3s ease;
     }
     
     .stButton button:hover {
-        background: rgba(255, 255, 255, 0.2);
+        background: rgba(255, 255, 255, 0.5);
         transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     }
     
     /* Tab styling */
     .stTabs [data-baseweb="tab-list"] {
-        background: rgba(255, 255, 255, 0.05);
+        background: rgba(255, 255, 255, 0.25);
         backdrop-filter: blur(10px);
         border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.3);
         padding: 0.5rem;
     }
     
     .stTabs [data-baseweb="tab"] {
         background: transparent;
         border-radius: 8px;
-        color: rgba(255, 255, 255, 0.7);
+        color: #5a6c7d;
         font-weight: 500;
         transition: all 0.3s ease;
     }
     
     .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        background: rgba(255, 255, 255, 0.1);
-        color: white;
-        box-shadow: 0 2px 8px rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.4);
+        color: #2c3e50;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     }
     
     /* Success/Info styling */
     .stSuccess {
-        background: rgba(76, 175, 80, 0.1);
+        background: rgba(76, 175, 80, 0.15);
         backdrop-filter: blur(10px);
         border: 1px solid rgba(76, 175, 80, 0.3);
         border-radius: 10px;
     }
     
     .stInfo {
-        background: rgba(33, 150, 243, 0.1);
+        background: rgba(33, 150, 243, 0.15);
         backdrop-filter: blur(10px);
         border: 1px solid rgba(33, 150, 243, 0.3);
         border-radius: 10px;
@@ -223,22 +223,44 @@ st.markdown("""
     
     /* Text styling */
     h1, h2, h3, h4, h5, h6 {
-        color: white !important;
+        color: #2c3e50 !important;
         font-weight: 600 !important;
     }
     
     p, span, div {
-        color: rgba(255, 255, 255, 0.9) !important;
+        color: #34495e !important;
     }
     
     /* Specific metric styling */
     [data-testid="metric-container"] {
-        background: rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.3);
         backdrop-filter: blur(15px);
         border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.4);
         padding: 1rem;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    }
+    
+    /* Input field styling */
+    .stNumberInput > div > div > input {
+        background: rgba(255, 255, 255, 0.5) !important;
+        border: 1px solid rgba(255, 255, 255, 0.6) !important;
+        border-radius: 8px !important;
+        color: #2c3e50 !important;
+    }
+    
+    .stSelectbox > div > div > div {
+        background: rgba(255, 255, 255, 0.5) !important;
+        border: 1px solid rgba(255, 255, 255, 0.6) !important;
+        border-radius: 8px !important;
+        color: #2c3e50 !important;
+    }
+    
+    .stDateInput > div > div > input {
+        background: rgba(255, 255, 255, 0.5) !important;
+        border: 1px solid rgba(255, 255, 255, 0.6) !important;
+        border-radius: 8px !important;
+        color: #2c3e50 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -345,6 +367,10 @@ def build_rth_times(date: datetime, start: str = "08:30", end: str = "14:00",
     timezone = pytz.timezone(tz)
     start_hour, start_min = map(int, start.split(':'))
     end_hour, end_min = map(int, end.split(':'))
+    
+    # Convert to naive datetime if timezone-aware
+    if date.tzinfo is not None:
+        date = date.replace(tzinfo=None)
     
     start_dt = timezone.localize(date.replace(hour=start_hour, minute=start_min, second=0, microsecond=0))
     end_dt = timezone.localize(date.replace(hour=end_hour, minute=end_min, second=0, microsecond=0))
@@ -510,8 +536,8 @@ def main():
     # Sidebar Configuration
     with st.sidebar:
         st.markdown("""
-        <div style="text-align: center; padding: 1rem; background: rgba(255,255,255,0.1); border-radius: 12px; margin-bottom: 1rem;">
-            <h2 style="margin: 0; color: white;">⚙️ Configuration</h2>
+        <div style="text-align: center; padding: 1rem; background: rgba(255,255,255,0.3); border-radius: 12px; margin-bottom: 1rem;">
+            <h2 style="margin: 0; color: #2c3e50;">⚙️ Configuration</h2>
         </div>
         """, unsafe_allow_html=True)
         
@@ -643,7 +669,7 @@ def main():
     else:
         st.session_state.manual_strike = strike
     
-    # Mock times for manual mode
+    # Create anchor times (timezone-naive for proper handling)
     spx_high_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(11, 0)))
     spx_low_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(13, 0)))
     spx_close_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 0)))
@@ -652,9 +678,8 @@ def main():
     # Display current configuration
     st.success(f"✅ **Configuration Active** | Strike: **{strike}C** | Mode: **Manual Input** | Ready for Projections")
     
-    # Create projection datetime
+    # Create projection datetime (timezone-naive for proper handling)
     projection_dt = datetime.combine(projection_date, dt_time(0, 0))
-    projection_dt = CT_TZ.localize(projection_dt)
     
     # Main tabs
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -884,9 +909,9 @@ def main():
     # Footer
     st.markdown("""
     <div style="text-align: center; padding: 2rem; margin-top: 2rem; 
-                background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); 
-                border-radius: 16px; border: 1px solid rgba(255,255,255,0.1);">
-        <p style="margin: 0; color: rgba(255,255,255,0.7); font-size: 0.9rem;">
+                background: rgba(255,255,255,0.25); backdrop-filter: blur(10px); 
+                border-radius: 16px; border: 1px solid rgba(255,255,255,0.3);">
+        <p style="margin: 0; color: #5a6c7d; font-size: 0.9rem;">
             <strong>SPX Prophet</strong> | Professional Trading Analysis Platform | 
             Built with ❤️ using Streamlit
         </p>
