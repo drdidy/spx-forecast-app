@@ -281,7 +281,6 @@ def init_session_state():
     if 'slopes' not in st.session_state:
         st.session_state.slopes = {
             'spx_baseline': -0.25,
-            'spx_skyline': 0.31,
             'contract_weekday': -0.30,
             'contract_frimon': -0.10,
             'contract_skyline': 0.15
@@ -410,8 +409,8 @@ def round_to_nickel(price: float) -> float:
 
 def create_spx_table(anchor_value: float, anchor_time: datetime, anchor_name: str,
                     projection_date: datetime, slopes: dict, count_fn: Callable,
-                    spx_330_high: float = None, spx_330_high_time: datetime = None,
-                    spx_overnight_high: float = None, spx_overnight_high_time: datetime = None,
+                    spx_330_high: float, spx_330_high_time: datetime,
+                    spx_overnight_high: float, spx_overnight_high_time: datetime,
                     baseline_follows_high: bool = True,
                     overnight_low_start: float = None, overnight_low_start_time: datetime = None,
                     overnight_low_end: float = None, overnight_low_end_time: datetime = None) -> pd.DataFrame:
@@ -448,13 +447,13 @@ def create_spx_table(anchor_value: float, anchor_time: datetime, anchor_name: st
         if overnight_blocks > 0:
             skyline_slope = (spx_overnight_high - spx_330_high) / overnight_blocks
         else:
-            skyline_slope = slopes.get('spx_skyline', 0.31)  # Fallback
+            skyline_slope = 0.31  # Fallback
         
         skyline_anchor = spx_330_high
         skyline_anchor_time = spx_330_high_time
     else:
         # Fallback to fixed skyline slope
-        skyline_slope = slopes.get('spx_skyline', 0.31)
+        skyline_slope = 0.31
         skyline_anchor = anchor_value
         skyline_anchor_time = anchor_time
     
@@ -731,10 +730,8 @@ def main():
                 help="Exit slope for all contract positions"
             )
         
-        # Contract settings
-        st.markdown("### 📋 Contract Settings")
-        
         # Strategy Mode Toggle
+        st.markdown("### 📋 Contract Settings")
         strategy_mode = st.selectbox(
             "📈 Strategy Mode",
             ["Call Entries", "Put Entries (Overnight Anchor)"],
@@ -764,6 +761,7 @@ def main():
     # Data Input Section
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     
+    # SPX inputs
     def spx_inputs():
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -844,6 +842,7 @@ def main():
             key="baseline_pattern_check"
         )
         
+        # Initialize overnight low variables
         overnight_low_start = None
         overnight_low_start_time = None
         overnight_low_end = None
@@ -886,7 +885,8 @@ def main():
         return (spx_close_anchor, spx_high_anchor, spx_low_anchor, spx_high_time_input, spx_low_time_input, 
                 spx_330_high, spx_overnight_high, spx_overnight_time, baseline_follows_high,
                 overnight_low_start, overnight_low_start_time, overnight_low_end, overnight_low_end_time)
-    
+
+    # Contract inputs
     def contract_inputs():
         if strategy_mode == "Put Entries (Overnight Anchor)":
             col1, col2 = st.columns(2)
@@ -954,7 +954,7 @@ def main():
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Validate input times
+    # Validate inputs
     market_open = dt_time(8, 30)  # 8:30 AM CT
     market_close = dt_time(16, 0)  # 4:00 PM CT (extended for after-hours)
     
@@ -969,7 +969,7 @@ def main():
         validation_errors.append("🔺 High price should be greater than low price")
     
     # Validate SPX 3:30 PM high and overnight high
-    if spx_330_high <= spx_high_anchor:
+    if spx_330_high < spx_high_anchor:
         validation_errors.append("🌙 3:30 PM high should be greater than or equal to daily high")
     
     if spx_overnight_high <= spx_330_high:
@@ -1023,6 +1023,9 @@ def main():
     spx_close_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 0)))
     contract_anchor_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 30)))
     
+    # 3:30 PM high time for dynamic skyline (FIXED TIME)
+    spx_330_high_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 30)))
+    
     # Handle overnight high time for dynamic skyline
     spx_overnight_high_datetime = None
     if spx_overnight_time:
@@ -1032,6 +1035,24 @@ def main():
         else:  # Next day before market open
             next_day = previous_date + timedelta(days=1)
             spx_overnight_high_datetime = CT_TZ.localize(datetime.combine(next_day, spx_overnight_time))
+    
+    # Handle overnight low times for dynamic baseline
+    overnight_low_start_datetime = None
+    overnight_low_end_datetime = None
+    if not baseline_follows_high and overnight_low_start_time and overnight_low_end_time:
+        # Handle overnight low start time
+        if overnight_low_start_time >= dt_time(15, 30):  # Same day after 3:30 PM
+            overnight_low_start_datetime = CT_TZ.localize(datetime.combine(previous_date, overnight_low_start_time))
+        else:  # Next day before market open
+            next_day = previous_date + timedelta(days=1)
+            overnight_low_start_datetime = CT_TZ.localize(datetime.combine(next_day, overnight_low_start_time))
+        
+        # Handle overnight low end time
+        if overnight_low_end_time >= dt_time(15, 30):  # Same day after 3:30 PM
+            overnight_low_end_datetime = CT_TZ.localize(datetime.combine(previous_date, overnight_low_end_time))
+        else:  # Next day before market open
+            next_day = previous_date + timedelta(days=1)
+            overnight_low_end_datetime = CT_TZ.localize(datetime.combine(next_day, overnight_low_end_time))
     
     # Handle contract overnight high time for put strategy
     overnight_high_datetime = None
@@ -1046,7 +1067,7 @@ def main():
     # Display current configuration
     st.success(f"✅ **Configuration Active** | Strike: **{strike}C/P** (based on high: {spx_high_anchor:.2f}) | Mode: **Manual Input** | Ready for Projections")
     
-    # Create projection datetime (timezone-naive for proper handling)
+    # Create projection datetime
     projection_dt = datetime.combine(projection_date, dt_time(0, 0))
     
     # Main tabs (3 essential tabs only)
@@ -1074,7 +1095,7 @@ def main():
             overnight_low_end, overnight_low_end_datetime  # Dynamic baseline end
         )
         
-        # Metadata display
+        # Display metadata
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("🎯 Anchor Value", f"{high_table.attrs['anchor_value']:.2f}")
@@ -1115,7 +1136,7 @@ def main():
             overnight_low_end, overnight_low_end_datetime  # Dynamic baseline end
         )
         
-        # Metadata display
+        # Display metadata
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("🎯 Anchor Value", f"{close_table.attrs['anchor_value']:.2f}")
@@ -1156,7 +1177,7 @@ def main():
             overnight_low_end, overnight_low_end_datetime  # Dynamic baseline end
         )
         
-        # Metadata display
+        # Display metadata
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("🎯 Anchor Value", f"{low_table.attrs['anchor_value']:.2f}")
@@ -1223,8 +1244,8 @@ def main():
             with col2:
                 st.metric("📈 Exit Slope (Regular)", f"{contract_table.attrs['exit_slope']:.2f}")
             with col3:
-                if 'overnight_high' in contract_table.attrs:
-                    st.metric("🌙 Overnight High", f"${contract_table.attrs['overnight_high']:.2f}")
+                if 'uses_spx_overnight' in contract_table.attrs and contract_table.attrs['uses_spx_overnight']:
+                    st.metric("🌙 SPX Overnight Gap", f"{spx_overnight_high - spx_330_high:.2f}")
         else:
             col1, col2 = st.columns(2)
             with col1:
@@ -1285,12 +1306,11 @@ def main():
                 if overnight_blocks > 0:
                     skyline_slope = (spx_overnight_high - spx_330_high) / overnight_blocks
                 else:
-                    skyline_slope = st.session_state.slopes.get('spx_skyline', 0.31)  # Fallback
+                    skyline_slope = 0.31  # Fallback
                 
                 spx_skyline = project(spx_330_high, spx_330_high_time, target_time, skyline_slope, count_blocks_clock)
             else:
-                spx_skyline = project(spx_close_anchor, spx_close_time, target_time,
-                                    st.session_state.slopes.get('spx_skyline', 0.31), count_blocks_clock)
+                spx_skyline = project(spx_close_anchor, spx_close_time, target_time, 0.31, count_blocks_clock)
             
             # Contract levels based on strategy mode
             if strategy_mode == "Put Entries (Overnight Anchor)" and all([contract_close_330, overnight_high_price, overnight_high_datetime]):
@@ -1385,7 +1405,6 @@ def main():
         st.metric(f"{status} Clock Mode 9:00a → 6:00p", f"{clock_blocks} blocks", 
                  help=f"Should be {expected_blocks} blocks (excluding 4:00-5:00 PM maintenance)")
         
-        st.markdown("### ⚙️ Configuration Summary")
         st.markdown("### ⚙️ Configuration Summary")
         if strategy_mode == "Put Entries (Overnight Anchor)":
             overnight_time_str = overnight_high_time.strftime('%I:%M %p') if overnight_high_time else 'N/A'
