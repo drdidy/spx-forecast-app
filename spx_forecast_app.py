@@ -401,7 +401,7 @@ def project(v0: float, t0: datetime, t_target: datetime, slope: float,
     return v0 + slope * blocks
 
 def get_closest_itm_strike(price: float, strike_spacing: float = 5.0) -> float:
-    """Get closest ITM call strike"""
+    """Get closest ITM strike below given price (typically SPX daily high)"""
     return strike_spacing * np.floor(price / strike_spacing)
 
 def round_to_nickel(price: float) -> float:
@@ -672,7 +672,7 @@ def main():
             "💰 Strike Spacing", 
             value=5.0, 
             min_value=1.0,
-            help="Dollar spacing between option strikes"
+            help="Dollar spacing between option strikes (strike based on daily high)"
         )
         
         st.session_state.strike_freeze = st.checkbox(
@@ -711,8 +711,8 @@ def main():
             )
             spx_high_time_input = st.time_input(
                 "High Time", 
-                value=dt_time(10, 30),
-                help="Time when daily high was made (8:30 AM - 4:00 PM CT)",
+                value=dt_time(11, 0),
+                help="Time when daily high was made",
                 key="high_time"
             )
         with col3:
@@ -726,8 +726,8 @@ def main():
             )
             spx_low_time_input = st.time_input(
                 "Low Time", 
-                value=dt_time(14, 15),
-                help="Time when daily low was made (8:30 AM - 4:00 PM CT)",
+                value=dt_time(13, 0),
+                help="Time when daily low was made",
                 key="low_time"
             )
         return spx_close_anchor, spx_high_anchor, spx_low_anchor, spx_high_time_input, spx_low_time_input
@@ -783,7 +783,7 @@ def main():
     
     with col1:
         render_input_section("📈", "SPX Previous Day Anchors", lambda: None)
-        st.info("💡 **Important:** High/Low times affect block counting and projection accuracy. Enter exact times when these levels were hit. Market hours: 8:30 AM - 4:00 PM CT (includes after-hours).")
+        st.info("💡 **Important:** High/Low times affect block counting and projection accuracy. Enter exact times when these levels were hit.")
         spx_close_anchor, spx_high_anchor, spx_low_anchor, spx_high_time_input, spx_low_time_input = spx_inputs()
     
     with col2:
@@ -828,7 +828,7 @@ def main():
         st.stop()
     
     # Calculate derived values
-    strike = get_closest_itm_strike(spx_close_anchor, strike_spacing)
+    strike = get_closest_itm_strike(spx_high_anchor, strike_spacing)  # Changed from spx_close_anchor
     if st.session_state.strike_freeze and st.session_state.manual_strike:
         strike = st.session_state.manual_strike
     else:
@@ -851,15 +851,16 @@ def main():
             overnight_high_datetime = CT_TZ.localize(datetime.combine(next_day, overnight_high_time))
     
     # Display current configuration
-    st.success(f"✅ **Configuration Active** | Strike: **{strike}C** | Mode: **Manual Input** | Ready for Projections")
+    st.success(f"✅ **Configuration Active** | Strike: **{strike}C/P** (based on high: {spx_high_anchor:.2f}) | Mode: **Manual Input** | Ready for Projections")
     
     # Create projection datetime (timezone-naive for proper handling)
     projection_dt = datetime.combine(projection_date, dt_time(0, 0))
     
     # Main tabs
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📊 SPX Projections", 
         "📋 Contract Analysis", 
+        "🎯 Fan Signals", 
         "📋 Trading Plan"
     ])
     
@@ -1026,8 +1027,27 @@ def main():
         
         st.markdown('</div>', unsafe_allow_html=True)
     
-    # Tab 3: Trading Plan
+    # Tab 3: Fan Signals
     with tab3:
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown("## 🎯 Fan Touch Signals")
+        
+        st.info("🔮 **Fan signals require live market data.** In manual mode, this feature shows the framework for real-time signal detection when connected to data feeds.")
+        
+        # Show example framework
+        example_signals = pd.DataFrame([
+            {"Time": "09:00", "Rule": "SKY-TOUCH", "Context": "Close above skyline (6,515.25)", "Signal": "Bullish continuation", "Target": "Monitor for bearish return"},
+            {"Time": "10:30", "Rule": "BASE-BOUNCE", "Context": "Close above baseline (6,485.50)", "Signal": "Bullish reversal", "Target": "Skyline (6,520.75)"},
+            {"Time": "12:00", "Rule": "SKY-REJECT", "Context": "Close below skyline (6,518.25)", "Signal": "Bearish reversal", "Target": "Baseline (6,482.50)"}
+        ])
+        
+        st.markdown("### 📊 Signal Framework (Example)")
+        st.dataframe(example_signals, use_container_width=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Tab 4: Trading Plan
+    with tab4:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.markdown("## 📋 Trading Plan Card")
         st.markdown("**Key decision points for the trading session**")
@@ -1139,32 +1159,14 @@ def main():
                  help=f"Should be {expected_blocks} blocks (excluding 4:00-5:00 PM maintenance)")
         
         st.markdown("### ⚙️ Configuration Summary")
-        st.markdown("### ⚙️ Configuration Summary")
-        if strategy_mode == "Put Entries (Overnight Anchor)":
-            overnight_time_str = overnight_high_time.strftime('%I:%M %p') if overnight_high_time else 'N/A'
-            st.info(f"""
-            **Current Settings:**
-            • **Strategy:** {strategy_mode}
-            • SPX Close: {spx_close_anchor:.2f} @ 3:00 PM
-            • SPX High: {spx_high_anchor:.2f} @ {spx_high_time_input.strftime('%I:%M %p')}
-            • SPX Low: {spx_low_anchor:.2f} @ {spx_low_time_input.strftime('%I:%M %p')}
-            • Contract 3:30 Close: ${contract_close_330:.2f} (put entry anchor)
-            • Contract 3:30 High: ${contract_anchor:.2f} (put exit anchor)
-            • Overnight High: ${overnight_high_price:.2f} @ {overnight_time_str}
-            • Strike: {strike}P
-            • Market Hours: 8:30 AM - 4:00 PM CT (includes extended session)
-            """)
-        else:
-            st.info(f"""
-            **Current Settings:**
-            • **Strategy:** {strategy_mode}
-            • SPX Close: {spx_close_anchor:.2f} @ 3:00 PM
-            • SPX High: {spx_high_anchor:.2f} @ {spx_high_time_input.strftime('%I:%M %p')}
-            • SPX Low: {spx_low_anchor:.2f} @ {spx_low_time_input.strftime('%I:%M %p')}
-            • Contract Anchor: ${contract_anchor:.2f} @ 3:30 PM
-            • Strike: {strike}C
-            • Market Hours: 8:30 AM - 4:00 PM CT (includes extended session)
-            """)
+        st.info(f"""
+        **Current Settings:**
+        • SPX Close: {spx_close_anchor:.2f} @ 3:00 PM
+        • SPX High: {spx_high_anchor:.2f} @ {spx_high_time_input.strftime('%I:%M %p')}
+        • SPX Low: {spx_low_anchor:.2f} @ {spx_low_time_input.strftime('%I:%M %p')}
+        • Contract Anchor: ${contract_anchor:.2f} @ 3:30 PM
+        • Strike: {strike}C
+        """)
     
     # Footer
     st.markdown("""
