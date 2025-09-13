@@ -445,44 +445,100 @@ def create_spx_table(anchor_value: float, anchor_time: datetime, anchor_name: st
     return df
 
 def create_contract_table(anchor_value: float, anchor_time: datetime, strike: float,
-                         projection_date: datetime, slopes: dict, count_fn: Callable) -> pd.DataFrame:
-    """Create contract projection table"""
+                         projection_date: datetime, slopes: dict, count_fn: Callable,
+                         strategy_mode: str = "Call Entries", 
+                         contract_close_330: float = None, overnight_high_price: float = None, 
+                         overnight_high_time: datetime = None) -> pd.DataFrame:
+    """Create contract projection table with support for put/call modes"""
     # Build contract RTH times
     rth_times = build_rth_times(projection_date, "07:00", "14:30")
     
-    # Determine regime
-    is_frimon = is_friday_to_monday(anchor_time, rth_times[0])
-    entry_slope = slopes['contract_frimon'] if is_frimon else slopes['contract_weekday']
-    exit_slope = slopes['contract_skyline']
-    
-    rows = []
-    for rth_time in rth_times:
-        entry_val = project(anchor_value, anchor_time, rth_time, entry_slope, count_fn)
-        exit_val = project(anchor_value, anchor_time, rth_time, exit_slope, count_fn)
+    if strategy_mode == "Put Entries (Overnight Anchor)" and all([contract_close_330, overnight_high_price, overnight_high_time]):
+        # Put mode: Calculate overnight slope and use it for entries
+        # Exit levels use regular call logic
         
-        # Apply minimum price and rounding
-        entry_val = round_to_nickel(max(0.05, entry_val))
-        exit_val = round_to_nickel(max(0.05, exit_val))
+        # Calculate overnight slope (3:30 PM close to overnight high)
+        contract_close_time = CT_TZ.localize(datetime.combine(projection_date.date() if projection_date.date().weekday() == 0 
+                                                              else projection_date.date() - timedelta(days=1), dt_time(15, 30)))
         
-        rows.append({
-            'Time': rth_time.strftime('%H:%M'),
-            'Entry': entry_val,
-            'Exit': exit_val
-        })
-    
-    df = pd.DataFrame(rows)
-    
-    # Add metadata
-    first_rth = rth_times[0]
-    blocks_to_start = count_fn(anchor_time, first_rth)
-    
-    df.attrs['strike'] = strike
-    df.attrs['anchor_value'] = anchor_value
-    df.attrs['anchor_time'] = anchor_time
-    df.attrs['blocks_to_start'] = blocks_to_start
-    df.attrs['entry_slope'] = entry_slope
-    df.attrs['exit_slope'] = exit_slope
-    df.attrs['regime'] = 'Fri→Mon' if is_frimon else 'Weekday'
+        overnight_blocks = count_fn(contract_close_time, overnight_high_time)
+        if overnight_blocks > 0:
+            overnight_slope = (overnight_high_price - contract_close_330) / overnight_blocks
+        else:
+            overnight_slope = 0
+        
+        # Regular exit slope calculation
+        is_frimon = is_friday_to_monday(anchor_time, rth_times[0])
+        regular_entry_slope = slopes['contract_frimon'] if is_frimon else slopes['contract_weekday']
+        
+        rows = []
+        for rth_time in rth_times:
+            # Put entries: Use overnight slope from 3:30 PM close
+            put_entry_val = project(contract_close_330, contract_close_time, rth_time, overnight_slope, count_fn)
+            
+            # Put exits: Use regular call entry calculation (from 3:30 candle high)
+            put_exit_val = project(anchor_value, anchor_time, rth_time, regular_entry_slope, count_fn)
+            
+            # Apply minimum price and rounding
+            put_entry_val = round_to_nickel(max(0.05, put_entry_val))
+            put_exit_val = round_to_nickel(max(0.05, put_exit_val))
+            
+            rows.append({
+                'Time': rth_time.strftime('%H:%M'),
+                'Entry': put_entry_val,
+                'Exit': put_exit_val
+            })
+        
+        df = pd.DataFrame(rows)
+        
+        # Add metadata
+        first_rth = rth_times[0]
+        blocks_to_start = count_fn(contract_close_time, first_rth)
+        
+        df.attrs['strike'] = strike
+        df.attrs['anchor_value'] = contract_close_330
+        df.attrs['anchor_time'] = contract_close_time
+        df.attrs['blocks_to_start'] = blocks_to_start
+        df.attrs['entry_slope'] = overnight_slope
+        df.attrs['exit_slope'] = regular_entry_slope
+        df.attrs['regime'] = 'Put Strategy (Overnight)'
+        df.attrs['overnight_high'] = overnight_high_price
+        df.attrs['overnight_time'] = overnight_high_time
+        
+    else:
+        # Regular call mode
+        is_frimon = is_friday_to_monday(anchor_time, rth_times[0])
+        entry_slope = slopes['contract_frimon'] if is_frimon else slopes['contract_weekday']
+        exit_slope = slopes['contract_skyline']
+        
+        rows = []
+        for rth_time in rth_times:
+            entry_val = project(anchor_value, anchor_time, rth_time, entry_slope, count_fn)
+            exit_val = project(anchor_value, anchor_time, rth_time, exit_slope, count_fn)
+            
+            # Apply minimum price and rounding
+            entry_val = round_to_nickel(max(0.05, entry_val))
+            exit_val = round_to_nickel(max(0.05, exit_val))
+            
+            rows.append({
+                'Time': rth_time.strftime('%H:%M'),
+                'Entry': entry_val,
+                'Exit': exit_val
+            })
+        
+        df = pd.DataFrame(rows)
+        
+        # Add metadata
+        first_rth = rth_times[0]
+        blocks_to_start = count_fn(anchor_time, first_rth)
+        
+        df.attrs['strike'] = strike
+        df.attrs['anchor_value'] = anchor_value
+        df.attrs['anchor_time'] = anchor_time
+        df.attrs['blocks_to_start'] = blocks_to_start
+        df.attrs['entry_slope'] = entry_slope
+        df.attrs['exit_slope'] = exit_slope
+        df.attrs['regime'] = 'Fri→Mon' if is_frimon else 'Weekday'
     
     return df
 
@@ -604,6 +660,14 @@ def main():
         
         # Contract settings
         st.markdown("### 📋 Contract Settings")
+        
+        # Strategy Mode Toggle
+        strategy_mode = st.selectbox(
+            "📈 Strategy Mode",
+            ["Call Entries", "Put Entries (Overnight Anchor)"],
+            help="Call mode uses regular projections, Put mode uses overnight high anchor"
+        )
+        
         strike_spacing = st.number_input(
             "💰 Strike Spacing", 
             value=5.0, 
@@ -669,13 +733,51 @@ def main():
         return spx_close_anchor, spx_high_anchor, spx_low_anchor, spx_high_time_input, spx_low_time_input
     
     def contract_inputs():
-        contract_anchor = st.number_input(
-            "📊 3:30 PM Candle High", 
-            value=25.50, 
-            step=0.05,
-            help="Highest price of the 3:30 PM (15:30 CT) candle from previous session"
-        )
-        return contract_anchor
+        if strategy_mode == "Put Entries (Overnight Anchor)":
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**📊 Regular Anchor (3:30 PM)**")
+                contract_anchor = st.number_input(
+                    "Candle High", 
+                    value=25.50, 
+                    step=0.05,
+                    help="3:30 PM candle high (used for put exits)",
+                    key="contract_high"
+                )
+                contract_close_330 = st.number_input(
+                    "Close Price", 
+                    value=23.75, 
+                    step=0.05,
+                    help="3:30 PM close price (overnight anchor start)",
+                    key="contract_close"
+                )
+            
+            with col2:
+                st.markdown("**🌙 Overnight High Anchor**")
+                overnight_high_price = st.number_input(
+                    "Overnight High", 
+                    value=28.25, 
+                    step=0.05,
+                    help="Highest price during overnight session",
+                    key="overnight_high"
+                )
+                overnight_high_time = st.time_input(
+                    "High Time", 
+                    value=dt_time(6, 15),
+                    help="Time when overnight high was made",
+                    key="overnight_time"
+                )
+            
+            return contract_anchor, contract_close_330, overnight_high_price, overnight_high_time
+        else:
+            # Regular call mode
+            contract_anchor = st.number_input(
+                "📊 3:30 PM Candle High", 
+                value=25.50, 
+                step=0.05,
+                help="Highest price of the 3:30 PM (15:30 CT) candle from previous session"
+            )
+            return contract_anchor, None, None, None
     
     col1, col2 = st.columns(2)
     
@@ -685,24 +787,39 @@ def main():
         spx_close_anchor, spx_high_anchor, spx_low_anchor, spx_high_time_input, spx_low_time_input = spx_inputs()
     
     with col2:
-        render_input_section("📋", "Contract Previous Session", lambda: None)
-        contract_anchor = contract_inputs()
+        if strategy_mode == "Put Entries (Overnight Anchor)":
+            render_input_section("🌙", "Contract Overnight Strategy", lambda: None)
+            st.info("💡 **Put Strategy:** Uses overnight gap to calculate put entries. Exits based on regular call entry levels.")
+        else:
+            render_input_section("📋", "Contract Previous Session", lambda: None)
+        
+        contract_anchor, contract_close_330, overnight_high_price, overnight_high_time = contract_inputs()
     
     st.markdown('</div>', unsafe_allow_html=True)
     
     # Validate input times
     market_open = dt_time(8, 30)  # 8:30 AM CT
-    market_close = dt_time(15, 0)  # 3:00 PM CT
+    market_close = dt_time(16, 0)  # 4:00 PM CT (extended for after-hours)
     
     validation_errors = []
     if spx_high_time_input < market_open or spx_high_time_input > market_close:
-        validation_errors.append(f"🔺 High time ({spx_high_time_input.strftime('%I:%M %p')}) should be between 8:30 AM - 3:00 PM CT")
+        validation_errors.append(f"🔺 High time ({spx_high_time_input.strftime('%I:%M %p')}) should be between 8:30 AM - 4:00 PM CT")
     
     if spx_low_time_input < market_open or spx_low_time_input > market_close:
-        validation_errors.append(f"🔻 Low time ({spx_low_time_input.strftime('%I:%M %p')}) should be between 8:30 AM - 3:00 PM CT")
+        validation_errors.append(f"🔻 Low time ({spx_low_time_input.strftime('%I:%M %p')}) should be between 8:30 AM - 4:00 PM CT")
     
     if spx_high_anchor <= spx_low_anchor:
         validation_errors.append("🔺 High price should be greater than low price")
+    
+    # Additional validation for put mode
+    if strategy_mode == "Put Entries (Overnight Anchor)":
+        if contract_close_330 and overnight_high_price and contract_close_330 >= overnight_high_price:
+            validation_errors.append("🌙 Overnight high should be greater than 3:30 PM close")
+        
+        if overnight_high_time:
+            # Validate overnight time is reasonable
+            if not (dt_time(15, 30) <= overnight_high_time <= dt_time(23, 59) or dt_time(0, 0) <= overnight_high_time <= dt_time(8, 30)):
+                validation_errors.append("🌙 Overnight high should be between 3:30 PM - 8:30 AM (next day)")
     
     if validation_errors:
         st.error("⚠️ **Input Validation Errors:**")
@@ -722,6 +839,16 @@ def main():
     spx_low_time = CT_TZ.localize(datetime.combine(previous_date, spx_low_time_input))
     spx_close_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 0)))
     contract_anchor_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 30)))
+    
+    # Handle overnight high time for put strategy
+    overnight_high_datetime = None
+    if strategy_mode == "Put Entries (Overnight Anchor)" and overnight_high_time:
+        # Overnight could be same day (late) or next day (early)
+        if overnight_high_time >= dt_time(15, 30):  # Same day after 3:30 PM
+            overnight_high_datetime = CT_TZ.localize(datetime.combine(previous_date, overnight_high_time))
+        else:  # Next day before market open
+            next_day = previous_date + timedelta(days=1)
+            overnight_high_datetime = CT_TZ.localize(datetime.combine(next_day, overnight_high_time))
     
     # Display current configuration
     st.success(f"✅ **Configuration Active** | Strike: **{strike}C** | Mode: **Manual Input** | Ready for Projections")
@@ -843,40 +970,57 @@ def main():
     # Tab 2: Contract Analysis
     with tab2:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.markdown(f"## 📋 Contract Analysis - {strike}C")
+        
+        strategy_display = "📋 Call" if strategy_mode == "Call Entries" else "📉 Put"
+        st.markdown(f"## {strategy_display} Analysis - {strike}{'C' if strategy_mode == 'Call Entries' else 'P'}")
         
         contract_table = create_contract_table(
             contract_anchor, contract_anchor_time, strike,
             projection_dt, st.session_state.slopes,
-            count_blocks_active_contract
+            count_blocks_active_contract,
+            strategy_mode, contract_close_330, overnight_high_price, overnight_high_datetime
         )
         
         # Metadata display
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("🎯 Strike Price", f"${contract_table.attrs['strike']:.0f}")
+            if strategy_mode == "Put Entries (Overnight Anchor)":
+                st.metric("🎯 Strike Price", f"${contract_table.attrs['strike']:.0f}P")
+            else:
+                st.metric("🎯 Strike Price", f"${contract_table.attrs['strike']:.0f}C")
         with col2:
-            st.metric("📅 Trading Regime", contract_table.attrs['regime'])
+            st.metric("📅 Strategy", contract_table.attrs['regime'])
         with col3:
             st.metric("🔢 Blocks to 07:00", contract_table.attrs['blocks_to_start'])
         with col4:
             st.metric("⚡ Block Mode", "Active Trading")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("📉 Entry Slope", f"{contract_table.attrs['entry_slope']:.2f}")
-        with col2:
-            st.metric("📈 Exit Slope", f"{contract_table.attrs['exit_slope']:.2f}")
+        if strategy_mode == "Put Entries (Overnight Anchor)":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("📉 Entry Slope (Overnight)", f"{contract_table.attrs['entry_slope']:.3f}")
+            with col2:
+                st.metric("📈 Exit Slope (Regular)", f"{contract_table.attrs['exit_slope']:.2f}")
+            with col3:
+                if 'overnight_high' in contract_table.attrs:
+                    st.metric("🌙 Overnight High", f"${contract_table.attrs['overnight_high']:.2f}")
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("📉 Entry Slope", f"{contract_table.attrs['entry_slope']:.2f}")
+            with col2:
+                st.metric("📈 Exit Slope", f"{contract_table.attrs['exit_slope']:.2f}")
         
         st.dataframe(contract_table, use_container_width=True)
         
         col1, col2 = st.columns([3, 1])
         with col2:
             csv = contract_table.to_csv(index=False)
+            contract_type = "put" if strategy_mode == "Put Entries (Overnight Anchor)" else "call"
             st.download_button(
                 "📥 Export CSV", 
                 csv, 
-                f"contract_{strike}_projections.csv", 
+                f"contract_{strike}{contract_type.upper()}_projections.csv", 
                 "text/csv",
                 use_container_width=True
             )
@@ -921,21 +1065,43 @@ def main():
             spx_skyline = project(spx_close_anchor, spx_close_time, target_time,
                                 st.session_state.slopes['spx_skyline'], count_blocks_clock)
             
-            # Contract levels
-            is_frimon = is_friday_to_monday(contract_anchor_time, target_time)
-            contract_slope = st.session_state.slopes['contract_frimon'] if is_frimon else st.session_state.slopes['contract_weekday']
-            
-            contract_entry = round_to_nickel(project(contract_anchor, contract_anchor_time, target_time,
-                                                   contract_slope, count_blocks_active_contract))
-            contract_exit = round_to_nickel(project(contract_anchor, contract_anchor_time, target_time,
-                                                  st.session_state.slopes['contract_skyline'], count_blocks_active_contract))
+            # Contract levels based on strategy mode
+            if strategy_mode == "Put Entries (Overnight Anchor)" and all([contract_close_330, overnight_high_price, overnight_high_datetime]):
+                # Put entry: overnight slope from 3:30 close
+                contract_close_time_plan = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 30)))
+                overnight_blocks = count_blocks_active_contract(contract_close_time_plan, overnight_high_datetime)
+                if overnight_blocks > 0:
+                    overnight_slope = (overnight_high_price - contract_close_330) / overnight_blocks
+                else:
+                    overnight_slope = 0
+                
+                contract_entry = round_to_nickel(project(contract_close_330, contract_close_time_plan, target_time,
+                                                       overnight_slope, count_blocks_active_contract))
+                
+                # Put exit: regular call entry level
+                is_frimon = is_friday_to_monday(contract_anchor_time, target_time)
+                contract_slope = st.session_state.slopes['contract_frimon'] if is_frimon else st.session_state.slopes['contract_weekday']
+                contract_exit = round_to_nickel(project(contract_anchor, contract_anchor_time, target_time,
+                                                      contract_slope, count_blocks_active_contract))
+                
+                contract_suffix = "P"
+            else:
+                # Regular call mode
+                is_frimon = is_friday_to_monday(contract_anchor_time, target_time)
+                contract_slope = st.session_state.slopes['contract_frimon'] if is_frimon else st.session_state.slopes['contract_weekday']
+                
+                contract_entry = round_to_nickel(project(contract_anchor, contract_anchor_time, target_time,
+                                                       contract_slope, count_blocks_active_contract))
+                contract_exit = round_to_nickel(project(contract_anchor, contract_anchor_time, target_time,
+                                                      st.session_state.slopes['contract_skyline'], count_blocks_active_contract))
+                contract_suffix = "C"
             
             plan_data.append({
                 '⏰ Time': time_str,
                 '📉 SPX Baseline': f"{spx_baseline:.2f}",
                 '📈 SPX Skyline': f"{spx_skyline:.2f}",
-                f'📋 {strike}C Entry': f"${contract_entry:.2f}",
-                f'🎯 {strike}C Exit': f"${contract_exit:.2f}"
+                f'📋 {strike}{contract_suffix} Entry': f"${contract_entry:.2f}",
+                f'🎯 {strike}{contract_suffix} Exit': f"${contract_exit:.2f}"
             })
         
         plan_df = pd.DataFrame(plan_data)
