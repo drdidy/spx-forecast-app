@@ -262,6 +262,13 @@ st.markdown("""
         border-radius: 8px !important;
         color: #2c3e50 !important;
     }
+    
+    .stTimeInput > div > div > input {
+        background: rgba(255, 255, 255, 0.5) !important;
+        border: 1px solid rgba(255, 255, 255, 0.6) !important;
+        border-radius: 8px !important;
+        color: #2c3e50 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -308,8 +315,8 @@ def count_blocks_clock(t1: datetime, t2: datetime) -> int:
     while current < t2:
         next_block = current + timedelta(minutes=BLOCK_MINUTES)
         
-        # Skip maintenance hour 16:00-17:00 CT
-        if not (current.hour == 16 and current.minute == 0):
+        # Skip maintenance hour 16:00-17:00 CT (entire hour)
+        if not (current.hour == 16):
             if next_block <= t2:
                 blocks += 1
             elif current < t2:  # Partial block
@@ -319,7 +326,7 @@ def count_blocks_clock(t1: datetime, t2: datetime) -> int:
         current = next_block
         
         # Skip over maintenance hour
-        if current.hour == 16 and current.minute == 0:
+        if current.hour == 16:
             current = current.replace(hour=17, minute=0)
     
     return blocks
@@ -338,16 +345,20 @@ def count_blocks_active_contract(t1: datetime, t2: datetime) -> int:
         # Check if current time is in active trading window
         is_active = True
         
-        # Daily exclusion: 15:30-19:00
-        if current.hour >= 15 and (current.hour < 19 or (current.hour == 15 and current.minute >= 30)):
-            is_active = False
+        # Daily exclusion: 15:30-19:00 (3:30 PM - 7:00 PM)
+        if (current.hour == 15 and current.minute >= 30) or current.hour >= 16:
+            if current.hour < 19:  # Before 7 PM
+                is_active = False
         
-        # Friday 15:30 → Sunday 19:00
-        if current.weekday() == 4 and current.hour >= 15 and current.minute >= 30:
-            is_active = False
+        # Weekend exclusions: Friday 15:30 → Sunday 19:00
+        if current.weekday() == 4:  # Friday
+            if current.hour == 15 and current.minute >= 30:
+                is_active = False
+            elif current.hour > 15:
+                is_active = False
         elif current.weekday() in [5, 6]:  # Saturday, Sunday
             is_active = False
-        elif current.weekday() == 0 and current.hour < 19:  # Sunday before 19:00
+        elif current.weekday() == 0 and current.hour < 19:  # Sunday before 7 PM
             is_active = False
         
         if is_active:
@@ -626,20 +637,36 @@ def main():
                 help="SPX close price at 15:00 CT (3:00 PM) previous day"
             )
         with col2:
+            st.markdown("**🔺 Daily High**")
             spx_high_anchor = st.number_input(
-                "🔺 Daily High", 
+                "High Price", 
                 value=6520.0, 
                 step=0.1,
-                help="Highest SPX price from previous day"
+                help="Highest SPX price from previous day",
+                key="high_price"
+            )
+            spx_high_time_input = st.time_input(
+                "High Time", 
+                value=dt_time(11, 0),
+                help="Time when daily high was made",
+                key="high_time"
             )
         with col3:
+            st.markdown("**🔻 Daily Low**")
             spx_low_anchor = st.number_input(
-                "🔻 Daily Low", 
+                "Low Price", 
                 value=6480.0, 
                 step=0.1,
-                help="Lowest SPX price from previous day"
+                help="Lowest SPX price from previous day",
+                key="low_price"
             )
-        return spx_close_anchor, spx_high_anchor, spx_low_anchor
+            spx_low_time_input = st.time_input(
+                "Low Time", 
+                value=dt_time(13, 0),
+                help="Time when daily low was made",
+                key="low_time"
+            )
+        return spx_close_anchor, spx_high_anchor, spx_low_anchor, spx_high_time_input, spx_low_time_input
     
     def contract_inputs():
         contract_anchor = st.number_input(
@@ -654,13 +681,34 @@ def main():
     
     with col1:
         render_input_section("📈", "SPX Previous Day Anchors", lambda: None)
-        spx_close_anchor, spx_high_anchor, spx_low_anchor = spx_inputs()
+        st.info("💡 **Important:** High/Low times affect block counting and projection accuracy. Enter exact times when these levels were hit.")
+        spx_close_anchor, spx_high_anchor, spx_low_anchor, spx_high_time_input, spx_low_time_input = spx_inputs()
     
     with col2:
         render_input_section("📋", "Contract Previous Session", lambda: None)
         contract_anchor = contract_inputs()
     
     st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Validate input times
+    market_open = dt_time(8, 30)  # 8:30 AM CT
+    market_close = dt_time(15, 0)  # 3:00 PM CT
+    
+    validation_errors = []
+    if spx_high_time_input < market_open or spx_high_time_input > market_close:
+        validation_errors.append(f"🔺 High time ({spx_high_time_input.strftime('%I:%M %p')}) should be between 8:30 AM - 3:00 PM CT")
+    
+    if spx_low_time_input < market_open or spx_low_time_input > market_close:
+        validation_errors.append(f"🔻 Low time ({spx_low_time_input.strftime('%I:%M %p')}) should be between 8:30 AM - 3:00 PM CT")
+    
+    if spx_high_anchor <= spx_low_anchor:
+        validation_errors.append("🔺 High price should be greater than low price")
+    
+    if validation_errors:
+        st.error("⚠️ **Input Validation Errors:**")
+        for error in validation_errors:
+            st.error(f"• {error}")
+        st.stop()
     
     # Calculate derived values
     strike = get_closest_itm_strike(spx_close_anchor, strike_spacing)
@@ -669,9 +717,9 @@ def main():
     else:
         st.session_state.manual_strike = strike
     
-    # Create anchor times (timezone-naive for proper handling)
-    spx_high_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(11, 0)))
-    spx_low_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(13, 0)))
+    # Create anchor times using actual input times
+    spx_high_time = CT_TZ.localize(datetime.combine(previous_date, spx_high_time_input))
+    spx_low_time = CT_TZ.localize(datetime.combine(previous_date, spx_low_time_input))
     spx_close_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 0)))
     contract_anchor_time = CT_TZ.localize(datetime.combine(previous_date, dt_time(15, 30)))
     
@@ -707,7 +755,7 @@ def main():
         with col1:
             st.metric("🎯 Anchor Value", f"{high_table.attrs['anchor_value']:.2f}")
         with col2:
-            st.metric("⏰ Anchor Time", high_table.attrs['anchor_time'].strftime('%H:%M'))
+            st.metric("⏰ Anchor Time", spx_high_time_input.strftime('%I:%M %p'))
         with col3:
             st.metric("🔢 Blocks to 08:30", high_table.attrs['blocks_to_start'])
         with col4:
@@ -721,7 +769,7 @@ def main():
             st.download_button(
                 "📥 Export CSV", 
                 csv, 
-                "spx_high_projections.csv", 
+                f"spx_high_{spx_high_time_input.strftime('%H%M')}_projections.csv", 
                 "text/csv",
                 use_container_width=True
             )
@@ -771,7 +819,7 @@ def main():
         with col1:
             st.metric("🎯 Anchor Value", f"{low_table.attrs['anchor_value']:.2f}")
         with col2:
-            st.metric("⏰ Anchor Time", low_table.attrs['anchor_time'].strftime('%H:%M'))
+            st.metric("⏰ Anchor Time", spx_low_time_input.strftime('%I:%M %p'))
         with col3:
             st.metric("🔢 Blocks to 08:30", low_table.attrs['blocks_to_start'])
         with col4:
@@ -785,7 +833,7 @@ def main():
             st.download_button(
                 "📥 Export CSV", 
                 csv, 
-                "spx_low_projections.csv", 
+                f"spx_low_{spx_low_time_input.strftime('%H%M')}_projections.csv", 
                 "text/csv",
                 use_container_width=True
             )
@@ -905,6 +953,54 @@ def main():
             )
         
         st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Sanity Checks Section
+    with st.expander("🔍 **System Validation & Sanity Checks**", expanded=False):
+        st.markdown("### 📊 Block Counting Verification")
+        
+        # Test active mode block counting
+        test_friday_330pm = CT_TZ.localize(datetime(2024, 1, 5, 15, 30))  # Friday 3:30 PM
+        test_sunday_700pm = CT_TZ.localize(datetime(2024, 1, 7, 19, 0))   # Sunday 7:00 PM
+        test_monday_830am = CT_TZ.localize(datetime(2024, 1, 8, 8, 30))   # Monday 8:30 AM
+        test_friday_300pm = CT_TZ.localize(datetime(2024, 1, 5, 15, 0))   # Friday 3:00 PM
+        
+        fri_sun_blocks = count_blocks_active_contract(test_friday_330pm, test_sunday_700pm)
+        sun_mon_blocks = count_blocks_active_contract(test_sunday_700pm, test_monday_830am)
+        fri_mon_blocks = count_blocks_active_contract(test_friday_300pm, test_monday_830am)
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            status = "✅" if fri_sun_blocks == 0 else "❌"
+            st.metric(f"{status} Fri 3:30p → Sun 7:00p", f"{fri_sun_blocks} blocks", help="Should be 0 (excluded period)")
+        
+        with col2:
+            status = "✅" if sun_mon_blocks == 27 else "❌"
+            st.metric(f"{status} Sun 7:00p → Mon 8:30a", f"{sun_mon_blocks} blocks", help="Should be 27 blocks")
+        
+        with col3:
+            status = "✅" if fri_mon_blocks == 28 else "❌"
+            st.metric(f"{status} Fri 3:00p → Mon 8:30a", f"{fri_mon_blocks} blocks", help="Should be 28 blocks")
+        
+        # Test clock mode (SPX) with maintenance hour
+        test_morning = CT_TZ.localize(datetime(2024, 1, 5, 9, 0))   # 9:00 AM
+        test_evening = CT_TZ.localize(datetime(2024, 1, 5, 18, 0))  # 6:00 PM
+        
+        clock_blocks = count_blocks_clock(test_morning, test_evening)
+        expected_blocks = 16  # 9:00-16:00 (14 blocks) + 17:00-18:00 (2 blocks) = 16 total
+        
+        status = "✅" if clock_blocks == expected_blocks else "❌"
+        st.metric(f"{status} Clock Mode 9:00a → 6:00p", f"{clock_blocks} blocks", 
+                 help=f"Should be {expected_blocks} blocks (excluding 4:00-5:00 PM maintenance)")
+        
+        st.markdown("### ⚙️ Configuration Summary")
+        st.info(f"""
+        **Current Settings:**
+        • SPX Close: {spx_close_anchor:.2f} @ 3:00 PM
+        • SPX High: {spx_high_anchor:.2f} @ {spx_high_time_input.strftime('%I:%M %p')}
+        • SPX Low: {spx_low_anchor:.2f} @ {spx_low_time_input.strftime('%I:%M %p')}
+        • Contract Anchor: ${contract_anchor:.2f} @ 3:30 PM
+        • Strike: {strike}C
+        """)
     
     # Footer
     st.markdown("""
