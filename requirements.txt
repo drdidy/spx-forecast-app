@@ -1,39 +1,19 @@
-# MarketLens Pro - Requirements
-# Enterprise-grade SPX & Multi-Asset Forecasting Platform
-# Version: 4.1.0
+# SPX Prophet - Requirements
+# Institutional SPX Prediction System
+# Version: 5.0.0
 
 # Core Framework
 streamlit>=1.36
-streamlit-option-menu>=0.3.6
 
-# Data Processing & Analysis
+# Data Processing
 pandas>=2.2
 numpy>=1.26
 
-# Financial Data & Trading
+# Financial Data
 yfinance>=0.2.40
-alpaca-py>=0.20.0
 
-# Visualization & Export
+# Visualization
 plotly>=5.22
-kaleido>=0.2.1
-matplotlib>=3.9.0   # Backup plotting option in case Plotly fails
 
-# Performance & Utilities
-orjson>=3.10
-requests>=2.32
-python-dotenv>=1.0
-pydantic>=2.7
-tenacity>=8.2
-tzdata>=2024.1
-
-# Optional Enhanced Features
-# streamlit-authenticator>=0.2.3  # For user authentication
-# streamlit-analytics>=0.4.1      # For usage analytics
-# streamlit-aggrid>=0.3.4         # For advanced data grids
-# streamlit-elements>=0.1.0       # For custom components
-
-# Development Dependencies (for local dev)
-# black>=23.0.0                   # Code formatting
-# flake8>=6.0.0                   # Code linting
-# mypy>=1.5.0                     # Type checking
+# Timezone
+pytz>=2023.3
