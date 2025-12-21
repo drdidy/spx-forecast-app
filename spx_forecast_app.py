@@ -39,6 +39,11 @@ POLYGON_BASE_URL = "https://api.polygon.io"
 POLYGON_SPX = "I:SPX"
 POLYGON_VIX = "I:VIX"
 
+# Polygon access flags - set based on your subscription
+# Indices requires paid plan ($49/mo Starter), Stocks is free
+POLYGON_HAS_INDICES = True   # ENABLED - David has Indices Starter!
+POLYGON_HAS_STOCKS = True    # Free tier works for stocks
+
 # ============================================================================
 # CONFIGURATION - All times in CT (Chicago Time)
 # ============================================================================
@@ -457,23 +462,30 @@ def polygon_get_30min_vix_candles(session_date: datetime) -> Optional[pd.DataFra
 def check_polygon_connection() -> PolygonStatus:
     """
     Check if Polygon API is accessible and return status.
+    Tests with VIX endpoint since we have Indices Starter.
     """
     status = PolygonStatus()
     try:
-        # Simple test call
-        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{POLYGON_SPX}/prev"
+        # Test with VIX endpoint (we have Indices Starter now!)
+        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/I:VIX/prev"
         params = {"apiKey": POLYGON_API_KEY}
         response = requests.get(url, params=params, timeout=5)
         
         if response.status_code == 200:
             data = response.json()
             status.connected = True
-            status.data_delay = "15-min (Basic Plan)"
-            if data.get("results"):
-                status.spx_price = data["results"][0].get("c", 0)
+            if POLYGON_HAS_INDICES:
+                status.data_delay = "Real-time SPX/VIX (Indices Starter)"
+            else:
+                status.data_delay = "Using yfinance for SPX/VIX (Polygon Stocks OK)"
             status.last_update = get_ct_now()
-        elif response.status_code == 403:
+            # Get VIX price
+            if data.get("results"):
+                status.vix_price = data["results"][0].get("c", 0)
+        elif response.status_code == 401:
             status.error_message = "API Key invalid or expired"
+        elif response.status_code == 403:
+            status.error_message = "Not authorized - check subscription"
         else:
             status.error_message = f"API returned status {response.status_code}"
             
@@ -934,6 +946,84 @@ def assess_day(vix: VIXZone, cones: List[Cone], current_price: float) -> DayAsse
 # ============================================================================
 
 import yfinance as yf
+
+@st.cache_data(ttl=300)
+def yf_fetch_overnight_vix_range(session_date: datetime) -> Optional[Dict]:
+    """
+    Fetch VIX overnight range (5pm-6am CT) using yfinance.
+    This provides auto VIX zone detection without needing Polygon paid plan.
+    """
+    try:
+        vix = yf.Ticker("^VIX")
+        
+        # Get prior day for overnight window
+        prev_day = session_date - timedelta(days=1)
+        if session_date.weekday() == 0:  # Monday
+            prev_day = session_date - timedelta(days=3)  # Friday
+        
+        # Fetch 2 days of 1-minute data to capture overnight
+        start = prev_day - timedelta(days=1)
+        end = session_date + timedelta(days=1)
+        
+        df = vix.history(start=start, end=end, interval='1m')
+        
+        if df.empty:
+            # Try with less granular data
+            df = vix.history(start=start, end=end, interval='5m')
+        
+        if df.empty:
+            return None
+        
+        df.index = df.index.tz_convert(CT_TZ)
+        
+        # Filter to overnight window: 5pm CT prev day to 6am CT session day
+        overnight_start = CT_TZ.localize(datetime.combine(prev_day.date(), time(17, 0)))
+        overnight_end = CT_TZ.localize(datetime.combine(session_date.date(), time(6, 0)))
+        
+        mask = (df.index >= overnight_start) & (df.index <= overnight_end)
+        overnight_df = df[mask]
+        
+        if overnight_df.empty:
+            # If no overnight data, use prior day's range as fallback
+            prior_day_mask = df.index.date == prev_day.date()
+            prior_df = df[prior_day_mask]
+            if not prior_df.empty:
+                vix_high = float(prior_df['High'].max())
+                vix_low = float(prior_df['Low'].min())
+                zone_size = round(vix_high - vix_low, 2)
+                return {
+                    'bottom': round(vix_low, 2),
+                    'top': round(vix_high, 2),
+                    'zone_size': zone_size,
+                    'source': 'yfinance (prior day range)'
+                }
+            return None
+        
+        vix_high = float(overnight_df['High'].max())
+        vix_low = float(overnight_df['Low'].min())
+        zone_size = round(vix_high - vix_low, 2)
+        
+        return {
+            'bottom': round(vix_low, 2),
+            'top': round(vix_high, 2),
+            'zone_size': zone_size,
+            'bar_count': len(overnight_df),
+            'source': 'yfinance'
+        }
+    except Exception as e:
+        return None
+
+@st.cache_data(ttl=60)
+def yf_fetch_current_vix() -> float:
+    """Fetch current VIX price using yfinance."""
+    try:
+        vix = yf.Ticker("^VIX")
+        data = vix.history(period='1d', interval='1m')
+        if not data.empty:
+            return float(data['Close'].iloc[-1])
+    except:
+        pass
+    return 0.0
 
 @st.cache_data(ttl=300)
 def yf_fetch_prior_session(session_date: datetime) -> Optional[Dict]:
@@ -1591,32 +1681,50 @@ def main():
         polygon_status = check_polygon_connection()
     
     # Fetch VIX Zone (auto or manual)
+    # Note: Polygon Indices requires paid plan, so we use yfinance for VIX
     vix_auto_detected = False
     vix_bottom = st.session_state.vix_bottom
     vix_top = st.session_state.vix_top
     
-    if st.session_state.use_polygon and not st.session_state.use_manual_vix:
-        overnight_vix = polygon_get_overnight_vix_range(session_dt)
+    if not st.session_state.use_manual_vix:
+        # Try Polygon first if we have paid Indices access
+        overnight_vix = None
+        if POLYGON_HAS_INDICES and st.session_state.use_polygon:
+            overnight_vix = polygon_get_overnight_vix_range(session_dt)
+        
+        # Otherwise use yfinance (free, works great)
+        if overnight_vix is None:
+            overnight_vix = yf_fetch_overnight_vix_range(session_dt)
+        
         if overnight_vix:
             vix_bottom = overnight_vix['bottom']
             vix_top = overnight_vix['top']
             vix_auto_detected = True
+    
+    # Also auto-fetch current VIX if not manually set
+    if st.session_state.vix_current == 0:
+        current_vix = yf_fetch_current_vix()
+        if current_vix > 0:
+            st.session_state.vix_current = current_vix
     
     # Fetch Pivots (auto or manual)
     pivot_auto_detected = False
     pivot_source = ""
     prior = None
     
-    if st.session_state.use_polygon and not st.session_state.use_manual_pivots:
+    # Use yfinance for SPX pivots (Polygon Indices requires paid plan)
+    # When POLYGON_HAS_INDICES is True, we'll use Polygon instead
+    if POLYGON_HAS_INDICES and st.session_state.use_polygon and not st.session_state.use_manual_pivots:
         prior = polygon_get_prior_session_pivots(session_dt)
         if prior:
             pivot_auto_detected = True
             pivot_source = "Polygon"
     
-    # Fallback to yfinance
+    # Use yfinance (free, works great for historical data)
     if prior is None:
         prior = yf_fetch_prior_session(session_dt)
         if prior:
+            pivot_auto_detected = True  # Still auto-detected, just via yfinance
             pivot_source = "yfinance"
     
     # Use manual pivots if enabled
@@ -1651,9 +1759,9 @@ def main():
         low_time = high_time
         high_close = 0
     
-    # Get current SPX price
+    # Get current SPX price (use yfinance since Polygon Indices requires paid plan)
     spx = 0.0
-    if st.session_state.use_polygon:
+    if POLYGON_HAS_INDICES and st.session_state.use_polygon:
         spx = polygon_get_current_price(POLYGON_SPX) or 0.0
     if spx == 0:
         spx = yf_fetch_current_spx() or prior_close or 6000
