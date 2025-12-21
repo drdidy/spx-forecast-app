@@ -247,7 +247,7 @@ def polygon_get_intraday_bars(ticker: str, date_str: str, timespan: str = "30", 
         st.session_state.polygon_error = str(e)
         return None
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)  # Reduced cache time
 def polygon_get_overnight_vix_range(session_date: datetime) -> Optional[Dict]:
     """
     AUTO-DETECT VIX ZONE: Get VIX high/low from 2am CT to 6am CT session day.
@@ -292,24 +292,31 @@ def polygon_get_overnight_vix_range(session_date: datetime) -> Optional[Dict]:
                 actual_end = df['datetime'].max()
                 
                 if not zone_df.empty:
-                    vix_high = zone_df['h'].max()
-                    vix_low = zone_df['l'].min()
+                    vix_high = float(zone_df['h'].max())
+                    vix_low = float(zone_df['l'].min())
                     zone_size = round(vix_high - vix_low, 2)
+                    
+                    # Get the actual filtered time range
+                    filtered_start = zone_df['datetime'].min()
+                    filtered_end = zone_df['datetime'].max()
                     
                     return {
                         'bottom': round(vix_low, 2),
                         'top': round(vix_high, 2),
                         'zone_size': zone_size,
                         'bar_count': len(zone_df),
-                        'start_time': zone_df['datetime'].min(),
-                        'end_time': zone_df['datetime'].max(),
+                        'start_time': filtered_start,
+                        'end_time': filtered_end,
                         # Debug info
                         'requested_start': zone_start.strftime('%Y-%m-%d %H:%M CT'),
                         'requested_end': zone_end.strftime('%Y-%m-%d %H:%M CT'),
+                        'filtered_data_start': filtered_start.strftime('%Y-%m-%d %H:%M CT'),
+                        'filtered_data_end': filtered_end.strftime('%Y-%m-%d %H:%M CT'),
                         'actual_data_start': actual_start.strftime('%Y-%m-%d %H:%M CT'),
                         'actual_data_end': actual_end.strftime('%Y-%m-%d %H:%M CT'),
                         'total_bars_fetched': len(df),
-                        'overnight_bars_found': len(zone_df)
+                        'overnight_bars_found': len(zone_df),
+                        'session_date': session_date_str
                     }
                 else:
                     # No data found in window - return debug info about what we got
@@ -324,7 +331,8 @@ def polygon_get_overnight_vix_range(session_date: datetime) -> Optional[Dict]:
                         'actual_data_start': actual_start.strftime('%Y-%m-%d %H:%M CT') if not df.empty else 'N/A',
                         'actual_data_end': actual_end.strftime('%Y-%m-%d %H:%M CT') if not df.empty else 'N/A',
                         'total_bars_fetched': len(df),
-                        'overnight_bars_found': 0
+                        'overnight_bars_found': 0,
+                        'session_date': session_date_str
                     }
         
         return None
@@ -1886,6 +1894,7 @@ def main():
     if vix_debug_info:
         with st.expander("🔍 VIX Zone Debug Info (click to expand)"):
             st.markdown("### VIX Data Detection Details")
+            st.markdown(f"**Session Date:** {vix_debug_info.get('session_date', 'N/A')}")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -1894,14 +1903,19 @@ def main():
                 st.write(f"End: {vix_debug_info.get('requested_end', 'N/A')}")
             
             with col2:
-                st.markdown("**Actual Data Received:**")
-                st.write(f"Start: {vix_debug_info.get('actual_data_start', 'N/A')}")
-                st.write(f"End: {vix_debug_info.get('actual_data_end', 'N/A')}")
+                st.markdown("**Filtered Data Used:**")
+                st.write(f"Start: {vix_debug_info.get('filtered_data_start', 'N/A')}")
+                st.write(f"End: {vix_debug_info.get('filtered_data_end', 'N/A')}")
+            
+            st.markdown("---")
+            st.markdown("**Raw API Data Range (before filtering):**")
+            st.write(f"Start: {vix_debug_info.get('actual_data_start', 'N/A')}")
+            st.write(f"End: {vix_debug_info.get('actual_data_end', 'N/A')}")
             
             st.markdown("---")
             st.markdown("**Bar Counts:**")
             st.write(f"Total bars fetched from API: {vix_debug_info.get('total_bars_fetched', 'N/A')}")
-            st.write(f"Bars within overnight window: {vix_debug_info.get('overnight_bars_found', vix_debug_info.get('bar_count', 'N/A'))}")
+            st.write(f"Bars within 2am-6am window: {vix_debug_info.get('overnight_bars_found', vix_debug_info.get('bar_count', 'N/A'))}")
             
             st.markdown("---")
             st.markdown("**Detected Zone:**")
