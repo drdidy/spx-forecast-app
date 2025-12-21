@@ -277,10 +277,57 @@ def polygon_get_options_chain_snapshot(underlying: str, expiry_date: str, option
     except:
         return []
 
+def get_next_trading_day() -> datetime:
+    """
+    Get the next trading day (for 0DTE options).
+    - If today is a weekday and market is open/will open, use today
+    - If today is Saturday, use Monday
+    - If today is Sunday, use Monday
+    - If today is a weekday but after 4pm CT, use next weekday
+    
+    Note: This doesn't account for market holidays - would need a holiday calendar for that.
+    """
+    now = get_ct_now()
+    today = now.date()
+    weekday = today.weekday()  # Monday=0, Sunday=6
+    current_time = now.time()
+    market_close = time(16, 0)  # 4:00 PM CT
+    
+    if weekday == 5:  # Saturday
+        # Next trading day is Monday
+        next_day = today + timedelta(days=2)
+    elif weekday == 6:  # Sunday
+        # Next trading day is Monday
+        next_day = today + timedelta(days=1)
+    elif current_time > market_close:
+        # After market close on a weekday, use next weekday
+        if weekday == 4:  # Friday after close
+            next_day = today + timedelta(days=3)  # Monday
+        else:
+            next_day = today + timedelta(days=1)
+    else:
+        # During trading hours or before market open on a weekday
+        next_day = today
+    
+    return datetime.combine(next_day, time(0, 0))
+
+def get_trading_day_label() -> str:
+    """Get a human-readable label for the trading day being displayed."""
+    now = get_ct_now()
+    today = now.date()
+    next_trading = get_next_trading_day().date()
+    
+    if next_trading == today:
+        return "Today"
+    elif next_trading == today + timedelta(days=1):
+        return "Tomorrow"
+    else:
+        return next_trading.strftime("%A, %b %d")
+
 def get_option_pricing_for_setup(setup: TradeSetup, current_spx: float) -> TradeSetup:
     """Fetch live option pricing for a trade setup. Uses SPY and converts to SPX equivalent."""
-    today = get_ct_now().date()
-    expiry = datetime.combine(today, time(0, 0))
+    # Use next trading day for 0DTE options (handles weekends)
+    expiry = get_next_trading_day()
     
     option_type = "C" if setup.direction == "CALLS" else "P"
     
@@ -1408,6 +1455,43 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
         </div>
 '''
     
+    # Weekend/After-hours Planning Banner
+    now = get_ct_now()
+    weekday = now.weekday()
+    current_time = now.time()
+    market_open = time(9, 30)
+    market_close = time(16, 0)
+    
+    is_weekend = weekday >= 5
+    is_after_hours = weekday < 5 and (current_time < market_open or current_time > market_close)
+    
+    if is_weekend or is_after_hours:
+        next_trading = get_next_trading_day()
+        trading_label = get_trading_day_label()
+        
+        if is_weekend:
+            banner_title = "📅 Weekend Planning Mode"
+            banner_text = f"Markets are closed. Showing projected setups and option prices for <strong>{trading_label} ({next_trading.strftime('%b %d')})</strong>. Prices will update when markets open."
+        else:
+            if current_time < market_open:
+                banner_title = "🌅 Pre-Market Planning"
+                banner_text = f"Market opens at 9:30 AM CT. Showing projected setups for <strong>today's session</strong>."
+            else:
+                banner_title = "🌙 After-Hours Planning"
+                banner_text = f"Markets are closed. Showing projected setups for <strong>{trading_label} ({next_trading.strftime('%b %d')})</strong>."
+        
+        html += f'''
+        <div class="neo-card" style="background:linear-gradient(135deg, {blue}15, {blue}05);border:1px solid {blue}30;margin-bottom:24px;">
+            <div style="display:flex;align-items:center;gap:16px;">
+                <div style="font-size:24px;">{banner_title.split()[0]}</div>
+                <div>
+                    <div style="font-weight:700;font-size:16px;color:{blue};">{banner_title[2:]}</div>
+                    <div style="font-size:14px;color:{text_med};margin-top:4px;">{banner_text}</div>
+                </div>
+            </div>
+        </div>
+'''
+    
     # Alert Banner
     if active_cone_info:
         inside = active_cone_info.get('inside_cone')
@@ -1498,13 +1582,21 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
         </div>
 '''
     
+    # Get trading day label for options
+    trading_day_label = get_trading_day_label()
+    next_expiry = get_next_trading_day()
+    expiry_str = next_expiry.strftime("%b %d")
+    
     # CALLS Setups
     calls_setups = [s for s in setups if s.direction == 'CALLS']
     if calls_setups:
         html += f'''
         <div class="section-header">
             <div class="section-title" style="color:{green};">▲ Calls Setups</div>
-            <span style="font-size:13px;color:{text_light};">Enter at Descending Rail</span>
+            <div style="display:flex;align-items:center;gap:12px;">
+                <span class="pill pill-neutral" style="font-size:11px;">0DTE {expiry_str} ({trading_day_label})</span>
+                <span style="font-size:13px;color:{text_light};">Enter at Descending Rail</span>
+            </div>
         </div>
         
         <div class="neo-card table-card" style="overflow-x:auto;">
