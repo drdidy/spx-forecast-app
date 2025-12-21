@@ -295,6 +295,10 @@ def polygon_get_overnight_vix_range(session_date: datetime) -> Optional[Dict]:
                 mask = (df['datetime'] >= overnight_start) & (df['datetime'] <= overnight_end)
                 overnight_df = df[mask]
                 
+                # Store debug info about what data we actually got
+                actual_start = df['datetime'].min()
+                actual_end = df['datetime'].max()
+                
                 if not overnight_df.empty:
                     vix_high = overnight_df['h'].max()
                     vix_low = overnight_df['l'].min()
@@ -306,7 +310,29 @@ def polygon_get_overnight_vix_range(session_date: datetime) -> Optional[Dict]:
                         'zone_size': zone_size,
                         'bar_count': len(overnight_df),
                         'start_time': overnight_df['datetime'].min(),
-                        'end_time': overnight_df['datetime'].max()
+                        'end_time': overnight_df['datetime'].max(),
+                        # Debug info
+                        'requested_start': overnight_start.strftime('%Y-%m-%d %H:%M CT'),
+                        'requested_end': overnight_end.strftime('%Y-%m-%d %H:%M CT'),
+                        'actual_data_start': actual_start.strftime('%Y-%m-%d %H:%M CT'),
+                        'actual_data_end': actual_end.strftime('%Y-%m-%d %H:%M CT'),
+                        'total_bars_fetched': len(df),
+                        'overnight_bars_found': len(overnight_df)
+                    }
+                else:
+                    # No overnight data found - return debug info about what we got
+                    return {
+                        'bottom': 0,
+                        'top': 0,
+                        'zone_size': 0,
+                        'bar_count': 0,
+                        'error': 'No data in overnight window',
+                        'requested_start': overnight_start.strftime('%Y-%m-%d %H:%M CT'),
+                        'requested_end': overnight_end.strftime('%Y-%m-%d %H:%M CT'),
+                        'actual_data_start': actual_start.strftime('%Y-%m-%d %H:%M CT'),
+                        'actual_data_end': actual_end.strftime('%Y-%m-%d %H:%M CT'),
+                        'total_bars_fetched': len(df),
+                        'overnight_bars_found': 0
                     }
         
         return None
@@ -1685,6 +1711,7 @@ def main():
     vix_auto_detected = False
     vix_bottom = st.session_state.vix_bottom
     vix_top = st.session_state.vix_top
+    vix_debug_info = None  # Store debug info about VIX detection
     
     if not st.session_state.use_manual_vix:
         # Try Polygon first if we have paid Indices access
@@ -1700,6 +1727,7 @@ def main():
             vix_bottom = overnight_vix['bottom']
             vix_top = overnight_vix['top']
             vix_auto_detected = True
+            vix_debug_info = overnight_vix  # Save all debug info
     
     # Also auto-fetch current VIX if not manually set
     if st.session_state.vix_current == 0:
@@ -1861,6 +1889,36 @@ def main():
     )
     
     components.html(html, height=1600, scrolling=True)
+    
+    # ========== VIX DEBUG INFO ==========
+    if vix_debug_info:
+        with st.expander("🔍 VIX Zone Debug Info (click to expand)"):
+            st.markdown("### VIX Data Detection Details")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Requested Window:**")
+                st.write(f"Start: {vix_debug_info.get('requested_start', 'N/A')}")
+                st.write(f"End: {vix_debug_info.get('requested_end', 'N/A')}")
+            
+            with col2:
+                st.markdown("**Actual Data Received:**")
+                st.write(f"Start: {vix_debug_info.get('actual_data_start', 'N/A')}")
+                st.write(f"End: {vix_debug_info.get('actual_data_end', 'N/A')}")
+            
+            st.markdown("---")
+            st.markdown("**Bar Counts:**")
+            st.write(f"Total bars fetched from API: {vix_debug_info.get('total_bars_fetched', 'N/A')}")
+            st.write(f"Bars within overnight window: {vix_debug_info.get('overnight_bars_found', vix_debug_info.get('bar_count', 'N/A'))}")
+            
+            st.markdown("---")
+            st.markdown("**Detected Zone:**")
+            st.write(f"Bottom: {vix_debug_info.get('bottom', 'N/A')}")
+            st.write(f"Top: {vix_debug_info.get('top', 'N/A')}")
+            st.write(f"Zone Size: {vix_debug_info.get('zone_size', 'N/A')}")
+            
+            if vix_debug_info.get('error'):
+                st.error(f"Error: {vix_debug_info.get('error')}")
 
 if __name__ == "__main__":
     main()
