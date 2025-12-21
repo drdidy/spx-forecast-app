@@ -1,19 +1,6 @@
-# SPX Prophet - Requirements
-# Institutional SPX Prediction System
-# Version: 5.0.0
-
-# Core Framework
-streamlit>=1.36
-
-# Data Processing
-pandas>=2.2
-numpy>=1.26
-
-# Financial Data
-yfinance>=0.2.40
-
-# Visualization
-plotly>=5.22
-
-# Timezone
+streamlit>=1.28.0
+pandas>=2.0.0
+numpy>=1.24.0
+requests>=2.31.0
+yfinance>=0.2.28
 pytz>=2023.3
