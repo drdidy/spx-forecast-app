@@ -32,7 +32,7 @@ import streamlit.components.v1 as components
 # POLYGON.IO CONFIGURATION
 # ============================================================================
 
-POLYGON_API_KEY = "M5KOZX3GYRYO2TGG"  # Your API Key
+POLYGON_API_KEY = "DCWuTS1R_fukpfjgf7QnXrLTEOS_giq6"  # Your API Key
 POLYGON_BASE_URL = "https://api.polygon.io"
 
 # Ticker symbols for Polygon (indices use I: prefix)
