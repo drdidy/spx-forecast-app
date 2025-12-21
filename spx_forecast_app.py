@@ -250,29 +250,21 @@ def polygon_get_intraday_bars(ticker: str, date_str: str, timespan: str = "30", 
 @st.cache_data(ttl=300)
 def polygon_get_overnight_vix_range(session_date: datetime) -> Optional[Dict]:
     """
-    AUTO-DETECT VIX ZONE: Get VIX high/low from 5pm CT previous day to 6am CT session day.
+    AUTO-DETECT VIX ZONE: Get VIX high/low from 2am CT to 6am CT session day.
     
-    This is the KEY new feature - automatically detects the overnight VIX zone
-    instead of requiring manual input.
+    Note: VIX index data from Polygon starts around 2:15am CT (pre-market).
+    This captures the early morning VIX range before RTH opens.
     
     Returns:
         Dict with 'bottom', 'top', 'zone_size', and bar data
     """
     try:
-        # Calculate date range for overnight window
-        # 5pm CT previous day to 6am CT session day
-        prev_day = session_date - timedelta(days=1)
-        
-        # Account for weekends - if session is Monday, go back to Friday
-        if session_date.weekday() == 0:  # Monday
-            prev_day = session_date - timedelta(days=3)  # Friday
-        
-        prev_date_str = prev_day.strftime("%Y-%m-%d")
+        # Calculate date range for early morning window
+        # 2am CT to 6am CT on session day
         session_date_str = session_date.strftime("%Y-%m-%d")
         
-        # Get 1-minute VIX bars for the overnight period
-        # We need data from previous day evening through current day morning
-        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{POLYGON_VIX}/range/1/minute/{prev_date_str}/{session_date_str}"
+        # Get 1-minute VIX bars for the session day
+        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{POLYGON_VIX}/range/1/minute/{session_date_str}/{session_date_str}"
         params = {
             "adjusted": "true",
             "sort": "asc",
@@ -288,56 +280,56 @@ def polygon_get_overnight_vix_range(session_date: datetime) -> Optional[Dict]:
                 df['datetime'] = pd.to_datetime(df['t'], unit='ms', utc=True)
                 df['datetime'] = df['datetime'].dt.tz_convert(CT_TZ)
                 
-                # Filter to overnight window: 5pm CT to 6am CT
-                overnight_start = CT_TZ.localize(datetime.combine(prev_day.date(), time(17, 0)))
-                overnight_end = CT_TZ.localize(datetime.combine(session_date.date(), time(6, 0)))
+                # Filter to early morning window: 2am CT to 6am CT
+                zone_start = CT_TZ.localize(datetime.combine(session_date.date(), time(2, 0)))
+                zone_end = CT_TZ.localize(datetime.combine(session_date.date(), time(6, 0)))
                 
-                mask = (df['datetime'] >= overnight_start) & (df['datetime'] <= overnight_end)
-                overnight_df = df[mask]
+                mask = (df['datetime'] >= zone_start) & (df['datetime'] <= zone_end)
+                zone_df = df[mask]
                 
                 # Store debug info about what data we actually got
                 actual_start = df['datetime'].min()
                 actual_end = df['datetime'].max()
                 
-                if not overnight_df.empty:
-                    vix_high = overnight_df['h'].max()
-                    vix_low = overnight_df['l'].min()
+                if not zone_df.empty:
+                    vix_high = zone_df['h'].max()
+                    vix_low = zone_df['l'].min()
                     zone_size = round(vix_high - vix_low, 2)
                     
                     return {
                         'bottom': round(vix_low, 2),
                         'top': round(vix_high, 2),
                         'zone_size': zone_size,
-                        'bar_count': len(overnight_df),
-                        'start_time': overnight_df['datetime'].min(),
-                        'end_time': overnight_df['datetime'].max(),
+                        'bar_count': len(zone_df),
+                        'start_time': zone_df['datetime'].min(),
+                        'end_time': zone_df['datetime'].max(),
                         # Debug info
-                        'requested_start': overnight_start.strftime('%Y-%m-%d %H:%M CT'),
-                        'requested_end': overnight_end.strftime('%Y-%m-%d %H:%M CT'),
+                        'requested_start': zone_start.strftime('%Y-%m-%d %H:%M CT'),
+                        'requested_end': zone_end.strftime('%Y-%m-%d %H:%M CT'),
                         'actual_data_start': actual_start.strftime('%Y-%m-%d %H:%M CT'),
                         'actual_data_end': actual_end.strftime('%Y-%m-%d %H:%M CT'),
                         'total_bars_fetched': len(df),
-                        'overnight_bars_found': len(overnight_df)
+                        'overnight_bars_found': len(zone_df)
                     }
                 else:
-                    # No overnight data found - return debug info about what we got
+                    # No data found in window - return debug info about what we got
                     return {
                         'bottom': 0,
                         'top': 0,
                         'zone_size': 0,
                         'bar_count': 0,
-                        'error': 'No data in overnight window',
-                        'requested_start': overnight_start.strftime('%Y-%m-%d %H:%M CT'),
-                        'requested_end': overnight_end.strftime('%Y-%m-%d %H:%M CT'),
-                        'actual_data_start': actual_start.strftime('%Y-%m-%d %H:%M CT'),
-                        'actual_data_end': actual_end.strftime('%Y-%m-%d %H:%M CT'),
+                        'error': 'No data in 2am-6am window',
+                        'requested_start': zone_start.strftime('%Y-%m-%d %H:%M CT'),
+                        'requested_end': zone_end.strftime('%Y-%m-%d %H:%M CT'),
+                        'actual_data_start': actual_start.strftime('%Y-%m-%d %H:%M CT') if not df.empty else 'N/A',
+                        'actual_data_end': actual_end.strftime('%Y-%m-%d %H:%M CT') if not df.empty else 'N/A',
                         'total_bars_fetched': len(df),
                         'overnight_bars_found': 0
                     }
         
         return None
     except Exception as e:
-        st.session_state.polygon_error = f"Overnight VIX error: {str(e)}"
+        st.session_state.polygon_error = f"VIX zone error: {str(e)}"
         return None
 
 @st.cache_data(ttl=60)
