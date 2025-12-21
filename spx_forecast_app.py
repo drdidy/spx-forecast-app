@@ -160,6 +160,11 @@ class TradeSetup:
     using_spy: bool = False
     recommended_entry_price: float = 0.0
     max_entry_price: float = 0.0
+    # SPX equivalent prices (from SPY × 10)
+    spx_equiv_bid: float = 0.0
+    spx_equiv_ask: float = 0.0
+    spx_equiv_mid: float = 0.0
+    spy_strike_used: int = 0
 
 @dataclass
 class DayAssessment:
@@ -273,35 +278,46 @@ def polygon_get_options_chain_snapshot(underlying: str, expiry_date: str, option
         return []
 
 def get_option_pricing_for_setup(setup: TradeSetup, current_spx: float) -> TradeSetup:
-    """Fetch live option pricing for a trade setup."""
+    """Fetch live option pricing for a trade setup. Uses SPY and converts to SPX equivalent."""
     today = get_ct_now().date()
     expiry = datetime.combine(today, time(0, 0))
     
     option_type = "C" if setup.direction == "CALLS" else "P"
     
-    # Try SPX first
+    # Try SPX first (unlikely to work without expensive data subscription)
     spx_ticker = build_option_ticker("SPX", expiry, setup.strike, option_type)
     spx_quote = polygon_get_option_quote(spx_ticker)
     
     if spx_quote and (spx_quote.bid > 0 or spx_quote.ask > 0):
         setup.spx_option = spx_quote
         setup.using_spy = False
-        # Recommended entry is between bid and mid
+        setup.spx_equiv_bid = spx_quote.bid
+        setup.spx_equiv_ask = spx_quote.ask
+        setup.spx_equiv_mid = spx_quote.mid
         if spx_quote.bid > 0 and spx_quote.ask > 0:
             setup.recommended_entry_price = round((spx_quote.bid + spx_quote.mid) / 2, 2)
             setup.max_entry_price = spx_quote.mid
     else:
-        # Fallback to SPY (strike ÷ 10)
+        # Fallback to SPY (strike ÷ 10) - This is the common path
         spy_strike = round(setup.strike / 10)
+        setup.spy_strike_used = spy_strike
         spy_ticker = build_option_ticker("SPY", expiry, spy_strike, option_type)
         spy_quote = polygon_get_option_quote(spy_ticker)
         
         if spy_quote and (spy_quote.bid > 0 or spy_quote.ask > 0):
             setup.spy_option = spy_quote
             setup.using_spy = True
+            
+            # Convert SPY prices to SPX equivalent (multiply by 10)
+            # SPY options are 1/10th the notional of SPX
+            setup.spx_equiv_bid = round(spy_quote.bid * 10, 2)
+            setup.spx_equiv_ask = round(spy_quote.ask * 10, 2)
+            setup.spx_equiv_mid = round(spy_quote.mid * 10, 2)
+            
             if spy_quote.bid > 0 and spy_quote.ask > 0:
-                setup.recommended_entry_price = round((spy_quote.bid + spy_quote.mid) / 2, 2)
-                setup.max_entry_price = spy_quote.mid
+                # Recommended entry in SPX equivalent terms
+                setup.recommended_entry_price = round((setup.spx_equiv_bid + setup.spx_equiv_mid) / 2, 2)
+                setup.max_entry_price = setup.spx_equiv_mid
     
     return setup
 
@@ -617,8 +633,11 @@ def assess_day(vix: VIXZone, cones: List[Cone]) -> DayAssessment:
 
 def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], setups: List[TradeSetup],
                                  assessment: DayAssessment, prior: Dict, active_cone_info: Dict = None,
-                                 polygon_status: PolygonStatus = None) -> str:
+                                 polygon_status: PolygonStatus = None, pivots: List[Pivot] = None) -> str:
     """Render premium neomorphic trading dashboard."""
+    
+    if pivots is None:
+        pivots = []
     
     # Color palette
     bg = "#e8eef3"
@@ -1488,17 +1507,20 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
             <span style="font-size:13px;color:{text_light};">Enter at Descending Rail</span>
         </div>
         
-        <div class="neo-card table-card">
-            <table>
+        <div class="neo-card table-card" style="overflow-x:auto;">
+            <table style="min-width:100%;">
                 <thead>
                     <tr>
                         <th>Cone</th>
-                        <th>SPX Entry</th>
+                        <th>Entry</th>
                         <th>Strike</th>
-                        <th>Option Price</th>
+                        <th>Bid</th>
+                        <th>Ask</th>
+                        <th>Entry Price</th>
                         <th>Stop</th>
-                        <th>Targets</th>
-                        <th style="text-align:right;">Distance</th>
+                        <th>T1</th>
+                        <th>T2</th>
+                        <th style="text-align:right;">Dist</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1506,40 +1528,37 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
         for s in calls_setups:
             row_class = 'row-active' if s.is_active else ''
             
-            # Option pricing display
-            if s.spx_option and s.spx_option.bid > 0:
-                opt = s.spx_option
-                opt_html = f'''
-                    <div class="option-price">
-                        <div class="bid-ask">{opt.bid:.2f} × {opt.ask:.2f}</div>
-                        <div class="mid">${opt.mid:.2f}</div>
-                        <div class="recommendation">Entry: ${s.recommended_entry_price:.2f}</div>
-                    </div>
-'''
+            # Option pricing - always show SPX equivalent
+            if s.spx_equiv_bid > 0:
+                bid_html = f'<span class="mono">${s.spx_equiv_bid:.2f}</span>'
+                ask_html = f'<span class="mono">${s.spx_equiv_ask:.2f}</span>'
+                entry_html = f'<span class="mono text-green font-bold">${s.recommended_entry_price:.2f}</span>'
+                if s.using_spy:
+                    bid_html += f'<br><span style="font-size:10px;color:{text_light};">SPY {s.spy_strike_used}C</span>'
             elif s.spy_option and s.spy_option.bid > 0:
-                opt = s.spy_option
-                spy_strike = round(s.strike / 10)
-                opt_html = f'''
-                    <div class="option-price">
-                        <div class="bid-ask">SPY {spy_strike}C: {opt.bid:.2f} × {opt.ask:.2f}</div>
-                        <div class="mid">${opt.mid:.2f}</div>
-                        <div class="recommendation" style="color:{amber};">Using SPY</div>
-                    </div>
-'''
+                # Direct SPY display as fallback
+                bid_html = f'<span class="mono">${s.spy_option.bid:.2f}</span><br><span style="font-size:10px;color:{amber};">SPY</span>'
+                ask_html = f'<span class="mono">${s.spy_option.ask:.2f}</span>'
+                entry_html = f'<span class="mono">${s.spy_option.mid:.2f}</span>'
             else:
-                opt_html = f'<span class="text-muted">—</span>'
+                bid_html = f'<span class="text-muted">—</span>'
+                ask_html = f'<span class="text-muted">—</span>'
+                entry_html = f'<span class="text-muted">—</span>'
             
             dist_pill = 'pill-green' if s.distance <= 5 else 'pill-amber' if s.distance <= 15 else 'pill-neutral'
             
             html += f'''
                     <tr class="{row_class}">
                         <td class="font-bold">{s.cone_name}</td>
-                        <td class="mono text-green font-bold">{s.entry:,.2f}</td>
+                        <td class="mono text-green">{s.entry:,.2f}</td>
                         <td class="mono">{s.strike}C</td>
-                        <td>{opt_html}</td>
+                        <td>{bid_html}</td>
+                        <td>{ask_html}</td>
+                        <td>{entry_html}</td>
                         <td class="mono text-red">{s.stop:,.2f}</td>
-                        <td class="mono">{s.target_12:,.2f} → {s.target_25:,.2f} → {s.target_50:,.2f}</td>
-                        <td style="text-align:right;"><span class="pill {dist_pill}">{s.distance:.1f}</span></td>
+                        <td class="mono">{s.target_12:,.2f}</td>
+                        <td class="mono">{s.target_25:,.2f}</td>
+                        <td style="text-align:right;"><span class="pill {dist_pill}">{s.distance:.0f}</span></td>
                     </tr>
 '''
         html += '''
@@ -1557,17 +1576,20 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
             <span style="font-size:13px;color:{text_light};">Enter at Ascending Rail</span>
         </div>
         
-        <div class="neo-card table-card">
-            <table>
+        <div class="neo-card table-card" style="overflow-x:auto;">
+            <table style="min-width:100%;">
                 <thead>
                     <tr>
                         <th>Cone</th>
-                        <th>SPX Entry</th>
+                        <th>Entry</th>
                         <th>Strike</th>
-                        <th>Option Price</th>
+                        <th>Bid</th>
+                        <th>Ask</th>
+                        <th>Entry Price</th>
                         <th>Stop</th>
-                        <th>Targets</th>
-                        <th style="text-align:right;">Distance</th>
+                        <th>T1</th>
+                        <th>T2</th>
+                        <th style="text-align:right;">Dist</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1575,39 +1597,36 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
         for s in puts_setups:
             row_class = 'row-active' if s.is_active else ''
             
-            if s.spx_option and s.spx_option.bid > 0:
-                opt = s.spx_option
-                opt_html = f'''
-                    <div class="option-price">
-                        <div class="bid-ask">{opt.bid:.2f} × {opt.ask:.2f}</div>
-                        <div class="mid">${opt.mid:.2f}</div>
-                        <div class="recommendation">Entry: ${s.recommended_entry_price:.2f}</div>
-                    </div>
-'''
+            # Option pricing - always show SPX equivalent
+            if s.spx_equiv_bid > 0:
+                bid_html = f'<span class="mono">${s.spx_equiv_bid:.2f}</span>'
+                ask_html = f'<span class="mono">${s.spx_equiv_ask:.2f}</span>'
+                entry_html = f'<span class="mono text-green font-bold">${s.recommended_entry_price:.2f}</span>'
+                if s.using_spy:
+                    bid_html += f'<br><span style="font-size:10px;color:{text_light};">SPY {s.spy_strike_used}P</span>'
             elif s.spy_option and s.spy_option.bid > 0:
-                opt = s.spy_option
-                spy_strike = round(s.strike / 10)
-                opt_html = f'''
-                    <div class="option-price">
-                        <div class="bid-ask">SPY {spy_strike}P: {opt.bid:.2f} × {opt.ask:.2f}</div>
-                        <div class="mid">${opt.mid:.2f}</div>
-                        <div class="recommendation" style="color:{amber};">Using SPY</div>
-                    </div>
-'''
+                bid_html = f'<span class="mono">${s.spy_option.bid:.2f}</span><br><span style="font-size:10px;color:{amber};">SPY</span>'
+                ask_html = f'<span class="mono">${s.spy_option.ask:.2f}</span>'
+                entry_html = f'<span class="mono">${s.spy_option.mid:.2f}</span>'
             else:
-                opt_html = f'<span class="text-muted">—</span>'
+                bid_html = f'<span class="text-muted">—</span>'
+                ask_html = f'<span class="text-muted">—</span>'
+                entry_html = f'<span class="text-muted">—</span>'
             
             dist_pill = 'pill-green' if s.distance <= 5 else 'pill-amber' if s.distance <= 15 else 'pill-neutral'
             
             html += f'''
                     <tr class="{row_class}">
                         <td class="font-bold">{s.cone_name}</td>
-                        <td class="mono text-red font-bold">{s.entry:,.2f}</td>
+                        <td class="mono text-red">{s.entry:,.2f}</td>
                         <td class="mono">{s.strike}P</td>
-                        <td>{opt_html}</td>
+                        <td>{bid_html}</td>
+                        <td>{ask_html}</td>
+                        <td>{entry_html}</td>
                         <td class="mono text-green">{s.stop:,.2f}</td>
-                        <td class="mono">{s.target_12:,.2f} → {s.target_25:,.2f} → {s.target_50:,.2f}</td>
-                        <td style="text-align:right;"><span class="pill {dist_pill}">{s.distance:.1f}</span></td>
+                        <td class="mono">{s.target_12:,.2f}</td>
+                        <td class="mono">{s.target_25:,.2f}</td>
+                        <td style="text-align:right;"><span class="pill {dist_pill}">{s.distance:.0f}</span></td>
                     </tr>
 '''
         html += '''
@@ -1641,6 +1660,118 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
                     <div class="data-cell-label">Range</div>
                     <div class="data-cell-value">{prior.get('high', 0) - prior.get('low', 0):,.0f}</div>
                 </div>
+            </div>
+        </div>
+'''
+    
+    # ========================================================================
+    # PIVOT TABLE - All entries at each 30-min block during RTH
+    # ========================================================================
+    if pivots:
+        # RTH time slots: 9:30 AM to 4:00 PM CT in 30-min increments
+        time_slots = []
+        start_hour, start_min = 9, 30
+        end_hour, end_min = 16, 0
+        
+        current_hour, current_min = start_hour, start_min
+        while (current_hour < end_hour) or (current_hour == end_hour and current_min <= end_min):
+            time_slots.append(f"{current_hour}:{current_min:02d}")
+            current_min += 30
+            if current_min >= 60:
+                current_min = 0
+                current_hour += 1
+        
+        # Get today's date for calculations
+        today = get_ct_now().date()
+        
+        html += f'''
+        <div class="section-header" style="margin-top:32px;">
+            <div class="section-title">📊 Pivot Table — All Entries by Time Block</div>
+            <span style="font-size:13px;color:{text_light};">9:30-10:00 AM = Institutional Entry Window</span>
+        </div>
+        
+        <div class="neo-card table-card" style="overflow-x:auto;">
+            <table style="min-width:100%;font-size:12px;">
+                <thead>
+                    <tr>
+                        <th style="position:sticky;left:0;background:{bg};z-index:10;">Time CT</th>
+'''
+        
+        # Header row with pivot names (both directions)
+        for pivot in pivots:
+            html += f'''
+                        <th colspan="2" style="text-align:center;border-left:2px solid {shadow_dark};">{pivot.name}</th>
+'''
+        
+        html += '''
+                    </tr>
+                    <tr>
+                        <th style="position:sticky;left:0;background:''' + bg + ''';">Block</th>
+'''
+        
+        for pivot in pivots:
+            html += f'''
+                        <th style="color:{green};text-align:center;border-left:2px solid {shadow_dark};">▲ Calls</th>
+                        <th style="color:{red};text-align:center;">▼ Puts</th>
+'''
+        
+        html += '''
+                    </tr>
+                </thead>
+                <tbody>
+'''
+        
+        # Generate rows for each time slot
+        for slot in time_slots:
+            hour, minute = map(int, slot.split(':'))
+            slot_time = CT_TZ.localize(datetime.combine(today, time(hour, minute)))
+            
+            # Check if this is the institutional window (9:30-10:00)
+            is_institutional = (hour == 9 and minute >= 30) or (hour == 10 and minute == 0)
+            row_style = f'background:linear-gradient(90deg, {amber}20, {amber}05);' if is_institutional else ''
+            row_highlight = f'<span style="color:{amber};font-weight:700;">🏛️</span> ' if is_institutional else ''
+            
+            html += f'''
+                    <tr style="{row_style}">
+                        <td style="position:sticky;left:0;background:{card_bg if not is_institutional else amber + '15'};font-weight:600;white-space:nowrap;">
+                            {row_highlight}{slot}
+                        </td>
+'''
+            
+            for pivot in pivots:
+                # Calculate cone values at this time
+                start_time = pivot.time + timedelta(minutes=30)
+                
+                # Only calculate if the slot time is after the pivot started
+                if slot_time > start_time:
+                    diff_seconds = (slot_time - start_time).total_seconds()
+                    blocks = max(int(diff_seconds // 1800), 1)
+                    
+                    ascending = pivot.price_for_ascending + (blocks * SLOPE_PER_30MIN)
+                    descending = pivot.price_for_descending - (blocks * SLOPE_PER_30MIN)
+                    
+                    # Format values
+                    calls_entry = f'{descending:,.2f}'
+                    puts_entry = f'{ascending:,.2f}'
+                else:
+                    calls_entry = '—'
+                    puts_entry = '—'
+                
+                html += f'''
+                        <td class="mono" style="text-align:center;color:{green};border-left:2px solid {shadow_dark}40;">{calls_entry}</td>
+                        <td class="mono" style="text-align:center;color:{red};">{puts_entry}</td>
+'''
+            
+            html += '''
+                    </tr>
+'''
+        
+        html += '''
+                </tbody>
+            </table>
+            <div style="margin-top:16px;padding:12px;background:''' + amber + '''15;border-radius:8px;border-left:4px solid ''' + amber + ''';">
+                <span style="font-weight:600;color:''' + amber + ''';">🏛️ Institutional Window (9:30-10:00 AM)</span>
+                <span style="color:''' + text_med + ''';margin-left:12px;">Large institutions typically enter positions during this period. Watch for volume confirmation.</span>
             </div>
         </div>
 '''
@@ -1812,10 +1943,11 @@ def main():
         assessment=assessment,
         prior=prior_data,
         active_cone_info=active_cone_info,
-        polygon_status=polygon_status
+        polygon_status=polygon_status,
+        pivots=pivots
     )
     
-    components.html(dashboard_html, height=2000, scrolling=True)
+    components.html(dashboard_html, height=2800, scrolling=True)
 
 if __name__ == "__main__":
     main()
