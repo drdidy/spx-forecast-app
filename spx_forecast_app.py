@@ -1,1706 +1,1758 @@
 """
-SPX PROPHET v5.0
-The Institutional SPX Prediction System
-
-Predicts SPX moves using VIX algo trigger zones, structural cones, and time-based analysis.
-Features proprietary Expected Move formula and Cone Confluence detection.
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                           SPX PROPHET v5.0                                    ║
+║                    The Complete 0DTE Trading System                           ║
+║                       NOW WITH POLYGON.IO INTEGRATION                         ║
+║                                                                               ║
+║  NEW FEATURES:                                                                ║
+║  • Auto VIX Zone Detection (5pm-6am overnight range)                         ║
+║  • Auto Prior Day Pivot Detection with exact times                           ║
+║  • Live/Delayed SPX & VIX prices from Polygon                                ║
+║  • 30-Minute Candle Close Verification                                        ║
+║  • Real-time Rail Proximity Alerts                                            ║
+║  • Manual Override preserved for all inputs                                   ║
+║                                                                               ║
+║  POLYGON PLAN MODES:                                                          ║
+║  • Basic (Free): 15-min delayed data - still auto-detects zones/pivots       ║
+║  • Starter+: Real-time data with instant updates                             ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta, time, date
-import yfinance as yf
+import requests
+from datetime import datetime, timedelta, time
 import pytz
 from dataclasses import dataclass
-from typing import Optional, List, Tuple, Dict
-from enum import Enum
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+from typing import Optional, Tuple, List, Dict
+import streamlit.components.v1 as components
 
-# =============================================================================
-# PAGE CONFIG
-# =============================================================================
+# ============================================================================
+# POLYGON.IO CONFIGURATION
+# ============================================================================
 
-st.set_page_config(
-    page_title="SPX Prophet",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+POLYGON_API_KEY = "M5KOZX3GYRYO2TGG"  # Your API Key
+POLYGON_BASE_URL = "https://api.polygon.io"
 
-# =============================================================================
-# PREMIUM LIGHT THEME
-# =============================================================================
+# Ticker symbols for Polygon (indices use I: prefix)
+POLYGON_SPX = "I:SPX"
+POLYGON_VIX = "I:VIX"
 
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+# ============================================================================
+# CONFIGURATION - All times in CT (Chicago Time)
+# ============================================================================
 
-/* Base Theme */
-.stApp {
-    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+CT_TZ = pytz.timezone('America/Chicago')
+ET_TZ = pytz.timezone('America/New_York')
+
+# VIX Zone Constants
+VIX_ZONE_ESTABLISHMENT_START = time(17, 0)   # 5:00 PM CT
+VIX_ZONE_ESTABLISHMENT_END = time(6, 0)       # 6:00 AM CT (next day)
+VIX_RELIABLE_BREAKOUT_START = time(6, 0)      # 6:00 AM CT
+VIX_RELIABLE_BREAKOUT_END = time(6, 30)       # 6:30 AM CT
+VIX_DANGER_ZONE_START = time(6, 30)           # 6:30 AM CT
+VIX_DANGER_ZONE_END = time(9, 30)             # 9:30 AM CT
+
+# VIX Zone Size → Expected SPX Move (based on empirical data)
+VIX_TO_SPX_MOVE = {
+    0.10: (35, 40),
+    0.15: (40, 45),
+    0.20: (45, 50),
+    0.25: (50, 55),
+    0.30: (55, 60),
 }
 
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background: #ffffff;
-    border-right: 1px solid #e2e8f0;
-}
+# Cone Constants
+SLOPE_PER_30MIN = 0.45  # Points per 30-min block
+MIN_CONE_WIDTH = 18.0   # Minimum tradeable width
+CONFLUENCE_THRESHOLD = 5.0
 
-section[data-testid="stSidebar"] .stMarkdown h1,
-section[data-testid="stSidebar"] .stMarkdown h2,
-section[data-testid="stSidebar"] .stMarkdown h3 {
-    color: #1e293b;
-}
+# Trade Constants
+STOP_LOSS_PTS = 6.0
+STRIKE_OTM_DISTANCE = 17.5
+DELTA = 0.33
+CONTRACT_MULTIPLIER = 100
 
-/* Hide Streamlit Elements */
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
+# Choppy Day Thresholds
+LOW_VIX_THRESHOLD = 13.0
+NARROW_CONE_THRESHOLD = 25.0
 
-/* Metrics */
-[data-testid="stMetricValue"] {
-    font-family: 'JetBrains Mono', monospace;
-    font-weight: 600;
-    color: #1e293b;
-}
+def get_ct_now() -> datetime:
+    return datetime.now(CT_TZ)
 
-[data-testid="stMetricLabel"] {
-    font-family: 'SF Pro Display', -apple-system, sans-serif;
-    color: #64748b;
-    font-weight: 500;
-    text-transform: uppercase;
-    font-size: 0.7rem;
-    letter-spacing: 0.5px;
-}
-
-[data-testid="stMetricDelta"] {
-    font-family: 'JetBrains Mono', monospace;
-}
-
-/* Cards */
-.prophet-card {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 16px;
-    padding: 24px;
-    margin-bottom: 16px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
-}
-
-.prophet-card-accent {
-    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-    border: 1px solid #e2e8f0;
-    border-radius: 16px;
-    padding: 24px;
-    margin-bottom: 16px;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.04), 0 2px 4px rgba(0,0,0,0.02);
-}
-
-/* Typography */
-.prophet-title {
-    font-family: 'SF Pro Display', -apple-system, sans-serif;
-    font-size: 2rem;
-    font-weight: 700;
-    color: #0f172a;
-    margin: 0;
-    letter-spacing: -0.5px;
-}
-
-.prophet-subtitle {
-    font-family: 'SF Pro Display', -apple-system, sans-serif;
-    font-size: 0.8rem;
-    color: #64748b;
-    font-weight: 500;
-    letter-spacing: 0.5px;
-    margin: 4px 0 0 0;
-}
-
-.prophet-section-title {
-    font-family: 'SF Pro Display', -apple-system, sans-serif;
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    margin: 0 0 16px 0;
-}
-
-.prophet-value-hero {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 2.5rem;
-    font-weight: 700;
-    margin: 0;
-    letter-spacing: -1px;
-}
-
-.prophet-value-large {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: #1e293b;
-    margin: 0;
-}
-
-.prophet-value-medium {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #1e293b;
-    margin: 0;
-}
-
-.prophet-value-small {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.9rem;
-    font-weight: 500;
-    color: #334155;
-    margin: 0;
-}
-
-.prophet-label {
-    font-family: 'SF Pro Display', -apple-system, sans-serif;
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin: 0 0 4px 0;
-}
-
-.prophet-text {
-    font-family: 'SF Pro Display', -apple-system, sans-serif;
-    font-size: 0.9rem;
-    color: #475569;
-    line-height: 1.5;
-    margin: 0;
-}
-
-/* Bias Colors */
-.calls-text { color: #059669; }
-.puts-text { color: #dc2626; }
-.wait-text { color: #d97706; }
-
-.calls-bg { background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 2px solid #059669; }
-.puts-bg { background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%); border: 2px solid #dc2626; }
-.wait-bg { background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border: 2px solid #d97706; }
-
-/* Trigger Zone Styling */
-.trigger-buy {
-    background: linear-gradient(90deg, #dcfce7 0%, #bbf7d0 100%);
-    border-left: 4px solid #059669;
-    padding: 12px 16px;
-    border-radius: 8px;
-    margin: 4px 0;
-}
-
-.trigger-sell {
-    background: linear-gradient(90deg, #fee2e2 0%, #fecaca 100%);
-    border-left: 4px solid #dc2626;
-    padding: 12px 16px;
-    border-radius: 8px;
-    margin: 4px 0;
-}
-
-.trigger-neutral {
-    background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 100%);
-    border-left: 4px solid #64748b;
-    padding: 12px 16px;
-    border-radius: 8px;
-    margin: 4px 0;
-}
-
-/* Confluence Badge */
-.confluence-strong {
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-    border: 2px solid #f59e0b;
-    border-radius: 8px;
-    padding: 8px 12px;
-    display: inline-block;
-}
-
-/* Progress Bar */
-.proximity-bar {
-    height: 8px;
-    border-radius: 4px;
-    background: #e2e8f0;
-    overflow: hidden;
-}
-
-.proximity-fill {
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.3s ease;
-}
-
-/* Data Table */
-.level-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    border-radius: 8px;
-    margin: 4px 0;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-}
-
-.level-row-highlight {
-    background: linear-gradient(90deg, #eff6ff 0%, #dbeafe 100%);
-    border: 1px solid #3b82f6;
-}
-
-/* Inputs */
-div[data-baseweb="input"] > div {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-}
-
-div[data-baseweb="input"] > div:focus-within {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
-
-/* Buttons */
-.stButton > button {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-weight: 600;
-    padding: 8px 24px;
-    transition: all 0.2s ease;
-}
-
-.stButton > button:hover {
-    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-}
-
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] {
-    gap: 0;
-    background: #f1f5f9;
-    padding: 4px;
-    border-radius: 12px;
-}
-
-.stTabs [data-baseweb="tab"] {
-    background: transparent;
-    color: #64748b;
-    border-radius: 8px;
-    padding: 8px 20px;
-    font-weight: 500;
-}
-
-.stTabs [aria-selected="true"] {
-    background: #ffffff;
-    color: #1e293b;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-
-/* Expander */
-.streamlit-expanderHeader {
-    background: #f8fafc;
-    border-radius: 8px;
-    font-weight: 500;
-}
-
-/* Dataframe */
-.stDataFrame {
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    overflow: hidden;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# =============================================================================
-# CONSTANTS
-# =============================================================================
-
-class Config:
-    SLOPE_PER_30MIN = 0.45
-    MIN_CONE_WIDTH = 18.0
-    STOP_LOSS_PTS = 6.0
-    STRIKE_OTM_DISTANCE = 17.5
-    DELTA = 0.33
-    CONTRACT_MULTIPLIER = 100
-    
-    TARGET_1_PCT = 0.125  # 12.5%
-    TARGET_2_PCT = 0.25   # 25%
-    TARGET_3_PCT = 0.50   # 50%
-    
-    CONFLUENCE_THRESHOLD = 6.0  # Points
-    
-    # Expected Move Formula: EM = 35 + ((zone - 0.10) × 100), cap at 65-70
-    EM_BASE = 35
-    EM_ZONE_BASELINE = 0.10
-    EM_MULTIPLIER = 100
-    EM_CAP_LOW = 65
-    EM_CAP_HIGH = 70
-
-
-class Phase(Enum):
-    ZONE_BUILDING = ("Zone Building", "#6366f1", "🌙", "5pm-6am CT")
-    ZONE_LOCKED = ("Zone Locked", "#0ea5e9", "🔒", "6am+ CT")
-    PRE_RTH = ("Pre-RTH", "#8b5cf6", "⏳", "6am-9:30am CT")
-    RTH = ("RTH Active", "#059669", "🟢", "9:30am-4pm CT")
-    POST = ("Post Session", "#64748b", "📊", "After 4pm CT")
-    CLOSED = ("Closed", "#94a3b8", "⭘", "Weekend")
-    
-    def __init__(self, label, color, icon, time_range):
-        self.label = label
-        self.color = color
-        self.icon = icon
-        self.time_range = time_range
-
-
-class Bias(Enum):
-    CALLS = ("CALLS", "#059669", "↑", "calls")
-    PUTS = ("PUTS", "#dc2626", "↓", "puts")
-    WAIT = ("WAIT", "#d97706", "◆", "wait")
-    
-    def __init__(self, label, color, arrow, css):
-        self.label = label
-        self.color = color
-        self.arrow = arrow
-        self.css = css
-
-
-class Confidence(Enum):
-    HIGH = ("HIGH", "●●●", "#059669")
-    MEDIUM = ("MEDIUM", "●●○", "#d97706")
-    LOW = ("LOW", "●○○", "#dc2626")
-    NONE = ("NONE", "○○○", "#94a3b8")
-    
-    def __init__(self, label, dots, color):
-        self.label = label
-        self.dots = dots
-        self.color = color
-
-
-# =============================================================================
+# ============================================================================
 # DATA CLASSES
-# =============================================================================
-
-@dataclass
-class VIXZone:
-    """VIX Zone representing algo trigger boundaries"""
-    bottom: float  # Buy algo trigger
-    top: float     # Sell algo trigger
-    current: float
-    
-    @property
-    def size(self) -> float:
-        return round(self.top - self.bottom, 4)
-    
-    @property
-    def current_zone(self) -> str:
-        """Which zone is VIX currently in"""
-        if self.current > self.top:
-            extensions_above = (self.current - self.top) / self.size if self.size > 0 else 0
-            if extensions_above >= 2:
-                return "+3 Zone"
-            elif extensions_above >= 1:
-                return "+2 Zone"
-            else:
-                return "+1 Zone"
-        elif self.current < self.bottom:
-            extensions_below = (self.bottom - self.current) / self.size if self.size > 0 else 0
-            if extensions_below >= 2:
-                return "-3 Zone"
-            elif extensions_below >= 1:
-                return "-2 Zone"
-            else:
-                return "-1 Zone"
-        else:
-            return "Base Zone"
-    
-    @property
-    def nearest_buy_trigger(self) -> float:
-        """Nearest level where buy algos activate (VIX tops/sells off)"""
-        if self.current <= self.bottom:
-            return self.bottom
-        elif self.current <= self.top:
-            return self.top
-        else:
-            # Above zone - next trigger is top of current extension zone
-            ext = int((self.current - self.top) / self.size) + 1 if self.size > 0 else 1
-            return self.top + (ext * self.size)
-    
-    @property
-    def nearest_sell_trigger(self) -> float:
-        """Nearest level where sell algos activate (VIX bottoms/bounces)"""
-        if self.current >= self.top:
-            return self.top
-        elif self.current >= self.bottom:
-            return self.bottom
-        else:
-            # Below zone - next trigger is bottom of current extension zone
-            ext = int((self.bottom - self.current) / self.size) + 1 if self.size > 0 else 1
-            return self.bottom - (ext * self.size)
-    
-    @property
-    def distance_to_buy_trigger(self) -> float:
-        return round(self.nearest_buy_trigger - self.current, 2)
-    
-    @property
-    def distance_to_sell_trigger(self) -> float:
-        return round(self.current - self.nearest_sell_trigger, 2)
-    
-    def get_extension(self, level: int) -> float:
-        if level > 0:
-            return round(self.top + (level * self.size), 2)
-        elif level < 0:
-            return round(self.bottom + (level * self.size), 2)
-        return self.top if level == 0 else self.bottom
-    
-    def get_expected_move(self) -> Tuple[float, float]:
-        """Calculate proprietary Expected Move based on zone size"""
-        if self.size <= 0:
-            return (0, 0)
-        
-        em_low = Config.EM_BASE + ((self.size - Config.EM_ZONE_BASELINE) * Config.EM_MULTIPLIER)
-        em_high = em_low + 5
-        
-        # Apply cap
-        em_low = min(em_low, Config.EM_CAP_LOW)
-        em_high = min(em_high, Config.EM_CAP_HIGH)
-        
-        return (round(max(em_low, 0), 1), round(em_high, 1))
-
+# ============================================================================
 
 @dataclass
 class Pivot:
-    name: str
     price: float
-    timestamp: datetime
-    pivot_type: str = "primary"
-
+    time: datetime
+    name: str
+    is_secondary: bool = False
+    price_for_ascending: float = 0.0
+    price_for_descending: float = 0.0
+    
+    def __post_init__(self):
+        if self.price_for_ascending == 0.0:
+            self.price_for_ascending = self.price
+        if self.price_for_descending == 0.0:
+            self.price_for_descending = self.price
 
 @dataclass
-class ConeRails:
+class Cone:
+    name: str
     pivot: Pivot
-    ascending: float
-    descending: float
+    ascending_rail: float
+    descending_rail: float
     width: float
     blocks: int
-    
-    @property
-    def is_tradeable(self) -> bool:
-        return self.width >= Config.MIN_CONE_WIDTH
-
 
 @dataclass
-class ConfluentLevel:
-    """A price level where multiple cones converge"""
-    price: float
-    rail_type: str  # "support" or "resistance"
-    cones: List[str]  # Names of converging cones
-    strength: str  # "strong" if 3+, "moderate" if 2
-
+class VIXZone:
+    bottom: float
+    top: float
+    current: float
+    position_pct: float
+    status: str
+    bias: str
+    breakout_time: str
+    zones_above: List[float]
+    zones_below: List[float]
+    zone_size: float = 0.15
+    expected_move: tuple = (40, 45)
+    auto_detected: bool = False  # NEW: Flag if zone was auto-detected
 
 @dataclass
 class TradeSetup:
-    direction: Bias
-    cone: ConeRails
+    direction: str
+    cone_name: str
+    cone_width: float
     entry: float
     stop: float
-    target_1: float
-    target_2: float
-    target_3: float
+    target_12: float
+    target_25: float
+    target_50: float
     strike: int
-    is_confluent: bool = False
-    confluence_cones: List[str] = None
-    
-    @property
-    def reward_1_pts(self) -> float:
-        return abs(self.target_1 - self.entry)
-    
-    @property
-    def reward_2_pts(self) -> float:
-        return abs(self.target_2 - self.entry)
-    
-    @property
-    def reward_3_pts(self) -> float:
-        return abs(self.target_3 - self.entry)
-
+    spx_pts_12: float
+    spx_pts_25: float
+    spx_pts_50: float
+    profit_12: float
+    profit_25: float
+    profit_50: float
+    risk_per_contract: float
+    rr_ratio: float
+    distance: float
+    is_active: bool = False
 
 @dataclass
-class LevelHit:
-    level_name: str
-    level_price: float
-    was_hit: bool
-    hit_time: Optional[str] = None
+class DayAssessment:
+    tradeable: bool
+    score: int
+    reasons: List[str]
+    warnings: List[str]
+    recommendation: str
 
+@dataclass
+class PolygonStatus:
+    """Track Polygon API status and data freshness"""
+    connected: bool = False
+    last_update: Optional[datetime] = None
+    data_delay: str = "Unknown"
+    spx_price: float = 0.0
+    vix_price: float = 0.0
+    error_message: str = ""
 
-# =============================================================================
-# ENGINE
-# =============================================================================
-
-class SPXProphetEngine:
-    def __init__(self):
-        self.ct_tz = pytz.timezone('America/Chicago')
-    
-    def get_current_time_ct(self) -> datetime:
-        return datetime.now(self.ct_tz)
-    
-    def get_phase(self, dt: datetime = None) -> Phase:
-        if dt is None:
-            dt = self.get_current_time_ct()
-        elif dt.tzinfo is None:
-            dt = self.ct_tz.localize(dt)
-        else:
-            dt = dt.astimezone(self.ct_tz)
-        
-        t = dt.time()
-        weekday = dt.weekday()
-        
-        if weekday >= 5:
-            return Phase.CLOSED
-        
-        # 5pm-6am: Zone Building
-        if time(17, 0) <= t or t < time(6, 0):
-            return Phase.ZONE_BUILDING
-        # 6am-9:30am: Zone Locked / Pre-RTH
-        elif time(6, 0) <= t < time(9, 30):
-            return Phase.PRE_RTH
-        # 9:30am-4pm: RTH
-        elif time(9, 30) <= t < time(16, 0):
-            return Phase.RTH
-        # 4pm-5pm: Post
-        elif time(16, 0) <= t < time(17, 0):
-            return Phase.POST
-        
-        return Phase.CLOSED
-    
-    def determine_bias(self, zone: VIXZone) -> Tuple[Bias, Confidence, str]:
-        """
-        Determine bias based on VIX position relative to algo triggers.
-        """
-        dist_to_buy = zone.distance_to_buy_trigger
-        dist_to_sell = zone.distance_to_sell_trigger
-        
-        current_zone = zone.current_zone
-        
-        # If VIX is near top boundary (within 0.05) - buy algos about to trigger
-        if dist_to_buy <= 0.05 and dist_to_buy >= -0.05:
-            bias = Bias.CALLS
-            confidence = Confidence.HIGH
-            explanation = f"VIX at buy trigger ({zone.nearest_buy_trigger:.2f}). Buy algos active. SPX UP."
-        
-        # If VIX is near bottom boundary (within 0.05) - sell algos about to trigger
-        elif dist_to_sell <= 0.05 and dist_to_sell >= -0.05:
-            bias = Bias.PUTS
-            confidence = Confidence.HIGH
-            explanation = f"VIX at sell trigger ({zone.nearest_sell_trigger:.2f}). Sell algos active. SPX DOWN."
-        
-        # VIX above zone - in put territory but watch for buy trigger
-        elif "+" in current_zone:
-            bias = Bias.PUTS
-            confidence = Confidence.MEDIUM if dist_to_buy > 0.10 else Confidence.LOW
-            explanation = f"VIX in {current_zone}. Put bias until buy trigger at {zone.nearest_buy_trigger:.2f}."
-        
-        # VIX below zone - in call territory but watch for sell trigger
-        elif "-" in current_zone:
-            bias = Bias.CALLS
-            confidence = Confidence.MEDIUM if dist_to_sell > 0.10 else Confidence.LOW
-            explanation = f"VIX in {current_zone}. Call bias until sell trigger at {zone.nearest_sell_trigger:.2f}."
-        
-        # VIX in base zone - trend day potential
-        else:
-            bias = Bias.WAIT
-            confidence = Confidence.NONE
-            explanation = f"VIX in Base Zone. Potential trend day. Wait for boundary touch."
-        
-        return bias, confidence, explanation
-    
-    def calculate_blocks(self, pivot_time: datetime, eval_time: datetime) -> int:
-        if pivot_time.tzinfo is None:
-            pivot_time = self.ct_tz.localize(pivot_time)
-        if eval_time.tzinfo is None:
-            eval_time = self.ct_tz.localize(eval_time)
-        
-        diff = eval_time - pivot_time
-        total_minutes = diff.total_seconds() / 60
-        return max(int(total_minutes / 30), 1)
-    
-    def calculate_cone(self, pivot: Pivot, eval_time: datetime) -> ConeRails:
-        blocks = self.calculate_blocks(pivot.timestamp, eval_time)
-        expansion = blocks * Config.SLOPE_PER_30MIN
-        
-        ascending = round(pivot.price + expansion, 2)
-        descending = round(pivot.price - expansion, 2)
-        width = round(ascending - descending, 2)
-        
-        return ConeRails(
-            pivot=pivot,
-            ascending=ascending,
-            descending=descending,
-            width=width,
-            blocks=blocks
-        )
-    
-    def find_confluence(self, cones: List[ConeRails]) -> Tuple[List[ConfluentLevel], List[ConfluentLevel]]:
-        """Find where cone rails converge within threshold"""
-        support_levels = []
-        resistance_levels = []
-        
-        # Collect all rails
-        ascending_rails = [(c.ascending, c.pivot.name) for c in cones if c.is_tradeable]
-        descending_rails = [(c.descending, c.pivot.name) for c in cones if c.is_tradeable]
-        
-        # Find ascending (resistance) confluence
-        for i, (price1, name1) in enumerate(ascending_rails):
-            confluent_cones = [name1]
-            for j, (price2, name2) in enumerate(ascending_rails):
-                if i != j and abs(price1 - price2) <= Config.CONFLUENCE_THRESHOLD:
-                    confluent_cones.append(name2)
-            
-            if len(confluent_cones) >= 2:
-                avg_price = sum(p for p, n in ascending_rails if n in confluent_cones) / len(confluent_cones)
-                strength = "strong" if len(confluent_cones) >= 3 else "moderate"
-                
-                # Avoid duplicates
-                if not any(abs(r.price - avg_price) < 1 for r in resistance_levels):
-                    resistance_levels.append(ConfluentLevel(
-                        price=round(avg_price, 2),
-                        rail_type="resistance",
-                        cones=confluent_cones,
-                        strength=strength
-                    ))
-        
-        # Find descending (support) confluence
-        for i, (price1, name1) in enumerate(descending_rails):
-            confluent_cones = [name1]
-            for j, (price2, name2) in enumerate(descending_rails):
-                if i != j and abs(price1 - price2) <= Config.CONFLUENCE_THRESHOLD:
-                    confluent_cones.append(name2)
-            
-            if len(confluent_cones) >= 2:
-                avg_price = sum(p for p, n in descending_rails if n in confluent_cones) / len(confluent_cones)
-                strength = "strong" if len(confluent_cones) >= 3 else "moderate"
-                
-                if not any(abs(s.price - avg_price) < 1 for s in support_levels):
-                    support_levels.append(ConfluentLevel(
-                        price=round(avg_price, 2),
-                        rail_type="support",
-                        cones=confluent_cones,
-                        strength=strength
-                    ))
-        
-        return support_levels, resistance_levels
-    
-    def generate_setup(self, cone: ConeRails, direction: Bias, 
-                      support_confluence: List[ConfluentLevel] = None,
-                      resistance_confluence: List[ConfluentLevel] = None) -> Optional[TradeSetup]:
-        if not cone.is_tradeable or direction == Bias.WAIT:
-            return None
-        
-        support_confluence = support_confluence or []
-        resistance_confluence = resistance_confluence or []
-        
-        if direction == Bias.CALLS:
-            entry = cone.descending
-            opposite = cone.ascending
-            stop = entry - Config.STOP_LOSS_PTS
-            strike = int(round((entry - Config.STRIKE_OTM_DISTANCE) / 5) * 5)
-            move = opposite - entry
-            t1 = entry + (move * Config.TARGET_1_PCT)
-            t2 = entry + (move * Config.TARGET_2_PCT)
-            t3 = entry + (move * Config.TARGET_3_PCT)
-            
-            # Check confluence
-            is_confluent = any(abs(c.price - entry) <= Config.CONFLUENCE_THRESHOLD for c in support_confluence)
-            conf_cones = [c.cones for c in support_confluence if abs(c.price - entry) <= Config.CONFLUENCE_THRESHOLD]
-        else:
-            entry = cone.ascending
-            opposite = cone.descending
-            stop = entry + Config.STOP_LOSS_PTS
-            strike = int(round((entry + Config.STRIKE_OTM_DISTANCE) / 5) * 5)
-            move = entry - opposite
-            t1 = entry - (move * Config.TARGET_1_PCT)
-            t2 = entry - (move * Config.TARGET_2_PCT)
-            t3 = entry - (move * Config.TARGET_3_PCT)
-            
-            is_confluent = any(abs(c.price - entry) <= Config.CONFLUENCE_THRESHOLD for c in resistance_confluence)
-            conf_cones = [c.cones for c in resistance_confluence if abs(c.price - entry) <= Config.CONFLUENCE_THRESHOLD]
-        
-        return TradeSetup(
-            direction=direction,
-            cone=cone,
-            entry=round(entry, 2),
-            stop=round(stop, 2),
-            target_1=round(t1, 2),
-            target_2=round(t2, 2),
-            target_3=round(t3, 2),
-            strike=strike,
-            is_confluent=is_confluent,
-            confluence_cones=conf_cones[0] if conf_cones else None
-        )
-    
-    def calculate_profit(self, points: float, contracts: int = 1) -> float:
-        return round(points * Config.DELTA * Config.CONTRACT_MULTIPLIER * contracts, 2)
-    
-    def calculate_max_contracts(self, risk_budget: float) -> int:
-        risk_per = self.calculate_profit(Config.STOP_LOSS_PTS, 1)
-        return int(risk_budget / risk_per) if risk_per > 0 else 0
-    
-    def analyze_level_hits(self, setup: TradeSetup, session_high: float, session_low: float) -> List[LevelHit]:
-        hits = []
-        is_calls = setup.direction == Bias.CALLS
-        
-        # Entry
-        entry_hit = (session_low <= setup.entry) if is_calls else (session_high >= setup.entry)
-        hits.append(LevelHit("Entry", setup.entry, entry_hit))
-        
-        if entry_hit:
-            # Stop
-            stop_hit = (session_low <= setup.stop) if is_calls else (session_high >= setup.stop)
-            hits.append(LevelHit("Stop", setup.stop, stop_hit))
-            
-            # Targets
-            for name, price in [("12.5%", setup.target_1), ("25%", setup.target_2), ("50%", setup.target_3)]:
-                target_hit = (session_high >= price) if is_calls else (session_low <= price)
-                hits.append(LevelHit(name, price, target_hit))
-        else:
-            hits.append(LevelHit("Stop", setup.stop, False))
-            hits.append(LevelHit("12.5%", setup.target_1, False))
-            hits.append(LevelHit("25%", setup.target_2, False))
-            hits.append(LevelHit("50%", setup.target_3, False))
-        
-        return hits
-    
-    def calculate_theoretical_pnl(self, setup: TradeSetup, hits: List[LevelHit], contracts: int = 1) -> Tuple[float, str]:
-        entry_hit = next((h for h in hits if h.level_name == "Entry"), None)
-        if not entry_hit or not entry_hit.was_hit:
-            return 0.0, "Entry not reached"
-        
-        stop_hit = next((h for h in hits if h.level_name == "Stop"), None)
-        if stop_hit and stop_hit.was_hit:
-            return -self.calculate_profit(Config.STOP_LOSS_PTS, contracts), "Stopped out"
-        
-        # Find highest target hit
-        target_hits = [h for h in hits if h.level_name in ["12.5%", "25%", "50%"] and h.was_hit]
-        
-        if not target_hits:
-            return 0.0, "Entry hit, no targets"
-        
-        # Get the highest target
-        target_order = {"12.5%": 1, "25%": 2, "50%": 3}
-        highest = max(target_hits, key=lambda h: target_order.get(h.level_name, 0))
-        
-        points = abs(highest.level_price - setup.entry)
-        return self.calculate_profit(points, contracts), f"{highest.level_name} target"
-
-
-# =============================================================================
-# DATA FETCHING
-# =============================================================================
+# ============================================================================
+# POLYGON.IO API FUNCTIONS
+# ============================================================================
 
 @st.cache_data(ttl=60)
-def fetch_spx_data():
-    """Fetch SPX data from Yahoo"""
+def polygon_get_previous_close(ticker: str) -> Optional[Dict]:
+    """
+    Get previous day's OHLC data from Polygon.
+    Works with Basic (free) plan - returns previous trading day data.
+    """
     try:
-        spx = yf.Ticker("^GSPC")
-        hist = spx.history(period="5d", interval="1d")
+        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{ticker}/prev"
+        params = {"apiKey": POLYGON_API_KEY}
+        response = requests.get(url, params=params, timeout=10)
         
-        if hist.empty:
-            return None, None
-        
-        current = float(hist['Close'].iloc[-1])
-        
-        prior = None
-        if len(hist) >= 2:
-            p = hist.iloc[-2]
-            prior = {
-                'date': hist.index[-2],
-                'open': float(p['Open']),
-                'high': float(p['High']),
-                'low': float(p['Low']),
-                'close': float(p['Close'])
-            }
-        
-        return current, prior
-    except Exception:
-        return None, None
-
-
-@st.cache_data(ttl=300)
-def fetch_historical_spx(target_date: date) -> Optional[Dict]:
-    """Fetch historical SPX data for a specific date"""
-    try:
-        spx = yf.Ticker("^GSPC")
-        start = target_date - timedelta(days=10)
-        end = target_date + timedelta(days=1)
-        hist = spx.history(start=start, end=end)
-        
-        if hist.empty:
-            return None
-        
-        target_str = target_date.strftime('%Y-%m-%d')
-        for idx in hist.index:
-            if idx.strftime('%Y-%m-%d') == target_str:
-                row = hist.loc[idx]
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("results") and len(data["results"]) > 0:
+                result = data["results"][0]
                 return {
-                    'date': idx,
-                    'open': float(row['Open']),
-                    'high': float(row['High']),
-                    'low': float(row['Low']),
-                    'close': float(row['Close']),
-                    'range': float(row['High'] - row['Low'])
+                    "open": result.get("o", 0),
+                    "high": result.get("h", 0),
+                    "low": result.get("l", 0),
+                    "close": result.get("c", 0),
+                    "volume": result.get("v", 0),
+                    "timestamp": result.get("t", 0),
+                    "vwap": result.get("vw", 0)
                 }
         return None
-    except Exception:
+    except Exception as e:
+        st.session_state.polygon_error = str(e)
         return None
-
 
 @st.cache_data(ttl=300)
-def fetch_prior_day_data(session_date: date) -> Optional[Dict]:
-    """Fetch prior trading day data"""
+def polygon_get_intraday_bars(ticker: str, date_str: str, timespan: str = "30", multiplier: int = 1) -> Optional[pd.DataFrame]:
+    """
+    Get intraday bars from Polygon.
+    
+    Args:
+        ticker: Polygon ticker (e.g., "I:SPX" or "I:VIX")
+        date_str: Date in YYYY-MM-DD format
+        timespan: "minute", "hour", etc.
+        multiplier: Bar size multiplier (30 for 30-minute bars)
+    
+    Returns:
+        DataFrame with OHLCV data and timestamps in CT
+    """
     try:
-        spx = yf.Ticker("^GSPC")
-        start = session_date - timedelta(days=10)
-        end = session_date + timedelta(days=1)
-        hist = spx.history(start=start, end=end)
+        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{ticker}/range/{multiplier}/minute/{date_str}/{date_str}"
+        params = {
+            "adjusted": "true",
+            "sort": "asc",
+            "apiKey": POLYGON_API_KEY
+        }
+        response = requests.get(url, params=params, timeout=10)
         
-        if hist.empty or len(hist) < 2:
-            return None
-        
-        session_str = session_date.strftime('%Y-%m-%d')
-        session_idx = None
-        
-        for i, idx in enumerate(hist.index):
-            if idx.strftime('%Y-%m-%d') == session_str:
-                session_idx = i
-                break
-        
-        if session_idx is not None and session_idx > 0:
-            prior_idx = hist.index[session_idx - 1]
-            prior = hist.iloc[session_idx - 1]
-            return {
-                'date': prior_idx,
-                'high': float(prior['High']),
-                'low': float(prior['Low']),
-                'close': float(prior['Close']),
-                'open': float(prior['Open'])
-            }
-        
-        if len(hist) >= 2:
-            prior = hist.iloc[-2]
-            return {
-                'date': hist.index[-2],
-                'high': float(prior['High']),
-                'low': float(prior['Low']),
-                'close': float(prior['Close']),
-                'open': float(prior['Open'])
-            }
-        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("results"):
+                df = pd.DataFrame(data["results"])
+                # Convert timestamp (ms) to datetime
+                df['datetime'] = pd.to_datetime(df['t'], unit='ms', utc=True)
+                df['datetime'] = df['datetime'].dt.tz_convert(CT_TZ)
+                df = df.rename(columns={
+                    'o': 'Open',
+                    'h': 'High',
+                    'l': 'Low',
+                    'c': 'Close',
+                    'v': 'Volume',
+                    'vw': 'VWAP'
+                })
+                df = df.set_index('datetime')
+                return df
         return None
-    except Exception:
+    except Exception as e:
+        st.session_state.polygon_error = str(e)
         return None
 
+@st.cache_data(ttl=300)
+def polygon_get_overnight_vix_range(session_date: datetime) -> Optional[Dict]:
+    """
+    AUTO-DETECT VIX ZONE: Get VIX high/low from 5pm CT previous day to 6am CT session day.
+    
+    This is the KEY new feature - automatically detects the overnight VIX zone
+    instead of requiring manual input.
+    
+    Returns:
+        Dict with 'bottom', 'top', 'zone_size', and bar data
+    """
+    try:
+        # Calculate date range for overnight window
+        # 5pm CT previous day to 6am CT session day
+        prev_day = session_date - timedelta(days=1)
+        
+        # Account for weekends - if session is Monday, go back to Friday
+        if session_date.weekday() == 0:  # Monday
+            prev_day = session_date - timedelta(days=3)  # Friday
+        
+        prev_date_str = prev_day.strftime("%Y-%m-%d")
+        session_date_str = session_date.strftime("%Y-%m-%d")
+        
+        # Get 1-minute VIX bars for the overnight period
+        # We need data from previous day evening through current day morning
+        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{POLYGON_VIX}/range/1/minute/{prev_date_str}/{session_date_str}"
+        params = {
+            "adjusted": "true",
+            "sort": "asc",
+            "limit": 50000,
+            "apiKey": POLYGON_API_KEY
+        }
+        response = requests.get(url, params=params, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("results"):
+                df = pd.DataFrame(data["results"])
+                df['datetime'] = pd.to_datetime(df['t'], unit='ms', utc=True)
+                df['datetime'] = df['datetime'].dt.tz_convert(CT_TZ)
+                
+                # Filter to overnight window: 5pm CT to 6am CT
+                overnight_start = CT_TZ.localize(datetime.combine(prev_day.date(), time(17, 0)))
+                overnight_end = CT_TZ.localize(datetime.combine(session_date.date(), time(6, 0)))
+                
+                mask = (df['datetime'] >= overnight_start) & (df['datetime'] <= overnight_end)
+                overnight_df = df[mask]
+                
+                if not overnight_df.empty:
+                    vix_high = overnight_df['h'].max()
+                    vix_low = overnight_df['l'].min()
+                    zone_size = round(vix_high - vix_low, 2)
+                    
+                    return {
+                        'bottom': round(vix_low, 2),
+                        'top': round(vix_high, 2),
+                        'zone_size': zone_size,
+                        'bar_count': len(overnight_df),
+                        'start_time': overnight_df['datetime'].min(),
+                        'end_time': overnight_df['datetime'].max()
+                    }
+        
+        return None
+    except Exception as e:
+        st.session_state.polygon_error = f"Overnight VIX error: {str(e)}"
+        return None
 
 @st.cache_data(ttl=60)
-def fetch_intraday_spx() -> Optional[pd.DataFrame]:
-    """Fetch intraday SPX data for charting"""
+def polygon_get_current_price(ticker: str) -> Optional[float]:
+    """
+    Get the most recent price for a ticker.
+    With Basic plan, this is 15-min delayed.
+    """
     try:
-        spx = yf.Ticker("^GSPC")
-        hist = spx.history(period="2d", interval="30m")
-        return hist if not hist.empty else None
-    except Exception:
+        # Use previous close endpoint for most recent data on Basic plan
+        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{ticker}/prev"
+        params = {"apiKey": POLYGON_API_KEY}
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("results") and len(data["results"]) > 0:
+                return data["results"][0].get("c", 0)
+        return None
+    except:
         return None
 
-
-# =============================================================================
-# CHART COMPONENT
-# =============================================================================
-
-def create_spx_chart(intraday_data: pd.DataFrame, cones: List[ConeRails], 
-                     setups: List[TradeSetup], zone: VIXZone, bias: Bias) -> go.Figure:
-    """Create professional candlestick chart with cone projections"""
+@st.cache_data(ttl=300)
+def polygon_get_prior_session_pivots(session_date: datetime) -> Optional[Dict]:
+    """
+    AUTO-DETECT PIVOTS: Get prior session High, Low, Close with exact times.
     
-    if intraday_data is None or intraday_data.empty:
+    HIGH PIVOT:
+    - Ascending rail uses: Highest PRICE (including wick)
+    - Descending rail uses: Highest 30-min CLOSE
+    
+    LOW PIVOT:
+    - Both rails use: Lowest 30-min CLOSE (no wicks)
+    
+    Returns complete pivot data with exact timestamps for accurate block counting.
+    """
+    try:
+        # Determine prior trading day
+        prior_day = session_date - timedelta(days=1)
+        
+        # Account for weekends
+        if session_date.weekday() == 0:  # Monday
+            prior_day = session_date - timedelta(days=3)  # Friday
+        elif session_date.weekday() == 6:  # Sunday (shouldn't happen but just in case)
+            prior_day = session_date - timedelta(days=2)  # Friday
+        
+        prior_date_str = prior_day.strftime("%Y-%m-%d")
+        
+        # Get 30-minute bars for the prior trading day
+        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{POLYGON_SPX}/range/30/minute/{prior_date_str}/{prior_date_str}"
+        params = {
+            "adjusted": "true",
+            "sort": "asc",
+            "apiKey": POLYGON_API_KEY
+        }
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("results"):
+                df = pd.DataFrame(data["results"])
+                df['datetime'] = pd.to_datetime(df['t'], unit='ms', utc=True)
+                df['datetime'] = df['datetime'].dt.tz_convert(CT_TZ)
+                
+                # Filter to RTH (8:30 AM - 3:00 PM CT)
+                rth_start = time(8, 30)
+                rth_end = time(15, 0)
+                df = df[(df['datetime'].dt.time >= rth_start) & (df['datetime'].dt.time <= rth_end)]
+                
+                if df.empty:
+                    return None
+                
+                # HIGH PIVOT
+                # - Time of highest HIGH (wick included) for ascending rail
+                high_idx = df['h'].idxmax()
+                high_row = df.loc[high_idx]
+                high_price = float(high_row['h'])  # Highest price (with wick)
+                high_time = high_row['datetime']
+                
+                # - Highest CLOSE for descending rail
+                high_close = float(df['c'].max())
+                
+                # LOW PIVOT
+                # - Both rails use lowest CLOSE (no wicks)
+                low_close_idx = df['c'].idxmin()
+                low_row = df.loc[low_close_idx]
+                low_close = float(low_row['c'])
+                low_time = low_row['datetime']
+                
+                # CLOSE
+                close_price = float(df.iloc[-1]['c'])
+                close_time = df.iloc[-1]['datetime']
+                
+                return {
+                    'high': high_price,
+                    'high_close': high_close,
+                    'high_time': high_time,
+                    'low': low_close,  # Using close, not low wick
+                    'low_close': low_close,
+                    'low_time': low_time,
+                    'close': close_price,
+                    'close_time': close_time,
+                    'date': prior_day,
+                    'bar_count': len(df),
+                    'source': 'polygon'
+                }
+        
         return None
+    except Exception as e:
+        st.session_state.polygon_error = f"Prior session error: {str(e)}"
+        return None
+
+@st.cache_data(ttl=60)
+def polygon_get_30min_vix_candles(session_date: datetime) -> Optional[pd.DataFrame]:
+    """
+    Get 30-minute VIX candles for the session day.
+    Used to verify 30-min candle CLOSES at zone edge.
+    """
+    try:
+        date_str = session_date.strftime("%Y-%m-%d")
+        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{POLYGON_VIX}/range/30/minute/{date_str}/{date_str}"
+        params = {
+            "adjusted": "true",
+            "sort": "asc",
+            "apiKey": POLYGON_API_KEY
+        }
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("results"):
+                df = pd.DataFrame(data["results"])
+                df['datetime'] = pd.to_datetime(df['t'], unit='ms', utc=True)
+                df['datetime'] = df['datetime'].dt.tz_convert(CT_TZ)
+                df = df.rename(columns={
+                    'o': 'Open',
+                    'h': 'High',
+                    'l': 'Low',
+                    'c': 'Close',
+                    'v': 'Volume'
+                })
+                df = df.set_index('datetime')
+                return df
+        return None
+    except:
+        return None
+
+def check_polygon_connection() -> PolygonStatus:
+    """
+    Check if Polygon API is accessible and return status.
+    """
+    status = PolygonStatus()
+    try:
+        # Simple test call
+        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{POLYGON_SPX}/prev"
+        params = {"apiKey": POLYGON_API_KEY}
+        response = requests.get(url, params=params, timeout=5)
+        
+        if response.status_code == 200:
+            data = response.json()
+            status.connected = True
+            status.data_delay = "15-min (Basic Plan)"
+            if data.get("results"):
+                status.spx_price = data["results"][0].get("c", 0)
+            status.last_update = get_ct_now()
+        elif response.status_code == 403:
+            status.error_message = "API Key invalid or expired"
+        else:
+            status.error_message = f"API returned status {response.status_code}"
+            
+    except requests.exceptions.Timeout:
+        status.error_message = "Connection timeout"
+    except Exception as e:
+        status.error_message = str(e)
     
-    # Filter to today's data only
-    today = datetime.now().date()
-    today_data = intraday_data[intraday_data.index.date == today]
+    return status
+
+# ============================================================================
+# VIX ZONE ANALYSIS
+# ============================================================================
+
+def analyze_vix(bottom: float, top: float, current: float, auto_detected: bool = False) -> VIXZone:
+    """
+    Analyze VIX position and determine bias.
+    Now includes auto_detected flag to show if zone was from Polygon.
+    """
+    zone_size = round(top - bottom, 2) if (top > 0 and bottom > 0 and top > bottom) else 0.15
     
-    if today_data.empty:
-        today_data = intraday_data.tail(13)  # Last ~6.5 hours
+    # Determine expected SPX move based on zone size
+    if zone_size <= 0.10:
+        expected_move = (35, 40)
+    elif zone_size <= 0.15:
+        expected_move = (40, 45)
+    elif zone_size <= 0.20:
+        expected_move = (45, 50)
+    elif zone_size <= 0.25:
+        expected_move = (50, 55)
+    else:
+        expected_move = (55, 60)
     
-    fig = go.Figure()
+    zones_above = [round(top + (i * zone_size), 2) for i in range(1, 5)]
+    zones_below = [round(bottom - (i * zone_size), 2) for i in range(1, 5)]
     
-    # Candlestick
-    fig.add_trace(go.Candlestick(
-        x=today_data.index,
-        open=today_data['Open'],
-        high=today_data['High'],
-        low=today_data['Low'],
-        close=today_data['Close'],
-        name='SPX',
-        increasing=dict(line=dict(color='#059669', width=1), fillcolor='#dcfce7'),
-        decreasing=dict(line=dict(color='#dc2626', width=1), fillcolor='#fee2e2')
-    ))
+    if bottom <= 0 or top <= 0:
+        return VIXZone(
+            bottom=0, top=0, current=current,
+            position_pct=0, status='NO_DATA', bias='UNKNOWN',
+            breakout_time='NONE', zones_above=zones_above, zones_below=zones_below,
+            zone_size=zone_size, expected_move=expected_move, auto_detected=auto_detected
+        )
     
-    # Get price range for y-axis
-    price_min = today_data['Low'].min()
-    price_max = today_data['High'].max()
+    if current <= 0:
+        return VIXZone(
+            bottom=bottom, top=top, current=0,
+            position_pct=0, status='WAITING', bias='UNKNOWN',
+            breakout_time='NONE', zones_above=zones_above, zones_below=zones_below,
+            zone_size=zone_size, expected_move=expected_move, auto_detected=auto_detected
+        )
     
-    # Add cone rails
-    colors = ['#3b82f6', '#8b5cf6', '#f59e0b', '#06b6d4', '#ec4899']
+    if zone_size > 0:
+        position_pct = ((current - bottom) / zone_size) * 100
+    else:
+        position_pct = 50
     
-    for i, cone in enumerate(cones):
-        if not cone.is_tradeable:
+    ct_now = get_ct_now()
+    current_time = ct_now.time()
+    
+    if time(6, 0) <= current_time < time(6, 30):
+        breakout_time = 'RELIABLE'
+    elif time(6, 30) <= current_time < time(9, 30):
+        breakout_time = 'DANGER'
+    else:
+        breakout_time = 'RTH'
+    
+    if current > top:
+        status = 'BREAKOUT_UP'
+        bias = 'PUTS'
+        position_pct = 100 + ((current - top) / zone_size * 50) if zone_size > 0 else 100
+    elif current < bottom:
+        status = 'BREAKOUT_DOWN'
+        bias = 'CALLS'
+        position_pct = -((bottom - current) / zone_size * 50) if zone_size > 0 else 0
+    else:
+        status = 'CONTAINED'
+        if position_pct >= 75:
+            bias = 'CALLS'
+        elif position_pct <= 25:
+            bias = 'PUTS'
+        else:
+            bias = 'WAIT'
+    
+    return VIXZone(
+        bottom=bottom, top=top, current=current,
+        position_pct=position_pct, status=status, bias=bias,
+        breakout_time=breakout_time, zones_above=zones_above, zones_below=zones_below,
+        zone_size=zone_size, expected_move=expected_move, auto_detected=auto_detected
+    )
+
+# ============================================================================
+# 30-MINUTE CANDLE CLOSE VERIFICATION (NEW!)
+# ============================================================================
+
+def verify_vix_candle_close(vix_zone: VIXZone, session_date: datetime) -> Dict:
+    """
+    NEW FEATURE: Verify if VIX has CLOSED (not just wicked) at zone edge.
+    
+    This is critical for the trading system - wicks don't count, only closes!
+    
+    Returns:
+        Dict with verification status and details
+    """
+    result = {
+        'verified': False,
+        'last_candle_close': None,
+        'last_candle_time': None,
+        'closed_at_edge': False,
+        'edge_type': None,  # 'top' or 'bottom'
+        'message': "Waiting for candle data..."
+    }
+    
+    # Get 30-min VIX candles
+    candles = polygon_get_30min_vix_candles(session_date)
+    
+    if candles is None or candles.empty:
+        result['message'] = "No candle data available"
+        return result
+    
+    # Get the last completed candle
+    last_candle = candles.iloc[-1]
+    result['last_candle_close'] = float(last_candle['Close'])
+    result['last_candle_time'] = candles.index[-1].strftime('%H:%M')
+    
+    # Check if last candle CLOSED at zone edge
+    close_price = result['last_candle_close']
+    
+    # Within 0.02 of zone edge counts as "at edge"
+    tolerance = 0.02
+    
+    if abs(close_price - vix_zone.top) <= tolerance or close_price > vix_zone.top:
+        result['closed_at_edge'] = True
+        result['edge_type'] = 'top'
+        result['verified'] = True
+        result['message'] = f"✅ VIX CLOSED at TOP ({close_price:.2f}) → PUTS confirmed"
+    elif abs(close_price - vix_zone.bottom) <= tolerance or close_price < vix_zone.bottom:
+        result['closed_at_edge'] = True
+        result['edge_type'] = 'bottom'
+        result['verified'] = True
+        result['message'] = f"✅ VIX CLOSED at BOTTOM ({close_price:.2f}) → CALLS confirmed"
+    else:
+        result['message'] = f"VIX closed at {close_price:.2f} (mid-zone) - waiting for edge close"
+    
+    return result
+
+# ============================================================================
+# CONE CALCULATIONS
+# ============================================================================
+
+def count_blocks_v2(pivot_time: datetime, eval_time: datetime) -> int:
+    """Count 30-minute blocks between pivot and evaluation time, handling weekends."""
+    if eval_time <= pivot_time:
+        return 1
+    
+    pivot_dow = pivot_time.weekday()
+    eval_dow = eval_time.weekday()
+    
+    if pivot_time.date() == eval_time.date():
+        diff = (eval_time - pivot_time).total_seconds()
+        return max(int(diff // 1800), 1)
+    
+    spans_weekend = False
+    
+    if pivot_dow <= 4:
+        days_diff = (eval_time.date() - pivot_time.date()).days
+        if days_diff >= 2:
+            temp = pivot_time
+            while temp.date() < eval_time.date():
+                if temp.weekday() == 4:
+                    spans_weekend = True
+                    break
+                temp = temp + timedelta(days=1)
+    
+    if spans_weekend:
+        friday = pivot_time
+        while friday.weekday() != 4:
+            friday = friday + timedelta(days=1)
+        
+        friday_close = friday.replace(hour=16, minute=0, second=0, microsecond=0)
+        if friday_close.tzinfo is None:
+            friday_close = CT_TZ.localize(friday_close)
+        
+        sunday_open = friday + timedelta(days=2)
+        sunday_open = sunday_open.replace(hour=17, minute=0, second=0, microsecond=0)
+        if sunday_open.tzinfo is None:
+            sunday_open = CT_TZ.localize(sunday_open)
+        
+        total_blocks = 0
+        
+        if pivot_time < friday_close:
+            blocks_to_friday = (friday_close - pivot_time).total_seconds() // 1800
+            total_blocks += int(blocks_to_friday)
+        
+        if eval_time > sunday_open:
+            blocks_from_sunday = (eval_time - sunday_open).total_seconds() // 1800
+            total_blocks += int(blocks_from_sunday)
+        
+        return max(total_blocks, 1)
+    
+    else:
+        diff = (eval_time - pivot_time).total_seconds()
+        return max(int(diff // 1800), 1)
+
+def build_cones(pivots: List[Pivot], eval_time: datetime) -> List[Cone]:
+    """Build cones from pivots at evaluation time."""
+    cones = []
+    for pivot in pivots:
+        start_time = pivot.time + timedelta(minutes=30)
+        blocks = count_blocks_v2(start_time, eval_time)
+        
+        ascending = pivot.price_for_ascending + (blocks * SLOPE_PER_30MIN)
+        descending = pivot.price_for_descending - (blocks * SLOPE_PER_30MIN)
+        width = ascending - descending
+        
+        cones.append(Cone(
+            name=pivot.name,
+            pivot=pivot,
+            ascending_rail=round(ascending, 2),
+            descending_rail=round(descending, 2),
+            width=round(width, 2),
+            blocks=blocks
+        ))
+    return cones
+
+def find_nearest(price: float, cones: List[Cone]) -> Tuple[Cone, str, float]:
+    """Find nearest rail to current price."""
+    nearest = None
+    rail_type = ""
+    min_dist = float('inf')
+    
+    for cone in cones:
+        d_asc = abs(price - cone.ascending_rail)
+        d_desc = abs(price - cone.descending_rail)
+        
+        if d_asc < min_dist:
+            min_dist = d_asc
+            nearest = cone
+            rail_type = "ascending"
+        if d_desc < min_dist:
+            min_dist = d_desc
+            nearest = cone
+            rail_type = "descending"
+    
+    return nearest, rail_type, round(min_dist, 2)
+
+def find_active_cone(price: float, cones: List[Cone]) -> Dict:
+    """Determine which cone the current price is inside of, or nearest to."""
+    result = {
+        'inside_cone': None,
+        'nearest_cone': None,
+        'nearest_rail': None,
+        'distance': 0,
+        'position': 'unknown',
+        'at_rail': False,
+        'rail_type': None
+    }
+    
+    if not cones:
+        return result
+    
+    for cone in cones:
+        if cone.descending_rail <= price <= cone.ascending_rail:
+            result['inside_cone'] = cone
+            result['position'] = 'inside'
+            
+            dist_to_asc = cone.ascending_rail - price
+            dist_to_desc = price - cone.descending_rail
+            
+            if dist_to_asc <= 3:
+                result['at_rail'] = True
+                result['rail_type'] = 'ascending'
+                result['distance'] = round(dist_to_asc, 2)
+            elif dist_to_desc <= 3:
+                result['at_rail'] = True
+                result['rail_type'] = 'descending'
+                result['distance'] = round(dist_to_desc, 2)
+            else:
+                result['distance'] = round(min(dist_to_asc, dist_to_desc), 2)
+            
+            return result
+    
+    nearest, rail_type, min_dist = find_nearest(price, cones)
+    result['nearest_cone'] = nearest
+    result['nearest_rail'] = rail_type
+    result['distance'] = min_dist
+    
+    all_ascending = [c.ascending_rail for c in cones]
+    all_descending = [c.descending_rail for c in cones]
+    
+    if price > max(all_ascending):
+        result['position'] = 'above_all'
+    elif price < min(all_descending):
+        result['position'] = 'below_all'
+    else:
+        result['position'] = 'between_cones'
+    
+    return result
+
+# ============================================================================
+# TRADE SETUP GENERATION
+# ============================================================================
+
+def generate_setups(cones: List[Cone], current_price: float, vix_bias: str) -> List[TradeSetup]:
+    """Generate trade setups with realistic targets and profit estimates."""
+    setups = []
+    
+    for cone in cones:
+        if cone.width < MIN_CONE_WIDTH:
             continue
         
-        color = colors[i % len(colors)]
+        # CALLS SETUP
+        entry_c = cone.descending_rail
+        dist_c = abs(current_price - entry_c)
         
-        # Ascending rail (resistance)
-        fig.add_hline(
-            y=cone.ascending, 
-            line=dict(color=color, width=2, dash='dot'),
-            annotation_text=f"{cone.pivot.name} ↑ {cone.ascending:.2f}",
-            annotation_position="right",
-            annotation_font=dict(size=10, color=color)
-        )
+        spx_pts_12_c = cone.width * 0.125
+        spx_pts_25_c = cone.width * 0.25
+        spx_pts_50_c = cone.width * 0.50
         
-        # Descending rail (support)
-        fig.add_hline(
-            y=cone.descending, 
-            line=dict(color=color, width=2, dash='dot'),
-            annotation_text=f"{cone.pivot.name} ↓ {cone.descending:.2f}",
-            annotation_position="right",
-            annotation_font=dict(size=10, color=color)
-        )
+        target_12_c = round(entry_c + spx_pts_12_c, 2)
+        target_25_c = round(entry_c + spx_pts_25_c, 2)
+        target_50_c = round(entry_c + spx_pts_50_c, 2)
         
-        # Update price range
-        price_min = min(price_min, cone.descending)
-        price_max = max(price_max, cone.ascending)
+        strike_c = int(entry_c + STRIKE_OTM_DISTANCE)
+        strike_c = ((strike_c + 4) // 5) * 5
+        
+        profit_12_c = round(spx_pts_12_c * DELTA * CONTRACT_MULTIPLIER, 0)
+        profit_25_c = round(spx_pts_25_c * DELTA * CONTRACT_MULTIPLIER, 0)
+        profit_50_c = round(spx_pts_50_c * DELTA * CONTRACT_MULTIPLIER, 0)
+        risk_c = round(STOP_LOSS_PTS * DELTA * CONTRACT_MULTIPLIER, 0)
+        
+        rr_c = round(profit_12_c / risk_c, 1) if risk_c > 0 else 0
+        
+        setups.append(TradeSetup(
+            direction='CALLS',
+            cone_name=cone.name,
+            cone_width=cone.width,
+            entry=entry_c,
+            stop=round(entry_c - STOP_LOSS_PTS, 2),
+            target_12=target_12_c,
+            target_25=target_25_c,
+            target_50=target_50_c,
+            strike=strike_c,
+            spx_pts_12=round(spx_pts_12_c, 1),
+            spx_pts_25=round(spx_pts_25_c, 1),
+            spx_pts_50=round(spx_pts_50_c, 1),
+            profit_12=profit_12_c,
+            profit_25=profit_25_c,
+            profit_50=profit_50_c,
+            risk_per_contract=risk_c,
+            rr_ratio=rr_c,
+            distance=round(dist_c, 2),
+            is_active=(dist_c <= 5 and vix_bias == 'CALLS')
+        ))
+        
+        # PUTS SETUP
+        entry_p = cone.ascending_rail
+        dist_p = abs(current_price - entry_p)
+        
+        spx_pts_12_p = cone.width * 0.125
+        spx_pts_25_p = cone.width * 0.25
+        spx_pts_50_p = cone.width * 0.50
+        
+        target_12_p = round(entry_p - spx_pts_12_p, 2)
+        target_25_p = round(entry_p - spx_pts_25_p, 2)
+        target_50_p = round(entry_p - spx_pts_50_p, 2)
+        
+        strike_p = int(entry_p - STRIKE_OTM_DISTANCE)
+        strike_p = (strike_p // 5) * 5
+        
+        profit_12_p = round(spx_pts_12_p * DELTA * CONTRACT_MULTIPLIER, 0)
+        profit_25_p = round(spx_pts_25_p * DELTA * CONTRACT_MULTIPLIER, 0)
+        profit_50_p = round(spx_pts_50_p * DELTA * CONTRACT_MULTIPLIER, 0)
+        risk_p = round(STOP_LOSS_PTS * DELTA * CONTRACT_MULTIPLIER, 0)
+        
+        rr_p = round(profit_12_p / risk_p, 1) if risk_p > 0 else 0
+        
+        setups.append(TradeSetup(
+            direction='PUTS',
+            cone_name=cone.name,
+            cone_width=cone.width,
+            entry=entry_p,
+            stop=round(entry_p + STOP_LOSS_PTS, 2),
+            target_12=target_12_p,
+            target_25=target_25_p,
+            target_50=target_50_p,
+            strike=strike_p,
+            spx_pts_12=round(spx_pts_12_p, 1),
+            spx_pts_25=round(spx_pts_25_p, 1),
+            spx_pts_50=round(spx_pts_50_p, 1),
+            profit_12=profit_12_p,
+            profit_25=profit_25_p,
+            profit_50=profit_50_p,
+            risk_per_contract=risk_p,
+            rr_ratio=rr_p,
+            distance=round(dist_p, 2),
+            is_active=(dist_p <= 5 and vix_bias == 'PUTS')
+        ))
     
-    # Add entry levels for best setup
-    if setups:
-        best_setup = setups[0]
-        entry_color = '#059669' if best_setup.direction == Bias.CALLS else '#dc2626'
-        
-        fig.add_hline(
-            y=best_setup.entry,
-            line=dict(color=entry_color, width=3),
-            annotation_text=f"ENTRY {best_setup.entry:.2f}",
-            annotation_position="left",
-            annotation_font=dict(size=11, color=entry_color, family='JetBrains Mono')
-        )
-        
-        fig.add_hline(
-            y=best_setup.stop,
-            line=dict(color='#dc2626', width=2, dash='dash'),
-            annotation_text=f"STOP {best_setup.stop:.2f}",
-            annotation_position="left",
-            annotation_font=dict(size=10, color='#dc2626')
-        )
-        
-        for target_name, target_price in [("T1", best_setup.target_1), ("T2", best_setup.target_2), ("T3", best_setup.target_3)]:
-            fig.add_hline(
-                y=target_price,
-                line=dict(color='#059669', width=1, dash='dash'),
-                annotation_text=f"{target_name} {target_price:.2f}",
-                annotation_position="left",
-                annotation_font=dict(size=9, color='#059669')
-            )
-            price_max = max(price_max, target_price)
-            price_min = min(price_min, target_price)
+    setups.sort(key=lambda s: s.distance)
+    return setups
+
+# ============================================================================
+# DAY ASSESSMENT
+# ============================================================================
+
+def assess_day(vix: VIXZone, cones: List[Cone], current_price: float) -> DayAssessment:
+    """Assess if today is tradeable or choppy."""
+    score = 100
+    reasons = []
+    warnings = []
     
-    # Layout
-    padding = (price_max - price_min) * 0.05
+    if vix.bias == 'WAIT':
+        score -= 40
+        warnings.append("VIX mid-zone (40-60%) - no clear edge")
+    elif vix.bias in ['CALLS', 'PUTS']:
+        reasons.append(f"VIX at edge ({vix.position_pct:.0f}%) - clear {vix.bias} bias")
     
-    fig.update_layout(
-        title=None,
-        xaxis_title=None,
-        yaxis_title=None,
-        template='plotly_white',
-        height=500,
-        margin=dict(l=60, r=120, t=20, b=40),
-        xaxis=dict(
-            rangeslider=dict(visible=False),
-            showgrid=True,
-            gridcolor='#f1f5f9',
-            tickfont=dict(size=10, color='#64748b')
-        ),
-        yaxis=dict(
-            side='left',
-            showgrid=True,
-            gridcolor='#f1f5f9',
-            tickfont=dict(size=11, color='#1e293b', family='JetBrains Mono'),
-            tickformat=',.2f',
-            range=[price_min - padding, price_max + padding]
-        ),
-        plot_bgcolor='#ffffff',
-        paper_bgcolor='#ffffff',
-        showlegend=False,
-        hovermode='x unified'
-    )
+    if vix.status in ['BREAKOUT_UP', 'BREAKOUT_DOWN']:
+        if vix.breakout_time == 'RELIABLE':
+            reasons.append("VIX breakout in reliable window (6-6:30am CT)")
+        elif vix.breakout_time == 'DANGER':
+            score -= 25
+            warnings.append("⚠️ VIX breakout in DANGER window (6:30-9:30am) - reversal risk!")
     
-    return fig
-
-
-# =============================================================================
-# UI COMPONENTS
-# =============================================================================
-
-def render_header(spx: float, phase: Phase, engine: SPXProphetEngine):
-    now = engine.get_current_time_ct()
-    
-    st.markdown(f"""
-    <div class="prophet-card-accent">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
-            <div>
-                <h1 class="prophet-title">⚡ SPX Prophet</h1>
-                <p class="prophet-subtitle">Institutional SPX Prediction System</p>
-            </div>
-            <div style="display: flex; gap: 32px; align-items: center;">
-                <div style="text-align: right;">
-                    <p class="prophet-label">SPX</p>
-                    <p class="prophet-value-hero" style="color: #1e293b;">{spx:,.2f}</p>
-                </div>
-                <div style="text-align: right; padding-left: 32px; border-left: 2px solid #e2e8f0;">
-                    <p class="prophet-label">{now.strftime('%I:%M %p')} CT</p>
-                    <p class="prophet-value-medium" style="color: {phase.color};">{phase.icon} {phase.label}</p>
-                    <p style="font-size: 0.75rem; color: #94a3b8; margin: 4px 0 0 0;">{phase.time_range}</p>
-                </div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def render_expected_move(zone: VIXZone):
-    em_low, em_high = zone.get_expected_move()
-    
-    st.markdown(f"""
-    <div class="prophet-card" style="text-align: center;">
-        <p class="prophet-section-title">Expected Move</p>
-        <p class="prophet-value-hero" style="color: #3b82f6;">{em_low:.0f} - {em_high:.0f}</p>
-        <p class="prophet-label" style="margin-top: 8px;">POINTS FROM ENTRY</p>
-        <div style="margin-top: 16px; padding: 12px; background: #f1f5f9; border-radius: 8px;">
-            <p class="prophet-text">Based on VIX zone size of <strong>{zone.size:.2f}</strong></p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def render_bias_card(bias: Bias, confidence: Confidence, explanation: str):
-    st.markdown(f"""
-    <div class="prophet-card {bias.css}-bg" style="text-align: center;">
-        <p class="prophet-section-title">Directional Bias</p>
-        <p class="prophet-value-hero {bias.css}-text">{bias.arrow} {bias.label}</p>
-        <p style="font-family: 'JetBrains Mono', monospace; font-size: 1.2rem; color: {confidence.color}; margin: 12px 0;">{confidence.dots}</p>
-        <p class="prophet-label" style="color: {confidence.color};">{confidence.label} CONFIDENCE</p>
-        <div style="margin-top: 16px; padding: 12px; background: rgba(255,255,255,0.7); border-radius: 8px;">
-            <p class="prophet-text">{explanation}</p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def render_algo_triggers(zone: VIXZone):
-    st.markdown(f"""
-    <div class="prophet-card">
-        <p class="prophet-section-title">Algo Trigger Zones</p>
-        
-        <div style="margin-bottom: 16px;">
-            <p class="prophet-label">Current VIX</p>
-            <p class="prophet-value-large">{zone.current:.2f}</p>
-            <p style="font-size: 0.8rem; color: #64748b; margin-top: 4px;">📍 {zone.current_zone}</p>
-        </div>
-        
-        <div class="trigger-buy">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <p style="font-weight: 600; color: #059669; margin: 0; font-size: 0.85rem;">↑ BUY ALGO TRIGGER</p>
-                    <p style="font-size: 0.75rem; color: #065f46; margin: 2px 0 0 0;">VIX tops here → SPX rallies</p>
-                </div>
-                <div style="text-align: right;">
-                    <p class="prophet-value-medium" style="color: #059669;">{zone.nearest_buy_trigger:.2f}</p>
-                    <p style="font-size: 0.75rem; color: #065f46; margin: 2px 0 0 0;">{zone.distance_to_buy_trigger:+.2f} away</p>
-                </div>
-            </div>
-        </div>
-        
-        <div class="trigger-sell">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <p style="font-weight: 600; color: #dc2626; margin: 0; font-size: 0.85rem;">↓ SELL ALGO TRIGGER</p>
-                    <p style="font-size: 0.75rem; color: #991b1b; margin: 2px 0 0 0;">VIX bottoms here → SPX sells</p>
-                </div>
-                <div style="text-align: right;">
-                    <p class="prophet-value-medium" style="color: #dc2626;">{zone.nearest_sell_trigger:.2f}</p>
-                    <p style="font-size: 0.75rem; color: #991b1b; margin: 2px 0 0 0;">{zone.distance_to_sell_trigger:.2f} away</p>
-                </div>
-            </div>
-        </div>
-        
-        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #e2e8f0;">
-            <p class="prophet-label">Zone Boundaries</p>
-            <div style="display: flex; justify-content: space-between; margin-top: 8px;">
-                <span class="prophet-text">Top: <strong>{zone.top:.2f}</strong></span>
-                <span class="prophet-text">Bottom: <strong>{zone.bottom:.2f}</strong></span>
-                <span class="prophet-text">Size: <strong>{zone.size:.2f}</strong></span>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def render_vix_ladder(zone: VIXZone):
-    levels = [
-        ("+2", zone.get_extension(2), "extension"),
-        ("+1", zone.get_extension(1), "extension"),
-        ("TOP", zone.top, "top"),
-        ("VIX", zone.current, "current"),
-        ("BOTTOM", zone.bottom, "bottom"),
-        ("-1", zone.get_extension(-1), "extension"),
-        ("-2", zone.get_extension(-2), "extension"),
-    ]
-    
-    st.markdown('<div class="prophet-card">', unsafe_allow_html=True)
-    st.markdown('<p class="prophet-section-title">VIX Zone Ladder</p>', unsafe_allow_html=True)
-    
-    for label, value, level_type in levels:
-        if level_type == "current":
-            bg = "linear-gradient(90deg, #eff6ff 0%, #dbeafe 100%)"
-            border = "2px solid #3b82f6"
-            color = "#1e40af"
-            weight = "700"
-        elif level_type == "top":
-            bg = "#dcfce7"
-            border = "1px solid #059669"
-            color = "#059669"
-            weight = "600"
-        elif level_type == "bottom":
-            bg = "#fee2e2"
-            border = "1px solid #dc2626"
-            color = "#dc2626"
-            weight = "600"
+    if cones:
+        max_width = max(c.width for c in cones)
+        if max_width < NARROW_CONE_THRESHOLD:
+            score -= 30
+            warnings.append(f"Narrow cones (max {max_width:.0f} pts) - limited profit potential")
         else:
-            bg = "#f8fafc"
-            border = "1px solid #e2e8f0"
-            color = "#64748b"
-            weight = "400"
+            reasons.append(f"Good cone width ({max_width:.0f} pts)")
+    
+    if vix.current > 0 and vix.current < LOW_VIX_THRESHOLD:
+        score -= 15
+        warnings.append(f"Low VIX ({vix.current:.2f}) - expect smaller moves")
+    
+    if score >= 70:
+        tradeable = True
+        recommendation = 'FULL'
+    elif score >= 50:
+        tradeable = True
+        recommendation = 'REDUCED'
+    else:
+        tradeable = False
+        recommendation = 'SKIP'
+    
+    return DayAssessment(
+        tradeable=tradeable,
+        score=max(0, score),
+        reasons=reasons,
+        warnings=warnings,
+        recommendation=recommendation
+    )
+
+# ============================================================================
+# YFINANCE FALLBACK (When Polygon fails)
+# ============================================================================
+
+import yfinance as yf
+
+@st.cache_data(ttl=300)
+def yf_fetch_prior_session(session_date: datetime) -> Optional[Dict]:
+    """Fallback to yfinance if Polygon fails."""
+    try:
+        spx = yf.Ticker("^GSPC")
+        end = session_date
+        start = end - timedelta(days=10)
         
-        st.markdown(f"""
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; margin: 4px 0; background: {bg}; border: {border}; border-radius: 8px;">
-            <span style="font-weight: {weight}; color: {color}; font-size: 0.85rem;">{label}</span>
-            <span style="font-family: 'JetBrains Mono', monospace; font-weight: {weight}; color: {color}; font-size: 0.9rem;">{value:.2f}</span>
+        df_daily = spx.history(start=start, end=end, interval='1d')
+        if len(df_daily) < 1:
+            return None
+        
+        last = df_daily.iloc[-1]
+        prior_date = df_daily.index[-1]
+        
+        df_intra = spx.history(start=start, end=end, interval='30m')
+        
+        high_price = float(last['High'])
+        high_close = float(last['High'])
+        low_close = float(last['Low'])
+        
+        high_time = CT_TZ.localize(datetime.combine(prior_date.date(), time(12, 0)))
+        low_time = CT_TZ.localize(datetime.combine(prior_date.date(), time(12, 0)))
+        
+        if not df_intra.empty:
+            df_intra.index = df_intra.index.tz_convert(CT_TZ)
+            day_data = df_intra[df_intra.index.date == prior_date.date()]
+            
+            if not day_data.empty:
+                high_time = day_data['High'].idxmax()
+                high_price = float(day_data['High'].max())
+                high_close = float(day_data['Close'].max())
+                
+                low_close_idx = day_data['Close'].idxmin()
+                low_time = low_close_idx
+                low_close = float(day_data['Close'].min())
+        
+        return {
+            'high': high_price,
+            'high_close': high_close,
+            'low': low_close,
+            'low_close': low_close,
+            'close': float(last['Close']),
+            'date': prior_date,
+            'high_time': high_time,
+            'low_time': low_time,
+            'source': 'yfinance'
+        }
+    except:
+        return None
+
+@st.cache_data(ttl=60)
+def yf_fetch_current_spx() -> float:
+    """Fallback to yfinance for current SPX."""
+    try:
+        spx = yf.Ticker("^GSPC")
+        data = spx.history(period='1d', interval='1m')
+        if not data.empty:
+            return float(data['Close'].iloc[-1])
+    except:
+        pass
+    return 0.0
+
+# ============================================================================
+# RENDERING FUNCTIONS
+# ============================================================================
+
+def render_polygon_status_badge(status: PolygonStatus) -> str:
+    """Render a status badge showing Polygon connection status."""
+    if status.connected:
+        bg = "#ecfdf5"
+        border = "#10b981"
+        color = "#059669"
+        icon = "🟢"
+        text = f"POLYGON CONNECTED • {status.data_delay}"
+        subtext = f"SPX: {status.spx_price:,.2f}" if status.spx_price > 0 else ""
+    else:
+        bg = "#fef2f2"
+        border = "#ef4444"
+        color = "#dc2626"
+        icon = "🔴"
+        text = "POLYGON OFFLINE"
+        subtext = status.error_message or "Using yfinance fallback"
+    
+    return f'''
+    <div style="background:{bg};border:1px solid {border};border-radius:8px;padding:8px 12px;margin-bottom:15px;display:flex;align-items:center;gap:8px;">
+        <span style="font-size:12px;">{icon}</span>
+        <div>
+            <div style="font-weight:600;font-size:12px;color:{color};">{text}</div>
+            <div style="font-size:11px;color:#6b7280;">{subtext}</div>
         </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+    </div>
+    '''
 
+def render_auto_detection_badge(vix_auto: bool, pivot_auto: bool, pivot_source: str = "") -> str:
+    """Render badge showing what was auto-detected vs manual."""
+    items = []
+    
+    if vix_auto:
+        items.append('<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:4px;font-size:11px;">VIX Zone: AUTO</span>')
+    else:
+        items.append('<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11px;">VIX Zone: MANUAL</span>')
+    
+    if pivot_auto:
+        source_text = f"({pivot_source})" if pivot_source else ""
+        items.append(f'<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:4px;font-size:11px;">Pivots: AUTO {source_text}</span>')
+    else:
+        items.append('<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11px;">Pivots: MANUAL</span>')
+    
+    return f'''
+    <div style="display:flex;gap:8px;margin-bottom:15px;flex-wrap:wrap;">
+        {" ".join(items)}
+    </div>
+    '''
 
-def render_confluence_alerts(support_levels: List[ConfluentLevel], resistance_levels: List[ConfluentLevel]):
-    if not support_levels and not resistance_levels:
-        return
+def render_candle_close_verification(verification: Dict) -> str:
+    """Render the 30-min candle close verification status."""
+    if verification.get('verified'):
+        bg = "#ecfdf5"
+        border = "#10b981"
+        color = "#059669"
+        icon = "✅"
+    else:
+        bg = "#fffbeb"
+        border = "#f59e0b"
+        color = "#d97706"
+        icon = "⏳"
     
-    st.markdown("""
-    <div class="prophet-card">
-        <p class="prophet-section-title">🎯 Confluence Zones</p>
-        <p class="prophet-text" style="margin-bottom: 16px;">Multiple cones converging = stronger levels</p>
-    """, unsafe_allow_html=True)
+    message = verification.get('message', 'Checking...')
+    last_time = verification.get('last_candle_time', '--:--')
+    last_close = verification.get('last_candle_close', 0)
     
-    for level in resistance_levels:
-        strength_badge = "⭐⭐⭐" if level.strength == "strong" else "⭐⭐"
-        st.markdown(f"""
-        <div style="background: linear-gradient(90deg, #fef2f2 0%, #fee2e2 100%); border: 1px solid #fca5a5; border-radius: 8px; padding: 12px 16px; margin: 8px 0;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <span style="font-weight: 600; color: #dc2626;">RESISTANCE</span>
-                    <span style="margin-left: 8px; font-size: 0.8rem;">{strength_badge}</span>
-                </div>
-                <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: #dc2626;">{level.price:,.2f}</span>
-            </div>
-            <p style="font-size: 0.75rem; color: #991b1b; margin: 4px 0 0 0;">{', '.join(level.cones)}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    for level in support_levels:
-        strength_badge = "⭐⭐⭐" if level.strength == "strong" else "⭐⭐"
-        st.markdown(f"""
-        <div style="background: linear-gradient(90deg, #f0fdf4 0%, #dcfce7 100%); border: 1px solid #86efac; border-radius: 8px; padding: 12px 16px; margin: 8px 0;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <span style="font-weight: 600; color: #059669;">SUPPORT</span>
-                    <span style="margin-left: 8px; font-size: 0.8rem;">{strength_badge}</span>
-                </div>
-                <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: #059669;">{level.price:,.2f}</span>
-            </div>
-            <p style="font-size: 0.75rem; color: #065f46; margin: 4px 0 0 0;">{', '.join(level.cones)}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-def render_setup_card(setup: TradeSetup, spx: float, engine: SPXProphetEngine, is_best: bool = False):
-    distance = spx - setup.entry
-    
-    risk = engine.calculate_profit(Config.STOP_LOSS_PTS, 1)
-    p1 = engine.calculate_profit(setup.reward_1_pts, 1)
-    p2 = engine.calculate_profit(setup.reward_2_pts, 1)
-    p3 = engine.calculate_profit(setup.reward_3_pts, 1)
-    rr = p2 / risk if risk > 0 else 0
-    
-    badge = ""
-    if is_best:
-        badge = '<span style="background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color: #000; padding: 4px 12px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; margin-left: 12px;">⭐ BEST SETUP</span>'
-    if setup.is_confluent:
-        badge += '<span style="background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%); color: #fff; padding: 4px 12px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; margin-left: 8px;">🎯 CONFLUENCE</span>'
-    
-    card_class = f"{setup.direction.css}-bg" if is_best else "prophet-card"
-    
-    st.markdown(f"""
-    <div class="{card_class}" style="border-radius: 16px; padding: 20px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    return f'''
+    <div style="background:{bg};border:1px solid {border};border-radius:8px;padding:12px;margin-bottom:15px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:18px;">{icon}</span>
             <div>
-                <span style="font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 700; color: {setup.direction.color};">{setup.direction.arrow} {setup.direction.label}</span>
-                {badge}
-            </div>
-            <span class="prophet-label">{setup.cone.pivot.name} Cone</span>
-        </div>
-        
-        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px;">
-            <div style="background: rgba(255,255,255,0.8); padding: 12px; border-radius: 10px; text-align: center; border: 2px solid {setup.direction.color};">
-                <p class="prophet-label">Entry</p>
-                <p class="prophet-value-medium">{setup.entry:,.2f}</p>
-            </div>
-            <div style="background: rgba(255,255,255,0.8); padding: 12px; border-radius: 10px; text-align: center; border: 1px solid #fca5a5;">
-                <p class="prophet-label">Stop</p>
-                <p class="prophet-value-medium" style="color: #dc2626;">{setup.stop:,.2f}</p>
-            </div>
-            <div style="background: rgba(255,255,255,0.8); padding: 12px; border-radius: 10px; text-align: center;">
-                <p class="prophet-label">12.5%</p>
-                <p class="prophet-value-medium">{setup.target_1:,.2f}</p>
-            </div>
-            <div style="background: rgba(255,255,255,0.8); padding: 12px; border-radius: 10px; text-align: center;">
-                <p class="prophet-label">25%</p>
-                <p class="prophet-value-medium">{setup.target_2:,.2f}</p>
-            </div>
-            <div style="background: rgba(255,255,255,0.8); padding: 12px; border-radius: 10px; text-align: center;">
-                <p class="prophet-label">50%</p>
-                <p class="prophet-value-medium">{setup.target_3:,.2f}</p>
-            </div>
-        </div>
-        
-        <div style="display: flex; justify-content: space-between; padding-top: 16px; border-top: 1px solid rgba(0,0,0,0.1);">
-            <div style="text-align: center;">
-                <p class="prophet-label">Distance</p>
-                <p class="prophet-value-small">{distance:+.2f} pts</p>
-            </div>
-            <div style="text-align: center;">
-                <p class="prophet-label">Strike</p>
-                <p class="prophet-value-small">{setup.strike}</p>
-            </div>
-            <div style="text-align: center;">
-                <p class="prophet-label">Width</p>
-                <p class="prophet-value-small">{setup.cone.width:.1f} pts</p>
-            </div>
-            <div style="text-align: center;">
-                <p class="prophet-label">R:R @25%</p>
-                <p class="prophet-value-small">{rr:.1f}:1</p>
-            </div>
-            <div style="text-align: center;">
-                <p class="prophet-label">Profit @25%</p>
-                <p class="prophet-value-small" style="color: #059669;">${p2:,.0f}</p>
+                <div style="font-weight:600;font-size:13px;color:{color};">30-MIN CANDLE CLOSE CHECK</div>
+                <div style="font-size:12px;color:#6b7280;">{message}</div>
+                <div style="font-size:11px;color:#9ca3af;margin-top:4px;">Last candle: {last_time} CT | Close: {last_close:.2f}</div>
             </div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    '''
 
-
-def render_position_calculator(engine: SPXProphetEngine, setup: Optional[TradeSetup]):
-    st.markdown('<div class="prophet-card">', unsafe_allow_html=True)
-    st.markdown('<p class="prophet-section-title">Position Calculator</p>', unsafe_allow_html=True)
+def render_active_cone_banner(active_cone_info: Dict, spx: float) -> str:
+    """Render the active cone status banner."""
+    if not active_cone_info:
+        return ''
     
-    risk_budget = st.number_input("Risk Budget ($)", min_value=100, max_value=100000, value=1000, step=100, key="pos_calc_risk")
+    inside = active_cone_info.get('inside_cone')
+    nearest = active_cone_info.get('nearest_cone')
+    at_rail = active_cone_info.get('at_rail', False)
+    rail_type = active_cone_info.get('rail_type')
+    distance = active_cone_info.get('distance', 0)
+    position = active_cone_info.get('position', 'unknown')
     
-    if setup:
-        contracts = engine.calculate_max_contracts(risk_budget)
-        risk_total = engine.calculate_profit(Config.STOP_LOSS_PTS, contracts)
-        p1 = engine.calculate_profit(setup.reward_1_pts, contracts)
-        p2 = engine.calculate_profit(setup.reward_2_pts, contracts)
-        p3 = engine.calculate_profit(setup.reward_3_pts, contracts)
+    if inside:
+        cone_name = inside.name
+        if at_rail:
+            if rail_type == 'ascending':
+                icon = '🎯'
+                color = '#dc2626'
+                bg = '#fef2f2'
+                border = '#ef4444'
+                text = f"AT {cone_name} ASCENDING RAIL (PUTS entry zone)"
+                subtext = f"SPX {spx:,.2f} is {distance:.1f} pts from rail at {inside.ascending_rail:.2f}"
+            else:
+                icon = '🎯'
+                color = '#059669'
+                bg = '#ecfdf5'
+                border = '#10b981'
+                text = f"AT {cone_name} DESCENDING RAIL (CALLS entry zone)"
+                subtext = f"SPX {spx:,.2f} is {distance:.1f} pts from rail at {inside.descending_rail:.2f}"
+        else:
+            icon = '📍'
+            color = '#6b7280'
+            bg = '#f9fafb'
+            border = '#d1d5db'
+            text = f"INSIDE {cone_name} CONE"
+            subtext = f"SPX {spx:,.2f} — Rails: ▲{inside.ascending_rail:.2f} / ▼{inside.descending_rail:.2f}"
+    elif nearest:
+        cone_name = nearest.name
+        nearest_rail = active_cone_info.get('nearest_rail')
         
-        st.markdown(f"""
-        <div style="text-align: center; padding: 20px; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border-radius: 12px; margin: 16px 0;">
-            <p class="prophet-label">Max Contracts</p>
-            <p class="prophet-value-hero" style="color: #1e40af;">{contracts}</p>
-        </div>
+        if position == 'above_all':
+            icon = '⬆️'
+            text = f"ABOVE ALL CONES — Nearest: {cone_name} ascending"
+        elif position == 'below_all':
+            icon = '⬇️'
+            text = f"BELOW ALL CONES — Nearest: {cone_name} descending"
+        else:
+            icon = '↔️'
+            text = f"BETWEEN CONES — Nearest: {cone_name} {nearest_rail}"
         
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
-            <div style="background: #fef2f2; padding: 16px; border-radius: 10px; text-align: center;">
-                <p class="prophet-label">Max Risk</p>
-                <p class="prophet-value-medium" style="color: #dc2626;">${risk_total:,.0f}</p>
-            </div>
-            <div style="background: #f0fdf4; padding: 16px; border-radius: 10px; text-align: center;">
-                <p class="prophet-label">@ 12.5%</p>
-                <p class="prophet-value-medium" style="color: #059669;">${p1:,.0f}</p>
-            </div>
-            <div style="background: #f0fdf4; padding: 16px; border-radius: 10px; text-align: center;">
-                <p class="prophet-label">@ 25%</p>
-                <p class="prophet-value-medium" style="color: #059669;">${p2:,.0f}</p>
-            </div>
-            <div style="background: #f0fdf4; padding: 16px; border-radius: 10px; text-align: center;">
-                <p class="prophet-label">@ 50%</p>
-                <p class="prophet-value-medium" style="color: #059669;">${p3:,.0f}</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        color = '#d97706'
+        bg = '#fffbeb'
+        border = '#f59e0b'
+        
+        if nearest_rail == 'ascending':
+            subtext = f"SPX {spx:,.2f} is {distance:.1f} pts from {cone_name} ascending rail at {nearest.ascending_rail:.2f}"
+        else:
+            subtext = f"SPX {spx:,.2f} is {distance:.1f} pts from {cone_name} descending rail at {nearest.descending_rail:.2f}"
     else:
-        st.info("Configure a setup to calculate position sizing")
+        return ''
     
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-def render_cone_table(cones: List[ConeRails], best_name: str):
-    st.markdown('<p class="prophet-section-title" style="margin-top: 24px;">Cone Rails</p>', unsafe_allow_html=True)
-    
-    data = []
-    for c in cones:
-        status = "⭐ BEST" if c.pivot.name == best_name else ("✓" if c.is_tradeable else "✗")
-        data.append({
-            "Pivot": c.pivot.name,
-            "Ascending": f"{c.ascending:,.2f}",
-            "Descending": f"{c.descending:,.2f}",
-            "Width": f"{c.width:.1f}",
-            "Blocks": c.blocks,
-            "Status": status
-        })
-    
-    if data:
-        st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
-
-
-def render_historical_results(session_data: Dict, setup: TradeSetup, hits: List[LevelHit], 
-                             pnl: float, pnl_note: str, engine: SPXProphetEngine):
-    st.markdown(f"""
-    <div class="prophet-card">
-        <p class="prophet-section-title">Session Results</p>
-        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px;">
-            <div style="text-align: center; padding: 12px; background: #f8fafc; border-radius: 8px;">
-                <p class="prophet-label">Open</p>
-                <p class="prophet-value-small">{session_data['open']:,.2f}</p>
-            </div>
-            <div style="text-align: center; padding: 12px; background: #f0fdf4; border-radius: 8px;">
-                <p class="prophet-label">High</p>
-                <p class="prophet-value-small" style="color: #059669;">{session_data['high']:,.2f}</p>
-            </div>
-            <div style="text-align: center; padding: 12px; background: #fef2f2; border-radius: 8px;">
-                <p class="prophet-label">Low</p>
-                <p class="prophet-value-small" style="color: #dc2626;">{session_data['low']:,.2f}</p>
-            </div>
-            <div style="text-align: center; padding: 12px; background: #f8fafc; border-radius: 8px;">
-                <p class="prophet-label">Close</p>
-                <p class="prophet-value-small">{session_data['close']:,.2f}</p>
-            </div>
-            <div style="text-align: center; padding: 12px; background: #eff6ff; border-radius: 8px;">
-                <p class="prophet-label">Range</p>
-                <p class="prophet-value-small" style="color: #1e40af;">{session_data['range']:.2f}</p>
-            </div>
+    return f'''
+    <div style="background:{bg};border:2px solid {border};border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:16px;">
+        <div style="font-size:32px;">{icon}</div>
+        <div>
+            <div style="font-weight:700;font-size:16px;color:{color};">{text}</div>
+            <div style="font-size:13px;color:#6b7280;margin-top:4px;">{subtext}</div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    '''
+
+def render_dashboard(spx: float, vix: VIXZone, cones: List[Cone], setups: List[TradeSetup], 
+                     assessment: DayAssessment, prior: Dict, dark_mode: bool = False,
+                     active_cone_info: Dict = None, polygon_status: PolygonStatus = None,
+                     candle_verification: Dict = None, vix_auto: bool = False, pivot_auto: bool = False,
+                     pivot_source: str = "") -> str:
+    """Render the complete dashboard with Polygon status."""
     
-    # Level hits
-    st.markdown('<p class="prophet-section-title">Level Hits</p>', unsafe_allow_html=True)
+    # Theme colors
+    if dark_mode:
+        bg_main = "#0f172a"
+        bg_card = "#1e293b"
+        text_primary = "#f1f5f9"
+        text_secondary = "#94a3b8"
+        border_color = "#334155"
+    else:
+        bg_main = "#f8fafc"
+        bg_card = "#ffffff"
+        text_primary = "#1e293b"
+        text_secondary = "#64748b"
+        border_color = "#e2e8f0"
     
-    for hit in hits:
-        icon = "✓" if hit.was_hit else "○"
-        color = "#059669" if hit.was_hit else "#94a3b8"
-        bg = "#f0fdf4" if hit.was_hit else "#f8fafc"
-        
-        if hit.level_name == "Stop" and hit.was_hit:
-            icon = "✗"
-            color = "#dc2626"
-            bg = "#fef2f2"
-        
-        st.markdown(f"""
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; margin: 4px 0; background: {bg}; border-radius: 8px;">
-            <span style="color: {color}; font-weight: 600;">{icon} {hit.level_name}</span>
-            <span style="font-family: 'JetBrains Mono', monospace; color: {color};">{hit.level_price:,.2f}</span>
+    # Build HTML
+    html = f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: {bg_main};
+                color: {text_primary};
+                padding: 20px;
+            }}
+            .container {{ max-width: 1200px; margin: 0 auto; }}
+            .card {{
+                background: {bg_card};
+                border: 1px solid {border_color};
+                border-radius: 12px;
+                padding: 20px;
+                margin-bottom: 20px;
+            }}
+            .header {{
+                text-align: center;
+                padding: 30px 20px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 16px;
+                margin-bottom: 20px;
+            }}
+            .header h1 {{ color: white; font-size: 32px; font-weight: 800; }}
+            .header p {{ color: rgba(255,255,255,0.9); font-size: 14px; margin-top: 8px; }}
+            .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }}
+            .bias-box {{
+                padding: 20px;
+                border-radius: 12px;
+                text-align: center;
+            }}
+            .bias-calls {{ background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; }}
+            .bias-puts {{ background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; }}
+            .bias-wait {{ background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; }}
+            table {{ width: 100%; border-collapse: collapse; }}
+            th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid {border_color}; }}
+            th {{ font-weight: 600; color: {text_secondary}; font-size: 12px; text-transform: uppercase; }}
+            .tag {{
+                display: inline-block;
+                padding: 4px 12px;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: 600;
+            }}
+            .tag-green {{ background: #ecfdf5; color: #059669; }}
+            .tag-red {{ background: #fef2f2; color: #dc2626; }}
+            .tag-yellow {{ background: #fffbeb; color: #d97706; }}
+            .setup-row {{ transition: background 0.2s; }}
+            .setup-row:hover {{ background: #f1f5f9; }}
+            .active-row {{ background: #ecfdf5 !important; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <!-- Header -->
+            <div class="header">
+                <h1>📈 SPX PROPHET v5.0</h1>
+                <p>Where Structure Becomes Foresight • Now with Polygon.io Integration</p>
+                <p style="margin-top:12px;font-size:18px;font-weight:600;">
+                    SPX: {spx:,.2f} | VIX: {vix.current:.2f} | {get_ct_now().strftime('%I:%M %p CT')}
+                </p>
+            </div>
+    '''
+    
+    # Polygon Status Badge
+    if polygon_status:
+        html += render_polygon_status_badge(polygon_status)
+    
+    # Auto-detection Badge
+    html += render_auto_detection_badge(vix_auto, pivot_auto, pivot_source)
+    
+    # Active Cone Banner
+    if active_cone_info:
+        html += render_active_cone_banner(active_cone_info, spx)
+    
+    # 30-Min Candle Close Verification
+    if candle_verification:
+        html += render_candle_close_verification(candle_verification)
+    
+    # Bias Box
+    bias_class = 'bias-calls' if vix.bias == 'CALLS' else 'bias-puts' if vix.bias == 'PUTS' else 'bias-wait'
+    bias_icon = '📈' if vix.bias == 'CALLS' else '📉' if vix.bias == 'PUTS' else '⏳'
+    
+    html += f'''
+            <div class="card bias-box {bias_class}">
+                <div style="font-size:48px;">{bias_icon}</div>
+                <div style="font-size:28px;font-weight:800;margin:10px 0;">{vix.bias}</div>
+                <div style="font-size:14px;opacity:0.9;">VIX at {vix.position_pct:.0f}% of zone</div>
+            </div>
+    '''
+    
+    # VIX Zone Card
+    zone_source = "🤖 Auto-detected from Polygon" if vix.auto_detected else "✏️ Manual input"
+    html += f'''
+            <div class="card">
+                <h3 style="margin-bottom:15px;">VIX Zone Analysis</h3>
+                <div style="font-size:11px;color:{text_secondary};margin-bottom:10px;">{zone_source}</div>
+                <div class="grid" style="grid-template-columns: repeat(4, 1fr);">
+                    <div>
+                        <div style="color:{text_secondary};font-size:12px;">Bottom</div>
+                        <div style="font-size:20px;font-weight:700;">{vix.bottom:.2f}</div>
+                    </div>
+                    <div>
+                        <div style="color:{text_secondary};font-size:12px;">Top</div>
+                        <div style="font-size:20px;font-weight:700;">{vix.top:.2f}</div>
+                    </div>
+                    <div>
+                        <div style="color:{text_secondary};font-size:12px;">Zone Size</div>
+                        <div style="font-size:20px;font-weight:700;">{vix.zone_size:.2f}</div>
+                    </div>
+                    <div>
+                        <div style="color:{text_secondary};font-size:12px;">Expected Move</div>
+                        <div style="font-size:20px;font-weight:700;">{vix.expected_move[0]}-{vix.expected_move[1]} pts</div>
+                    </div>
+                </div>
+            </div>
+    '''
+    
+    # Cone Rails Table
+    html += f'''
+            <div class="card">
+                <h3 style="margin-bottom:15px;">Structural Cones @ 10:00 AM CT</h3>
+                <table>
+                    <tr>
+                        <th>Pivot</th>
+                        <th>Ascending Rail ▲</th>
+                        <th>Descending Rail ▼</th>
+                        <th>Width</th>
+                        <th>Blocks</th>
+                    </tr>
+    '''
+    
+    for cone in cones:
+        width_class = 'tag-green' if cone.width >= 25 else 'tag-yellow' if cone.width >= MIN_CONE_WIDTH else 'tag-red'
+        html += f'''
+                    <tr>
+                        <td style="font-weight:600;">{cone.name}</td>
+                        <td style="color:#dc2626;">{cone.ascending_rail:.2f}</td>
+                        <td style="color:#059669;">{cone.descending_rail:.2f}</td>
+                        <td><span class="tag {width_class}">{cone.width:.1f} pts</span></td>
+                        <td>{cone.blocks}</td>
+                    </tr>
+        '''
+    
+    html += '''
+                </table>
+            </div>
+    '''
+    
+    # CALLS Setups
+    calls_setups = [s for s in setups if s.direction == 'CALLS']
+    if calls_setups:
+        html += f'''
+            <div class="card">
+                <h3 style="margin-bottom:15px;color:#059669;">📈 CALLS Setups (Enter at Descending Rail)</h3>
+                <table>
+                    <tr>
+                        <th>Cone</th>
+                        <th>Entry</th>
+                        <th>Stop</th>
+                        <th>12.5%</th>
+                        <th>25%</th>
+                        <th>50%</th>
+                        <th>Strike</th>
+                        <th>Est. Profit</th>
+                        <th>Distance</th>
+                    </tr>
+        '''
+        for s in calls_setups:
+            row_class = 'active-row' if s.is_active else ''
+            html += f'''
+                    <tr class="setup-row {row_class}">
+                        <td style="font-weight:600;">{s.cone_name}</td>
+                        <td style="color:#059669;font-weight:600;">{s.entry:.2f}</td>
+                        <td style="color:#dc2626;">{s.stop:.2f}</td>
+                        <td>{s.target_12:.2f}</td>
+                        <td>{s.target_25:.2f}</td>
+                        <td>{s.target_50:.2f}</td>
+                        <td>{s.strike}C</td>
+                        <td>${s.profit_25:.0f}</td>
+                        <td><span class="tag {'tag-green' if s.distance <= 5 else 'tag-yellow' if s.distance <= 15 else ''}">{s.distance:.1f} pts</span></td>
+                    </tr>
+            '''
+        html += '''
+                </table>
+            </div>
+        '''
+    
+    # PUTS Setups
+    puts_setups = [s for s in setups if s.direction == 'PUTS']
+    if puts_setups:
+        html += f'''
+            <div class="card">
+                <h3 style="margin-bottom:15px;color:#dc2626;">📉 PUTS Setups (Enter at Ascending Rail)</h3>
+                <table>
+                    <tr>
+                        <th>Cone</th>
+                        <th>Entry</th>
+                        <th>Stop</th>
+                        <th>12.5%</th>
+                        <th>25%</th>
+                        <th>50%</th>
+                        <th>Strike</th>
+                        <th>Est. Profit</th>
+                        <th>Distance</th>
+                    </tr>
+        '''
+        for s in puts_setups:
+            row_class = 'active-row' if s.is_active else ''
+            html += f'''
+                    <tr class="setup-row {row_class}">
+                        <td style="font-weight:600;">{s.cone_name}</td>
+                        <td style="color:#dc2626;font-weight:600;">{s.entry:.2f}</td>
+                        <td style="color:#059669;">{s.stop:.2f}</td>
+                        <td>{s.target_12:.2f}</td>
+                        <td>{s.target_25:.2f}</td>
+                        <td>{s.target_50:.2f}</td>
+                        <td>{s.strike}P</td>
+                        <td>${s.profit_25:.0f}</td>
+                        <td><span class="tag {'tag-green' if s.distance <= 5 else 'tag-yellow' if s.distance <= 15 else ''}">{s.distance:.1f} pts</span></td>
+                    </tr>
+            '''
+        html += '''
+                </table>
+            </div>
+        '''
+    
+    # Day Assessment
+    score_color = '#059669' if assessment.score >= 70 else '#d97706' if assessment.score >= 50 else '#dc2626'
+    html += f'''
+            <div class="card">
+                <h3 style="margin-bottom:15px;">Day Assessment</h3>
+                <div style="display:flex;align-items:center;gap:20px;margin-bottom:15px;">
+                    <div style="font-size:48px;font-weight:800;color:{score_color};">{assessment.score}</div>
+                    <div>
+                        <div style="font-size:18px;font-weight:600;">{assessment.recommendation} SIZE</div>
+                        <div style="color:{text_secondary};">{'Tradeable' if assessment.tradeable else 'Skip Today'}</div>
+                    </div>
+                </div>
+    '''
+    
+    if assessment.reasons:
+        html += '<div style="margin-bottom:10px;"><strong>✅ Positive:</strong></div><ul style="margin-left:20px;">'
+        for r in assessment.reasons:
+            html += f'<li style="color:#059669;">{r}</li>'
+        html += '</ul>'
+    
+    if assessment.warnings:
+        html += '<div style="margin-bottom:10px;margin-top:10px;"><strong>⚠️ Warnings:</strong></div><ul style="margin-left:20px;">'
+        for w in assessment.warnings:
+            html += f'<li style="color:#d97706;">{w}</li>'
+        html += '</ul>'
+    
+    html += '''
+            </div>
         </div>
-        """, unsafe_allow_html=True)
+    </body>
+    </html>
+    '''
     
-    # P&L Summary
-    pnl_color = "#059669" if pnl >= 0 else "#dc2626"
-    pnl_bg = "#f0fdf4" if pnl >= 0 else "#fef2f2"
-    pnl_prefix = "+" if pnl >= 0 else ""
-    
-    st.markdown(f"""
-    <div style="margin-top: 16px; padding: 20px; background: {pnl_bg}; border-radius: 12px; text-align: center;">
-        <p class="prophet-label">Theoretical P&L (1 Contract)</p>
-        <p class="prophet-value-hero" style="color: {pnl_color};">{pnl_prefix}${abs(pnl):,.2f}</p>
-        <p class="prophet-text" style="margin-top: 8px;">{pnl_note}</p>
-    </div>
-    """, unsafe_allow_html=True)
+    return html
 
-
-# =============================================================================
-# SIDEBAR
-# =============================================================================
-
-def render_sidebar(engine: SPXProphetEngine):
-    st.sidebar.markdown("## ⚙️ Configuration")
-    
-    # Mode
-    st.sidebar.markdown("#### Mode")
-    mode = st.sidebar.radio("", ["Live", "Historical"], horizontal=True, label_visibility="collapsed")
-    
-    st.sidebar.markdown("---")
-    
-    # Date
-    ct_tz = pytz.timezone('America/Chicago')
-    today = datetime.now(ct_tz).date()
-    
-    if mode == "Live":
-        session_date = today
-        st.sidebar.success(f"📅 {session_date.strftime('%B %d, %Y')}")
-    else:
-        session_date = st.sidebar.date_input("Session Date", today - timedelta(days=1), max_value=today)
-    
-    st.sidebar.markdown("---")
-    
-    # VIX Zone (5pm-6am CT)
-    st.sidebar.markdown("#### VIX Zone")
-    st.sidebar.caption("Overnight boundaries (5pm-6am CT)")
-    
-    col1, col2 = st.sidebar.columns(2)
-    vix_bottom = col1.number_input("Bottom", 5.0, 50.0, 15.87, 0.01, format="%.2f")
-    vix_top = col2.number_input("Top", 5.0, 50.0, 16.17, 0.01, format="%.2f")
-    vix_current = st.sidebar.number_input("Current VIX", 5.0, 50.0, 16.00, 0.01, format="%.2f")
-    
-    zone = VIXZone(vix_bottom, vix_top, vix_current)
-    
-    st.sidebar.markdown("---")
-    
-    # Prior Day Pivots
-    st.sidebar.markdown("#### Prior Day Pivots")
-    
-    prior_data = fetch_prior_day_data(session_date)
-    manual = st.sidebar.checkbox("Manual Input", value=(prior_data is None))
-    
-    prior_date = session_date - timedelta(days=1)
-    while prior_date.weekday() >= 5:
-        prior_date -= timedelta(days=1)
-    
-    if manual or prior_data is None:
-        st.sidebar.caption(f"Pivot date: {prior_date}")
-        col1, col2 = st.sidebar.columns(2)
-        p_high = col1.number_input("High", 1000.0, 10000.0, 6050.0, 1.0)
-        p_high_t = col2.time_input("Time", time(11, 30), key="p_high_t")
-        col1, col2 = st.sidebar.columns(2)
-        p_low = col1.number_input("Low", 1000.0, 10000.0, 6020.0, 1.0)
-        p_low_t = col2.time_input("Time", time(14, 0), key="p_low_t")
-        p_close = st.sidebar.number_input("Close", 1000.0, 10000.0, 6035.0, 1.0)
-    else:
-        p_high = prior_data['high']
-        p_low = prior_data['low']
-        p_close = prior_data['close']
-        prior_date = prior_data['date'].date() if hasattr(prior_data['date'], 'date') else prior_data['date']
-        p_high_t = time(11, 30)
-        p_low_t = time(14, 0)
-        st.sidebar.success(f"✓ Loaded: {prior_date}")
-        st.sidebar.caption(f"H: {p_high:,.2f} | L: {p_low:,.2f} | C: {p_close:,.2f}")
-    
-    pivots = [
-        Pivot("Prior High", p_high, ct_tz.localize(datetime.combine(prior_date, p_high_t))),
-        Pivot("Prior Low", p_low, ct_tz.localize(datetime.combine(prior_date, p_low_t))),
-        Pivot("Prior Close", p_close, ct_tz.localize(datetime.combine(prior_date, time(16, 0))))
-    ]
-    
-    # Secondary Pivots
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("#### Secondary Pivots")
-    
-    if st.sidebar.checkbox("High²"):
-        col1, col2 = st.sidebar.columns(2)
-        h2_p = col1.number_input("Price", 1000.0, 10000.0, p_high - 10, 1.0, key="h2_price")
-        h2_t = col2.time_input("Time", time(10, 0), key="h2_time")
-        pivots.append(Pivot("High²", h2_p, ct_tz.localize(datetime.combine(prior_date, h2_t)), "secondary"))
-    
-    if st.sidebar.checkbox("Low²"):
-        col1, col2 = st.sidebar.columns(2)
-        l2_p = col1.number_input("Price", 1000.0, 10000.0, p_low + 10, 1.0, key="l2_price")
-        l2_t = col2.time_input("Time", time(13, 0), key="l2_time")
-        pivots.append(Pivot("Low²", l2_p, ct_tz.localize(datetime.combine(prior_date, l2_t)), "secondary"))
-    
-    st.sidebar.markdown("---")
-    st.sidebar.caption("SPX Prophet v5.0")
-    
-    return mode, session_date, zone, pivots
-
-
-# =============================================================================
-# MAIN
-# =============================================================================
+# ============================================================================
+# MAIN APPLICATION
+# ============================================================================
 
 def main():
-    engine = SPXProphetEngine()
-    ct_tz = pytz.timezone('America/Chicago')
+    st.set_page_config(
+        page_title="SPX Prophet v5.0",
+        page_icon="📈",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
     
-    # Fetch data
-    spx_live, prior_data = fetch_spx_data()
-    spx_price = spx_live or 6000.0
+    # Initialize session state
+    if 'dark_mode' not in st.session_state:
+        st.session_state.dark_mode = False
+    if 'use_polygon' not in st.session_state:
+        st.session_state.use_polygon = True
+    if 'use_manual_vix' not in st.session_state:
+        st.session_state.use_manual_vix = False
+    if 'use_manual_pivots' not in st.session_state:
+        st.session_state.use_manual_pivots = False
+    if 'vix_bottom' not in st.session_state:
+        st.session_state.vix_bottom = 0.0
+    if 'vix_top' not in st.session_state:
+        st.session_state.vix_top = 0.0
+    if 'vix_current' not in st.session_state:
+        st.session_state.vix_current = 0.0
+    if 'manual_high' not in st.session_state:
+        st.session_state.manual_high = 0.0
+    if 'manual_low' not in st.session_state:
+        st.session_state.manual_low = 0.0
+    if 'manual_close' not in st.session_state:
+        st.session_state.manual_close = 0.0
+    if 'manual_high_time' not in st.session_state:
+        st.session_state.manual_high_time = "10:30"
+    if 'manual_low_time' not in st.session_state:
+        st.session_state.manual_low_time = "14:00"
+    if 'use_sec_high' not in st.session_state:
+        st.session_state.use_sec_high = False
+    if 'use_sec_low' not in st.session_state:
+        st.session_state.use_sec_low = False
+    if 'sec_high' not in st.session_state:
+        st.session_state.sec_high = 0.0
+    if 'sec_low' not in st.session_state:
+        st.session_state.sec_low = 0.0
+    if 'sec_high_time' not in st.session_state:
+        st.session_state.sec_high_time = "11:00"
+    if 'sec_low_time' not in st.session_state:
+        st.session_state.sec_low_time = "13:00"
+    if 'polygon_error' not in st.session_state:
+        st.session_state.polygon_error = ""
     
     # Sidebar
-    mode, session_date, zone, pivots = render_sidebar(engine)
+    with st.sidebar:
+        st.markdown("## ⚙️ SPX Prophet v5.0")
+        st.markdown("---")
+        
+        # Session Date
+        session_date = st.date_input("📅 Session Date", value=get_ct_now().date())
+        session_dt = CT_TZ.localize(datetime.combine(session_date, time(10, 0)))
+        
+        st.markdown("---")
+        
+        # Data Source Toggle
+        st.markdown("### 📡 Data Source")
+        st.session_state.use_polygon = st.checkbox("Use Polygon.io", value=st.session_state.use_polygon)
+        
+        if st.session_state.use_polygon:
+            st.info("🔄 Auto-detecting VIX zone and pivots from Polygon...")
+        
+        st.markdown("---")
+        
+        # VIX Zone Section
+        st.markdown("### 📊 VIX Zone (5pm-6am CT)")
+        st.session_state.use_manual_vix = st.checkbox("Manual VIX Override", value=st.session_state.use_manual_vix)
+        
+        if st.session_state.use_manual_vix:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.session_state.vix_bottom = st.number_input("Bottom", min_value=0.0, max_value=100.0, 
+                                                               value=st.session_state.vix_bottom, step=0.05, format="%.2f")
+            with c2:
+                st.session_state.vix_top = st.number_input("Top", min_value=0.0, max_value=100.0, 
+                                                           value=st.session_state.vix_top, step=0.05, format="%.2f")
+        
+        st.session_state.vix_current = st.number_input("Current VIX", min_value=0.0, max_value=100.0, 
+                                                        value=st.session_state.vix_current, step=0.05, format="%.2f")
+        
+        st.markdown("---")
+        
+        # Pivots Section
+        st.markdown("### 📍 Prior Day Pivots")
+        st.session_state.use_manual_pivots = st.checkbox("Manual Pivot Override", value=st.session_state.use_manual_pivots)
+        
+        if st.session_state.use_manual_pivots:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.session_state.manual_high = st.number_input("High", min_value=0.0, max_value=10000.0, 
+                                                                value=st.session_state.manual_high, step=0.25, format="%.2f")
+            with c2:
+                st.session_state.manual_high_time = st.text_input("High Time (CT)", value=st.session_state.manual_high_time)
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.session_state.manual_low = st.number_input("Low", min_value=0.0, max_value=10000.0, 
+                                                               value=st.session_state.manual_low, step=0.25, format="%.2f")
+            with c2:
+                st.session_state.manual_low_time = st.text_input("Low Time (CT)", value=st.session_state.manual_low_time)
+            
+            st.session_state.manual_close = st.number_input("Close", min_value=0.0, max_value=10000.0, 
+                                                             value=st.session_state.manual_close, step=0.25, format="%.2f")
+        
+        st.markdown("### 📐 Secondary Pivots")
+        st.session_state.use_sec_high = st.checkbox("Enable High²", value=st.session_state.use_sec_high)
+        if st.session_state.use_sec_high:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.session_state.sec_high = st.number_input("High² Price", min_value=0.0, max_value=10000.0, 
+                                                             value=st.session_state.sec_high, step=0.25, format="%.2f")
+            with c2:
+                st.session_state.sec_high_time = st.text_input("Time (CT)", value=st.session_state.sec_high_time, key="sht")
+        
+        st.session_state.use_sec_low = st.checkbox("Enable Low²", value=st.session_state.use_sec_low)
+        if st.session_state.use_sec_low:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.session_state.sec_low = st.number_input("Low² Price", min_value=0.0, max_value=10000.0, 
+                                                            value=st.session_state.sec_low, step=0.25, format="%.2f")
+            with c2:
+                st.session_state.sec_low_time = st.text_input("Time (CT)", value=st.session_state.sec_low_time, key="slt")
+        
+        st.markdown("---")
+        
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("🔄 Refresh", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
+        with col2:
+            theme_label = "🌙 Dark" if not st.session_state.dark_mode else "☀️ Light"
+            if st.button(theme_label, use_container_width=True):
+                st.session_state.dark_mode = not st.session_state.dark_mode
+                st.rerun()
     
-    # Get phase
-    now = engine.get_current_time_ct()
-    phase = engine.get_phase(now)
+    # ========== MAIN DATA FETCHING ==========
     
-    # Calculate bias
-    bias, confidence, explanation = engine.determine_bias(zone)
+    # Check Polygon connection
+    polygon_status = None
+    if st.session_state.use_polygon:
+        polygon_status = check_polygon_connection()
     
-    # Calculate cones
-    if mode == "Live":
-        eval_time = ct_tz.localize(datetime.combine(now.date(), time(10, 0)))
-        if now.time() > time(10, 0):
-            eval_time = now
+    # Fetch VIX Zone (auto or manual)
+    vix_auto_detected = False
+    vix_bottom = st.session_state.vix_bottom
+    vix_top = st.session_state.vix_top
+    
+    if st.session_state.use_polygon and not st.session_state.use_manual_vix:
+        overnight_vix = polygon_get_overnight_vix_range(session_dt)
+        if overnight_vix:
+            vix_bottom = overnight_vix['bottom']
+            vix_top = overnight_vix['top']
+            vix_auto_detected = True
+    
+    # Fetch Pivots (auto or manual)
+    pivot_auto_detected = False
+    pivot_source = ""
+    prior = None
+    
+    if st.session_state.use_polygon and not st.session_state.use_manual_pivots:
+        prior = polygon_get_prior_session_pivots(session_dt)
+        if prior:
+            pivot_auto_detected = True
+            pivot_source = "Polygon"
+    
+    # Fallback to yfinance
+    if prior is None:
+        prior = yf_fetch_prior_session(session_dt)
+        if prior:
+            pivot_source = "yfinance"
+    
+    # Use manual pivots if enabled
+    if st.session_state.use_manual_pivots and st.session_state.manual_high > 0:
+        prior_high = st.session_state.manual_high
+        prior_low = st.session_state.manual_low
+        prior_close = st.session_state.manual_close
+        try:
+            h, m = map(int, st.session_state.manual_high_time.split(':'))
+            high_time = CT_TZ.localize(datetime.combine(session_date - timedelta(days=1), time(h, m)))
+        except:
+            high_time = CT_TZ.localize(datetime.combine(session_date - timedelta(days=1), time(10, 30)))
+        try:
+            h, m = map(int, st.session_state.manual_low_time.split(':'))
+            low_time = CT_TZ.localize(datetime.combine(session_date - timedelta(days=1), time(h, m)))
+        except:
+            low_time = CT_TZ.localize(datetime.combine(session_date - timedelta(days=1), time(14, 0)))
+        high_close = prior_high  # Manual doesn't distinguish
+        pivot_auto_detected = False
+    elif prior:
+        prior_high = prior['high']
+        prior_low = prior['low']
+        prior_close = prior['close']
+        high_time = prior.get('high_time', CT_TZ.localize(datetime.combine(session_date - timedelta(days=1), time(12, 0))))
+        low_time = prior.get('low_time', CT_TZ.localize(datetime.combine(session_date - timedelta(days=1), time(12, 0))))
+        high_close = prior.get('high_close', prior_high)
     else:
-        eval_time = ct_tz.localize(datetime.combine(session_date, time(10, 0)))
+        prior_high = 0
+        prior_low = 0
+        prior_close = 0
+        high_time = CT_TZ.localize(datetime.combine(session_date - timedelta(days=1), time(12, 0)))
+        low_time = high_time
+        high_close = 0
     
-    cones = [engine.calculate_cone(p, eval_time) for p in pivots]
+    # Get current SPX price
+    spx = 0.0
+    if st.session_state.use_polygon:
+        spx = polygon_get_current_price(POLYGON_SPX) or 0.0
+    if spx == 0:
+        spx = yf_fetch_current_spx() or prior_close or 6000
     
-    # Find confluence
-    support_confluence, resistance_confluence = engine.find_confluence(cones)
+    # Build pivots
+    pivots = []
+    if prior_high > 0:
+        pivots = [
+            Pivot(
+                price=prior_high,
+                time=high_time,
+                name='High',
+                is_secondary=False,
+                price_for_ascending=prior_high,
+                price_for_descending=high_close
+            ),
+            Pivot(
+                price=prior_low,
+                time=low_time,
+                name='Low',
+                is_secondary=False,
+                price_for_ascending=prior_low,
+                price_for_descending=prior_low
+            ),
+            Pivot(
+                price=prior_close,
+                time=CT_TZ.localize(datetime.combine(session_date - timedelta(days=1), time(15, 0))),
+                name='Close',
+                is_secondary=False,
+                price_for_ascending=prior_close,
+                price_for_descending=prior_close
+            ),
+        ]
+        
+        # Add secondary pivots if enabled
+        if st.session_state.use_sec_high and st.session_state.sec_high > 0:
+            try:
+                h, m = map(int, st.session_state.sec_high_time.split(':'))
+                t = CT_TZ.localize(datetime.combine(session_date - timedelta(days=1), time(h, m)))
+                pivots.append(Pivot(
+                    price=st.session_state.sec_high,
+                    time=t,
+                    name='High²',
+                    is_secondary=True,
+                    price_for_ascending=st.session_state.sec_high,
+                    price_for_descending=st.session_state.sec_high
+                ))
+            except:
+                pass
+        
+        if st.session_state.use_sec_low and st.session_state.sec_low > 0:
+            try:
+                h, m = map(int, st.session_state.sec_low_time.split(':'))
+                t = CT_TZ.localize(datetime.combine(session_date - timedelta(days=1), time(h, m)))
+                pivots.append(Pivot(
+                    price=st.session_state.sec_low,
+                    time=t,
+                    name='Low²',
+                    is_secondary=True,
+                    price_for_ascending=st.session_state.sec_low,
+                    price_for_descending=st.session_state.sec_low
+                ))
+            except:
+                pass
     
-    # Find best cone
-    valid_cones = [c for c in cones if c.is_tradeable]
-    best_cone = max(valid_cones, key=lambda x: x.width) if valid_cones else None
-    best_name = best_cone.pivot.name if best_cone else ""
+    # Build cones
+    eval_time = CT_TZ.localize(datetime.combine(session_date, time(10, 0)))
+    cones = build_cones(pivots, eval_time) if pivots else []
+    
+    # Analyze VIX
+    vix = analyze_vix(vix_bottom, vix_top, st.session_state.vix_current, auto_detected=vix_auto_detected)
     
     # Generate setups
-    setups = []
-    for cone in cones:
-        if cone.is_tradeable:
-            setup = engine.generate_setup(cone, bias, support_confluence, resistance_confluence)
-            if setup:
-                setups.append(setup)
+    setups = generate_setups(cones, spx, vix.bias) if cones else []
     
-    # Sort setups - best first
-    setups.sort(key=lambda s: (s.cone.pivot.name != best_name, not s.is_confluent, -s.cone.width))
+    # Assess day
+    assessment = assess_day(vix, cones, spx)
     
-    best_setup = setups[0] if setups else None
+    # Find active cone
+    active_cone_info = find_active_cone(spx, cones) if cones else None
     
-    # ==========================================================================
-    # RENDER
-    # ==========================================================================
+    # Verify candle close (if Polygon is available)
+    candle_verification = None
+    if st.session_state.use_polygon and vix.bottom > 0:
+        candle_verification = verify_vix_candle_close(vix, session_dt)
     
-    render_header(spx_price, phase, engine)
+    # Render dashboard
+    html = render_dashboard(
+        spx, vix, cones, setups, assessment, prior,
+        dark_mode=st.session_state.dark_mode,
+        active_cone_info=active_cone_info,
+        polygon_status=polygon_status,
+        candle_verification=candle_verification,
+        vix_auto=vix_auto_detected,
+        pivot_auto=pivot_auto_detected,
+        pivot_source=pivot_source
+    )
     
-    if mode == "Live":
-        # Top row - Key metrics
-        col1, col2, col3 = st.columns([1, 1, 1])
-        
-        with col1:
-            render_expected_move(zone)
-        
-        with col2:
-            render_bias_card(bias, confidence, explanation)
-        
-        with col3:
-            render_algo_triggers(zone)
-        
-        # Chart
-        st.markdown("---")
-        intraday = fetch_intraday_spx()
-        if intraday is not None and not intraday.empty:
-            fig = create_spx_chart(intraday, cones, setups, zone, bias)
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
-        
-        # Setups
-        st.markdown("---")
-        
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            if setups:
-                st.markdown(f"### {bias.arrow} {bias.label} Setups")
-                for i, setup in enumerate(setups):
-                    render_setup_card(setup, spx_price, engine, is_best=(i == 0))
-            elif bias == Bias.WAIT:
-                st.info("📊 VIX in Base Zone. Potential trend day. Waiting for boundary touch...")
-            else:
-                st.warning("No valid setups. Check cone widths.")
-            
-            render_cone_table(cones, best_name)
-        
-        with col2:
-            render_confluence_alerts(support_confluence, resistance_confluence)
-            render_vix_ladder(zone)
-            render_position_calculator(engine, best_setup)
-    
-    else:
-        # Historical Mode
-        st.markdown(f"### 📊 Historical Analysis: {session_date.strftime('%B %d, %Y')}")
-        
-        session_data = fetch_historical_spx(session_date)
-        
-        if session_data:
-            col1, col2 = st.columns([1, 1])
-            
-            with col1:
-                render_expected_move(zone)
-                render_bias_card(bias, confidence, explanation)
-                render_algo_triggers(zone)
-            
-            with col2:
-                if best_setup:
-                    hits = engine.analyze_level_hits(best_setup, session_data['high'], session_data['low'])
-                    pnl, pnl_note = engine.calculate_theoretical_pnl(best_setup, hits)
-                    render_historical_results(session_data, best_setup, hits, pnl, pnl_note, engine)
-                else:
-                    st.info("Configure pivots to see analysis")
-            
-            st.markdown("---")
-            
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                if setups:
-                    st.markdown("### Setup Analysis")
-                    for i, setup in enumerate(setups):
-                        render_setup_card(setup, session_data['close'], engine, is_best=(i == 0))
-                        
-                        hits = engine.analyze_level_hits(setup, session_data['high'], session_data['low'])
-                        pnl, pnl_note = engine.calculate_theoretical_pnl(setup, hits)
-                        
-                        cols = st.columns(6)
-                        for j, hit in enumerate(hits):
-                            icon = "✓" if hit.was_hit else "○"
-                            if hit.level_name == "Stop" and hit.was_hit:
-                                icon = "✗"
-                            cols[j % 6].markdown(f"**{hit.level_name}**: {icon}")
-                        
-                        st.markdown(f"**P&L (1 contract):** ${pnl:,.2f} ({pnl_note})")
-                        st.markdown("---")
-                
-                render_cone_table(cones, best_name)
-            
-            with col2:
-                render_confluence_alerts(support_confluence, resistance_confluence)
-                render_vix_ladder(zone)
-                render_position_calculator(engine, best_setup)
-        else:
-            st.error(f"No data available for {session_date}")
-    
-    # Footer
-    st.markdown("---")
-    st.caption("SPX Prophet v5.0 | Institutional SPX Prediction System | Data: Yahoo Finance | Not Financial Advice")
-
+    components.html(html, height=1600, scrolling=True)
 
 if __name__ == "__main__":
     main()
