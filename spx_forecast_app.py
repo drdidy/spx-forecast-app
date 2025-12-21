@@ -1272,436 +1272,625 @@ def render_dashboard(spx: float, vix: VIXZone, cones: List[Cone], setups: List[T
                      active_cone_info: Dict = None, polygon_status: PolygonStatus = None,
                      candle_verification: Dict = None, vix_auto: bool = False, pivot_auto: bool = False,
                      pivot_source: str = "") -> str:
-    """Render an institutional-grade trading dashboard."""
+    """Render a premium trading dashboard."""
     
-    # Professional trading terminal color scheme
-    if dark_mode:
-        bg_main = "#0a0a0f"
-        bg_card = "#12121a"
-        bg_elevated = "#1a1a24"
-        text_primary = "#e8e8ed"
-        text_secondary = "#6b6b7b"
-        text_muted = "#45454f"
-        border_color = "#2a2a35"
-        accent_green = "#00d4aa"
-        accent_red = "#ff4757"
-        accent_yellow = "#ffd43b"
-        accent_blue = "#4dabf7"
-    else:
-        bg_main = "#f5f5f7"
-        bg_card = "#ffffff"
-        bg_elevated = "#fafafa"
-        text_primary = "#1a1a2e"
-        text_secondary = "#5a5a6e"
-        text_muted = "#8a8a9a"
-        border_color = "#e5e5ea"
-        accent_green = "#00a67e"
-        accent_red = "#dc3545"
-        accent_yellow = "#e6a700"
-        accent_blue = "#0066cc"
+    # Premium light mode palette
+    bg = "#ffffff"
+    bg_subtle = "#f8fafc"
+    bg_accent = "#f1f5f9"
+    text_dark = "#0f172a"
+    text_med = "#475569"
+    text_light = "#94a3b8"
+    border = "#e2e8f0"
     
-    # Determine bias styling
+    # Semantic colors
+    green = "#059669"
+    green_bg = "#ecfdf5"
+    green_border = "#a7f3d0"
+    red = "#dc2626"
+    red_bg = "#fef2f2"
+    red_border = "#fecaca"
+    amber = "#d97706"
+    amber_bg = "#fffbeb"
+    amber_border = "#fde68a"
+    blue = "#2563eb"
+    blue_bg = "#eff6ff"
+    
+    # Bias-specific styling
     if vix.bias == 'CALLS':
-        bias_bg = f"linear-gradient(135deg, {accent_green}15, {accent_green}05)"
-        bias_border = accent_green
-        bias_text = accent_green
-        bias_glow = f"0 0 40px {accent_green}20"
+        bias_color = green
+        bias_bg_color = green_bg
+        bias_border_color = green_border
+        bias_label = "BULLISH"
+        bias_arrow = "↑"
     elif vix.bias == 'PUTS':
-        bias_bg = f"linear-gradient(135deg, {accent_red}15, {accent_red}05)"
-        bias_border = accent_red
-        bias_text = accent_red
-        bias_glow = f"0 0 40px {accent_red}20"
+        bias_color = red
+        bias_bg_color = red_bg
+        bias_border_color = red_border
+        bias_label = "BEARISH"
+        bias_arrow = "↓"
     else:
-        bias_bg = f"linear-gradient(135deg, {accent_yellow}15, {accent_yellow}05)"
-        bias_border = accent_yellow
-        bias_text = accent_yellow
-        bias_glow = f"0 0 40px {accent_yellow}20"
+        bias_color = amber
+        bias_bg_color = amber_bg
+        bias_border_color = amber_border
+        bias_label = "NEUTRAL"
+        bias_arrow = "→"
+    
+    # Score styling
+    if assessment.score >= 70:
+        score_color = green
+        score_label = "TRADEABLE"
+    elif assessment.score >= 50:
+        score_color = amber
+        score_label = "CAUTION"
+    else:
+        score_color = red
+        score_label = "SKIP"
     
     # Connection status
-    conn_status = ""
-    if polygon_status:
-        if polygon_status.connected:
-            conn_status = f'<span style="color:{accent_green};font-size:10px;letter-spacing:1px;">● LIVE</span>'
-        else:
-            conn_status = f'<span style="color:{accent_red};font-size:10px;letter-spacing:1px;">● OFFLINE</span>'
-    
-    # Auto/Manual badges
-    vix_badge = f'<span style="background:{accent_blue}20;color:{accent_blue};padding:2px 6px;border-radius:3px;font-size:9px;letter-spacing:0.5px;">AUTO</span>' if vix_auto else f'<span style="background:{accent_yellow}20;color:{accent_yellow};padding:2px 6px;border-radius:3px;font-size:9px;letter-spacing:0.5px;">MANUAL</span>'
-    pivot_badge = f'<span style="background:{accent_blue}20;color:{accent_blue};padding:2px 6px;border-radius:3px;font-size:9px;letter-spacing:0.5px;">AUTO</span>' if pivot_auto else f'<span style="background:{accent_yellow}20;color:{accent_yellow};padding:2px 6px;border-radius:3px;font-size:9px;letter-spacing:0.5px;">MANUAL</span>'
+    if polygon_status and polygon_status.connected:
+        conn_dot = f'<span style="display:inline-block;width:8px;height:8px;background:{green};border-radius:50%;margin-right:6px;box-shadow:0 0 6px {green};"></span>'
+        conn_text = "LIVE"
+    else:
+        conn_dot = f'<span style="display:inline-block;width:8px;height:8px;background:{text_light};border-radius:50%;margin-right:6px;"></span>'
+        conn_text = "OFFLINE"
     
     html = f'''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-        <style>
-            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-            
-            body {{ 
-                font-family: 'Inter', -apple-system, sans-serif;
-                background: {bg_main};
-                color: {text_primary};
-                line-height: 1.5;
-                -webkit-font-smoothing: antialiased;
-            }}
-            
-            .dashboard {{
-                max-width: 1400px;
-                margin: 0 auto;
-                padding: 24px;
-            }}
-            
-            /* Header */
-            .header {{
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-start;
-                margin-bottom: 24px;
-                padding-bottom: 20px;
-                border-bottom: 1px solid {border_color};
-            }}
-            
-            .header-left h1 {{
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 13px;
-                font-weight: 600;
-                letter-spacing: 2px;
-                color: {text_muted};
-                margin-bottom: 4px;
-            }}
-            
-            .header-left .price {{
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 36px;
-                font-weight: 700;
-                color: {text_primary};
-                letter-spacing: -1px;
-            }}
-            
-            .header-left .price .ticker {{
-                font-size: 14px;
-                color: {text_secondary};
-                margin-right: 8px;
-                vertical-align: middle;
-            }}
-            
-            .header-right {{
-                text-align: right;
-            }}
-            
-            .header-right .time {{
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 24px;
-                font-weight: 600;
-                color: {text_primary};
-            }}
-            
-            .header-right .date {{
-                font-size: 12px;
-                color: {text_secondary};
-                margin-top: 4px;
-            }}
-            
-            /* Bias Hero */
-            .bias-hero {{
-                background: {bias_bg};
-                border: 1px solid {bias_border}40;
-                border-radius: 16px;
-                padding: 32px 40px;
-                margin-bottom: 24px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                box-shadow: {bias_glow};
-            }}
-            
-            .bias-main {{
-                display: flex;
-                align-items: center;
-                gap: 24px;
-            }}
-            
-            .bias-indicator {{
-                width: 64px;
-                height: 64px;
-                border-radius: 50%;
-                background: {bias_border}20;
-                border: 2px solid {bias_border};
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 28px;
-            }}
-            
-            .bias-text h2 {{
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 32px;
-                font-weight: 700;
-                color: {bias_text};
-                letter-spacing: 2px;
-            }}
-            
-            .bias-text p {{
-                font-size: 13px;
-                color: {text_secondary};
-                margin-top: 4px;
-            }}
-            
-            .bias-metrics {{
-                display: flex;
-                gap: 40px;
-            }}
-            
-            .bias-metric {{
-                text-align: center;
-            }}
-            
-            .bias-metric .label {{
-                font-size: 10px;
-                color: {text_muted};
-                letter-spacing: 1px;
-                text-transform: uppercase;
-                margin-bottom: 4px;
-            }}
-            
-            .bias-metric .value {{
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 20px;
-                font-weight: 600;
-                color: {text_primary};
-            }}
-            
-            /* Grid Layout */
-            .grid-2 {{
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 20px;
-                margin-bottom: 24px;
-            }}
-            
-            .grid-3 {{
-                display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 16px;
-                margin-bottom: 24px;
-            }}
-            
-            .grid-4 {{
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 12px;
-            }}
-            
-            /* Cards */
-            .card {{
-                background: {bg_card};
-                border: 1px solid {border_color};
-                border-radius: 12px;
-                padding: 20px;
-            }}
-            
-            .card-header {{
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 16px;
-                padding-bottom: 12px;
-                border-bottom: 1px solid {border_color};
-            }}
-            
-            .card-title {{
-                font-size: 11px;
-                font-weight: 600;
-                letter-spacing: 1.5px;
-                text-transform: uppercase;
-                color: {text_muted};
-            }}
-            
-            /* Metric Boxes */
-            .metric-box {{
-                background: {bg_elevated};
-                border-radius: 8px;
-                padding: 16px;
-                text-align: center;
-            }}
-            
-            .metric-box .label {{
-                font-size: 10px;
-                color: {text_muted};
-                letter-spacing: 0.5px;
-                text-transform: uppercase;
-                margin-bottom: 6px;
-            }}
-            
-            .metric-box .value {{
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 22px;
-                font-weight: 600;
-                color: {text_primary};
-            }}
-            
-            .metric-box .sub {{
-                font-size: 11px;
-                color: {text_secondary};
-                margin-top: 4px;
-            }}
-            
-            /* Tables */
-            table {{
-                width: 100%;
-                border-collapse: collapse;
-            }}
-            
-            th {{
-                font-size: 10px;
-                font-weight: 600;
-                letter-spacing: 0.5px;
-                text-transform: uppercase;
-                color: {text_muted};
-                text-align: left;
-                padding: 12px 16px;
-                border-bottom: 1px solid {border_color};
-            }}
-            
-            td {{
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 13px;
-                padding: 14px 16px;
-                border-bottom: 1px solid {border_color}80;
-                color: {text_primary};
-            }}
-            
-            tr:last-child td {{
-                border-bottom: none;
-            }}
-            
-            tr:hover td {{
-                background: {bg_elevated};
-            }}
-            
-            .text-green {{ color: {accent_green}; }}
-            .text-red {{ color: {accent_red}; }}
-            .text-yellow {{ color: {accent_yellow}; }}
-            .text-muted {{ color: {text_muted}; }}
-            
-            /* Tags */
-            .tag {{
-                display: inline-block;
-                padding: 4px 10px;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: 600;
-                font-family: 'JetBrains Mono', monospace;
-            }}
-            
-            .tag-green {{ background: {accent_green}15; color: {accent_green}; }}
-            .tag-red {{ background: {accent_red}15; color: {accent_red}; }}
-            .tag-yellow {{ background: {accent_yellow}15; color: {accent_yellow}; }}
-            .tag-blue {{ background: {accent_blue}15; color: {accent_blue}; }}
-            
-            /* Active Row */
-            .active-row {{
-                background: {accent_green}08 !important;
-                border-left: 3px solid {accent_green};
-            }}
-            
-            .active-row td:first-child {{
-                padding-left: 13px;
-            }}
-            
-            /* Status Banner */
-            .status-banner {{
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                padding: 14px 20px;
-                border-radius: 10px;
-                margin-bottom: 20px;
-            }}
-            
-            .status-banner.alert {{
-                background: {accent_red}10;
-                border: 1px solid {accent_red}30;
-            }}
-            
-            .status-banner.success {{
-                background: {accent_green}10;
-                border: 1px solid {accent_green}30;
-            }}
-            
-            .status-banner.warning {{
-                background: {accent_yellow}10;
-                border: 1px solid {accent_yellow}30;
-            }}
-            
-            .status-banner .icon {{
-                font-size: 24px;
-            }}
-            
-            .status-banner .content h4 {{
-                font-size: 14px;
-                font-weight: 600;
-                margin-bottom: 2px;
-            }}
-            
-            .status-banner .content p {{
-                font-size: 12px;
-                color: {text_secondary};
-            }}
-            
-            /* Cone Visual */
-            .cone-row {{
-                display: flex;
-                align-items: center;
-                gap: 12px;
-            }}
-            
-            .cone-name {{
-                min-width: 70px;
-                font-weight: 600;
-            }}
-            
-            .cone-visual {{
-                flex: 1;
-                height: 8px;
-                background: {bg_elevated};
-                border-radius: 4px;
-                position: relative;
-                overflow: hidden;
-            }}
-            
-            .cone-fill {{
-                height: 100%;
-                border-radius: 4px;
-                background: linear-gradient(90deg, {accent_red}60, {accent_green}60);
-            }}
-            
-        </style>
-    </head>
-    <body>
-        <div class="dashboard">
-            
-            <!-- Header -->
-            <div class="header">
-                <div class="header-left">
-                    <h1>SPX PROPHET</h1>
-                    <div class="price">
-                        <span class="ticker">SPX</span>{spx:,.2f}
-                    </div>
-                    <div style="margin-top:8px;display:flex;gap:12px;align-items:center;">
-                        {conn_status}
-                        <span style="color:{text_muted};font-size:11px;">VIX {vix_badge}</span>
-                        <span style="color:{text_muted};font-size:11px;">PIVOTS {pivot_badge}</span>
-                    </div>
-                </div>
-                <div class="header-right">
-                    <div class="time">{get_ct_now().strftime('%H:%M')}</div>
-                    <div class="date">{get_ct_now().strftime('%B %d, %Y')} CT</div>
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        
+        body {{
+            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: {bg};
+            color: {text_dark};
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }}
+        
+        .container {{
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }}
+        
+        /* Top Bar */
+        .top-bar {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 24px;
+            margin-bottom: 32px;
+            border-bottom: 1px solid {border};
+        }}
+        
+        .logo {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }}
+        
+        .logo-icon {{
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, {blue} 0%, #7c3aed 100%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 18px;
+        }}
+        
+        .logo-text {{
+            font-size: 20px;
+            font-weight: 700;
+            color: {text_dark};
+            letter-spacing: -0.5px;
+        }}
+        
+        .logo-version {{
+            font-size: 11px;
+            color: {text_light};
+            font-weight: 500;
+        }}
+        
+        .status-bar {{
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }}
+        
+        .status-item {{
+            display: flex;
+            align-items: center;
+            font-size: 13px;
+            color: {text_med};
+        }}
+        
+        .time-display {{
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 14px;
+            font-weight: 500;
+            color: {text_dark};
+            background: {bg_subtle};
+            padding: 8px 14px;
+            border-radius: 8px;
+        }}
+        
+        /* Hero Section */
+        .hero {{
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            gap: 24px;
+            margin-bottom: 32px;
+        }}
+        
+        .price-card {{
+            background: {bg_subtle};
+            border-radius: 20px;
+            padding: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }}
+        
+        .price-main {{
+            display: flex;
+            flex-direction: column;
+        }}
+        
+        .price-label {{
+            font-size: 13px;
+            font-weight: 600;
+            color: {text_light};
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }}
+        
+        .price-value {{
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 48px;
+            font-weight: 600;
+            color: {text_dark};
+            letter-spacing: -2px;
+            line-height: 1;
+        }}
+        
+        .price-meta {{
+            display: flex;
+            gap: 24px;
+            margin-top: 16px;
+        }}
+        
+        .meta-item {{
+            display: flex;
+            flex-direction: column;
+        }}
+        
+        .meta-label {{
+            font-size: 11px;
+            color: {text_light};
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        
+        .meta-value {{
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 18px;
+            font-weight: 600;
+            color: {text_dark};
+        }}
+        
+        .bias-card {{
+            background: {bias_bg_color};
+            border: 2px solid {bias_border_color};
+            border-radius: 20px;
+            padding: 28px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }}
+        
+        .bias-arrow {{
+            font-size: 36px;
+            color: {bias_color};
+            margin-bottom: 8px;
+        }}
+        
+        .bias-label {{
+            font-size: 28px;
+            font-weight: 700;
+            color: {bias_color};
+            letter-spacing: -0.5px;
+        }}
+        
+        .bias-sub {{
+            font-size: 14px;
+            color: {text_med};
+            margin-top: 8px;
+        }}
+        
+        .bias-position {{
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            color: {bias_color};
+            background: {bg};
+            padding: 6px 12px;
+            border-radius: 6px;
+            margin-top: 12px;
+            font-weight: 500;
+        }}
+        
+        /* Alert Banner */
+        .alert-banner {{
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 20px 24px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+        }}
+        
+        .alert-banner.success {{
+            background: {green_bg};
+            border: 1px solid {green_border};
+        }}
+        
+        .alert-banner.danger {{
+            background: {red_bg};
+            border: 1px solid {red_border};
+        }}
+        
+        .alert-banner.warning {{
+            background: {amber_bg};
+            border: 1px solid {amber_border};
+        }}
+        
+        .alert-icon {{
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            flex-shrink: 0;
+        }}
+        
+        .alert-banner.success .alert-icon {{ background: {green}20; }}
+        .alert-banner.danger .alert-icon {{ background: {red}20; }}
+        .alert-banner.warning .alert-icon {{ background: {amber}20; }}
+        
+        .alert-content h3 {{
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }}
+        
+        .alert-banner.success h3 {{ color: {green}; }}
+        .alert-banner.danger h3 {{ color: {red}; }}
+        .alert-banner.warning h3 {{ color: {amber}; }}
+        
+        .alert-content p {{
+            font-size: 14px;
+            color: {text_med};
+        }}
+        
+        /* Score Bar */
+        .score-section {{
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            padding: 20px 28px;
+            background: {bg_subtle};
+            border-radius: 16px;
+            margin-bottom: 32px;
+        }}
+        
+        .score-circle {{
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 22px;
+            font-weight: 700;
+            color: white;
+            flex-shrink: 0;
+        }}
+        
+        .score-info {{
+            flex: 1;
+        }}
+        
+        .score-title {{
+            font-size: 18px;
+            font-weight: 600;
+            color: {text_dark};
+            margin-bottom: 4px;
+        }}
+        
+        .score-warnings {{
+            font-size: 13px;
+            color: {text_med};
+        }}
+        
+        /* Section Headers */
+        .section-header {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }}
+        
+        .section-title {{
+            font-size: 13px;
+            font-weight: 600;
+            color: {text_light};
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }}
+        
+        .section-badge {{
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 6px;
+        }}
+        
+        .badge-auto {{
+            background: {blue_bg};
+            color: {blue};
+        }}
+        
+        .badge-manual {{
+            background: {amber_bg};
+            color: {amber};
+        }}
+        
+        /* Cards */
+        .card {{
+            background: {bg};
+            border: 1px solid {border};
+            border-radius: 16px;
+            margin-bottom: 24px;
+            overflow: hidden;
+        }}
+        
+        .card-body {{
+            padding: 24px;
+        }}
+        
+        /* Data Grid */
+        .data-grid {{
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+        }}
+        
+        .data-cell {{
+            background: {bg_subtle};
+            border-radius: 12px;
+            padding: 16px 20px;
+        }}
+        
+        .data-cell-label {{
+            font-size: 11px;
+            font-weight: 500;
+            color: {text_light};
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }}
+        
+        .data-cell-value {{
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 20px;
+            font-weight: 600;
+            color: {text_dark};
+        }}
+        
+        /* Tables */
+        .table-wrapper {{
+            overflow-x: auto;
+        }}
+        
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+        
+        thead {{
+            background: {bg_subtle};
+        }}
+        
+        th {{
+            font-size: 11px;
+            font-weight: 600;
+            color: {text_light};
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 14px 20px;
+            text-align: left;
+            border-bottom: 1px solid {border};
+        }}
+        
+        td {{
+            font-size: 14px;
+            padding: 16px 20px;
+            border-bottom: 1px solid {border};
+            color: {text_dark};
+        }}
+        
+        tr:last-child td {{
+            border-bottom: none;
+        }}
+        
+        tbody tr {{
+            transition: background 0.15s ease;
+        }}
+        
+        tbody tr:hover {{
+            background: {bg_subtle};
+        }}
+        
+        .mono {{
+            font-family: 'IBM Plex Mono', monospace;
+            font-weight: 500;
+        }}
+        
+        .text-green {{ color: {green}; }}
+        .text-red {{ color: {red}; }}
+        .text-amber {{ color: {amber}; }}
+        .text-muted {{ color: {text_light}; }}
+        
+        .font-semibold {{ font-weight: 600; }}
+        
+        /* Pills */
+        .pill {{
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+        }}
+        
+        .pill-green {{
+            background: {green_bg};
+            color: {green};
+        }}
+        
+        .pill-red {{
+            background: {red_bg};
+            color: {red};
+        }}
+        
+        .pill-amber {{
+            background: {amber_bg};
+            color: {amber};
+        }}
+        
+        .pill-neutral {{
+            background: {bg_subtle};
+            color: {text_med};
+        }}
+        
+        /* Active Setup Row */
+        .row-active {{
+            background: {green_bg} !important;
+            position: relative;
+        }}
+        
+        .row-active::before {{
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: {green};
+        }}
+        
+        /* VIX Zone Visual */
+        .vix-zone-visual {{
+            position: relative;
+            height: 12px;
+            background: linear-gradient(90deg, {green_bg} 0%, {bg_subtle} 40%, {bg_subtle} 60%, {red_bg} 100%);
+            border-radius: 6px;
+            margin: 16px 0;
+            overflow: visible;
+        }}
+        
+        .vix-marker {{
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            background: {bias_color};
+            border: 3px solid {bg};
+            border-radius: 50%;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }}
+        
+        .vix-labels {{
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: {text_light};
+            margin-top: 8px;
+        }}
+        
+    </style>
+</head>
+<body>
+    <div class="container">
+        
+        <!-- Top Bar -->
+        <div class="top-bar">
+            <div class="logo">
+                <div class="logo-icon">SP</div>
+                <div>
+                    <div class="logo-text">SPX Prophet</div>
+                    <div class="logo-version">v5.0 • Structural Analysis</div>
                 </div>
             </div>
-    '''
+            <div class="status-bar">
+                <div class="status-item">
+                    {conn_dot}{conn_text}
+                </div>
+                <div class="time-display">
+                    {get_ct_now().strftime('%H:%M')} CT
+                </div>
+            </div>
+        </div>
+        
+        <!-- Hero Section -->
+        <div class="hero">
+            <div class="price-card">
+                <div class="price-main">
+                    <div class="price-label">S&P 500 Index</div>
+                    <div class="price-value">{spx:,.2f}</div>
+                    <div class="price-meta">
+                        <div class="meta-item">
+                            <span class="meta-label">VIX</span>
+                            <span class="meta-value">{vix.current:.2f}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Zone</span>
+                            <span class="meta-value">{vix.bottom:.2f} – {vix.top:.2f}</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">Expected</span>
+                            <span class="meta-value">±{vix.expected_move[0]}-{vix.expected_move[1]} pts</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bias-card">
+                <div class="bias-arrow">{bias_arrow}</div>
+                <div class="bias-label">{bias_label}</div>
+                <div class="bias-sub">VIX Position in Zone</div>
+                <div class="bias-position">{vix.position_pct:.0f}%</div>
+            </div>
+        </div>
+'''
     
-    # Active Cone Alert Banner
+    # Alert Banner for Active Cone
     if active_cone_info:
         inside = active_cone_info.get('inside_cone')
         at_rail = active_cone_info.get('at_rail', False)
@@ -1711,230 +1900,230 @@ def render_dashboard(spx: float, vix: VIXZone, cones: List[Cone], setups: List[T
         if inside and at_rail:
             if rail_type == 'ascending':
                 html += f'''
-                <div class="status-banner alert">
-                    <div class="icon">🎯</div>
-                    <div class="content">
-                        <h4 style="color:{accent_red};">AT {inside.name} ASCENDING RAIL — PUTS ENTRY ZONE</h4>
-                        <p>{distance:.1f} pts from rail at {inside.ascending_rail:.2f}</p>
-                    </div>
-                </div>
-                '''
+        <div class="alert-banner danger">
+            <div class="alert-icon">🎯</div>
+            <div class="alert-content">
+                <h3>At {inside.name} Ascending Rail — PUTS Entry Zone</h3>
+                <p>Price is {distance:.1f} points from rail at {inside.ascending_rail:,.2f}</p>
+            </div>
+        </div>
+'''
             else:
                 html += f'''
-                <div class="status-banner success">
-                    <div class="icon">🎯</div>
-                    <div class="content">
-                        <h4 style="color:{accent_green};">AT {inside.name} DESCENDING RAIL — CALLS ENTRY ZONE</h4>
-                        <p>{distance:.1f} pts from rail at {inside.descending_rail:.2f}</p>
-                    </div>
-                </div>
-                '''
+        <div class="alert-banner success">
+            <div class="alert-icon">🎯</div>
+            <div class="alert-content">
+                <h3>At {inside.name} Descending Rail — CALLS Entry Zone</h3>
+                <p>Price is {distance:.1f} points from rail at {inside.descending_rail:,.2f}</p>
+            </div>
+        </div>
+'''
     
-    # Bias Hero Section
-    bias_icon = '↗' if vix.bias == 'CALLS' else '↘' if vix.bias == 'PUTS' else '⟷'
+    # Score Section
     html += f'''
-            <!-- Bias Hero -->
-            <div class="bias-hero">
-                <div class="bias-main">
-                    <div class="bias-indicator">{bias_icon}</div>
-                    <div class="bias-text">
-                        <h2>{vix.bias}</h2>
-                        <p>VIX at {vix.position_pct:.0f}% of overnight zone</p>
-                    </div>
-                </div>
-                <div class="bias-metrics">
-                    <div class="bias-metric">
-                        <div class="label">VIX</div>
-                        <div class="value">{vix.current:.2f}</div>
-                    </div>
-                    <div class="bias-metric">
-                        <div class="label">Zone</div>
-                        <div class="value">{vix.bottom:.2f} - {vix.top:.2f}</div>
-                    </div>
-                    <div class="bias-metric">
-                        <div class="label">Expected Move</div>
-                        <div class="value">{vix.expected_move[0]}-{vix.expected_move[1]} pts</div>
-                    </div>
+        <!-- Score Section -->
+        <div class="score-section">
+            <div class="score-circle" style="background:{score_color};">{assessment.score}</div>
+            <div class="score-info">
+                <div class="score-title">{score_label} — {assessment.recommendation} Size</div>
+                <div class="score-warnings">
+                    {' • '.join(assessment.warnings) if assessment.warnings else 'No warnings for this session'}
                 </div>
             </div>
-    '''
+        </div>
+'''
     
-    # Day Assessment
-    if assessment.recommendation == 'FULL':
-        assess_class = 'success'
-        assess_icon = '✓'
-        assess_color = accent_green
-    elif assessment.recommendation == 'REDUCED':
-        assess_class = 'warning'
-        assess_icon = '!'
-        assess_color = accent_yellow
-    else:
-        assess_class = 'alert'
-        assess_icon = '✕'
-        assess_color = accent_red
-    
-    warnings_html = ''.join([f'<span style="display:block;margin-top:4px;">• {w}</span>' for w in assessment.warnings]) if assessment.warnings else ''
+    # Structural Cones Section
+    pivot_badge = 'badge-auto' if pivot_auto else 'badge-manual'
+    pivot_text = 'AUTO' if pivot_auto else 'MANUAL'
     
     html += f'''
-            <!-- Day Assessment -->
-            <div class="status-banner {assess_class}" style="margin-bottom:24px;">
-                <div class="icon" style="font-size:20px;width:36px;height:36px;border-radius:50%;background:{assess_color}20;display:flex;align-items:center;justify-content:center;color:{assess_color};font-weight:700;">{assess_icon}</div>
-                <div class="content" style="flex:1;">
-                    <h4 style="color:{assess_color};">{assessment.recommendation} SIZE — Score: {assessment.score}/100</h4>
-                    <p style="color:{text_secondary};">{warnings_html if warnings_html else 'No warnings'}</p>
-                </div>
-            </div>
-    '''
-    
-    # Structural Cones Table
-    html += f'''
-            <!-- Cones -->
-            <div class="card" style="margin-bottom:24px;">
-                <div class="card-header">
-                    <span class="card-title">Structural Cones @ 10:00 AM CT</span>
-                </div>
+        <!-- Cones Section -->
+        <div class="section-header">
+            <div class="section-title">Structural Cones @ 10:00 AM CT</div>
+            <div class="section-badge {pivot_badge}">{pivot_text}</div>
+        </div>
+        
+        <div class="card">
+            <div class="table-wrapper">
                 <table>
-                    <tr>
-                        <th>Pivot</th>
-                        <th>Ascending Rail</th>
-                        <th>Descending Rail</th>
-                        <th style="text-align:center;">Width</th>
-                        <th style="text-align:center;">Blocks</th>
-                    </tr>
-    '''
+                    <thead>
+                        <tr>
+                            <th>Pivot</th>
+                            <th>Ascending Rail</th>
+                            <th>Descending Rail</th>
+                            <th>Width</th>
+                            <th>Blocks</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+'''
     
     for cone in cones:
-        width_class = 'tag-green' if cone.width >= 25 else 'tag-yellow' if cone.width >= MIN_CONE_WIDTH else 'tag-red'
+        if cone.width >= 25:
+            width_pill = 'pill-green'
+        elif cone.width >= MIN_CONE_WIDTH:
+            width_pill = 'pill-amber'
+        else:
+            width_pill = 'pill-red'
+        
         html += f'''
-                    <tr>
-                        <td style="font-weight:600;">{cone.name}</td>
-                        <td class="text-red">{cone.ascending_rail:.2f}</td>
-                        <td class="text-green">{cone.descending_rail:.2f}</td>
-                        <td style="text-align:center;"><span class="tag {width_class}">{cone.width:.0f} pts</span></td>
-                        <td style="text-align:center;color:{text_muted};">{cone.blocks}</td>
-                    </tr>
-        '''
+                        <tr>
+                            <td class="font-semibold">{cone.name}</td>
+                            <td class="mono text-red">{cone.ascending_rail:,.2f}</td>
+                            <td class="mono text-green">{cone.descending_rail:,.2f}</td>
+                            <td><span class="pill {width_pill}">{cone.width:.0f} pts</span></td>
+                            <td class="text-muted">{cone.blocks}</td>
+                        </tr>
+'''
     
     html += '''
+                    </tbody>
                 </table>
             </div>
-    '''
+        </div>
+'''
     
-    # Trade Setups - Calls
+    # CALLS Setups
     calls_setups = [s for s in setups if s.direction == 'CALLS']
     if calls_setups:
         html += f'''
-            <div class="card" style="margin-bottom:24px;">
-                <div class="card-header">
-                    <span class="card-title" style="color:{accent_green};">↗ CALLS SETUPS</span>
-                    <span style="font-size:11px;color:{text_muted};">Enter at Descending Rail</span>
-                </div>
+        <div class="section-header">
+            <div class="section-title" style="color:{green};">↑ Calls Setups</div>
+            <div style="font-size:12px;color:{text_light};">Enter at Descending Rail</div>
+        </div>
+        
+        <div class="card">
+            <div class="table-wrapper">
                 <table>
-                    <tr>
-                        <th>Cone</th>
-                        <th>Entry</th>
-                        <th>Stop</th>
-                        <th>T1 (12.5%)</th>
-                        <th>T2 (25%)</th>
-                        <th>T3 (50%)</th>
-                        <th>Strike</th>
-                        <th style="text-align:right;">Distance</th>
-                    </tr>
-        '''
+                    <thead>
+                        <tr>
+                            <th>Cone</th>
+                            <th>Entry</th>
+                            <th>Stop</th>
+                            <th>Target 12.5%</th>
+                            <th>Target 25%</th>
+                            <th>Target 50%</th>
+                            <th>Strike</th>
+                            <th style="text-align:right;">Distance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+'''
         for s in calls_setups:
-            row_class = 'active-row' if s.is_active else ''
-            dist_class = 'tag-green' if s.distance <= 5 else 'tag-yellow' if s.distance <= 15 else ''
+            row_class = 'row-active' if s.is_active else ''
+            if s.distance <= 5:
+                dist_pill = 'pill-green'
+            elif s.distance <= 15:
+                dist_pill = 'pill-amber'
+            else:
+                dist_pill = 'pill-neutral'
+            
             html += f'''
-                    <tr class="{row_class}">
-                        <td style="font-weight:600;">{s.cone_name}</td>
-                        <td class="text-green" style="font-weight:600;">{s.entry:.2f}</td>
-                        <td class="text-red">{s.stop:.2f}</td>
-                        <td>{s.target_12:.2f}</td>
-                        <td>{s.target_25:.2f}</td>
-                        <td>{s.target_50:.2f}</td>
-                        <td>{s.strike}C</td>
-                        <td style="text-align:right;"><span class="tag {dist_class}">{s.distance:.1f}</span></td>
-                    </tr>
-            '''
+                        <tr class="{row_class}">
+                            <td class="font-semibold">{s.cone_name}</td>
+                            <td class="mono text-green font-semibold">{s.entry:,.2f}</td>
+                            <td class="mono text-red">{s.stop:,.2f}</td>
+                            <td class="mono">{s.target_12:,.2f}</td>
+                            <td class="mono">{s.target_25:,.2f}</td>
+                            <td class="mono">{s.target_50:,.2f}</td>
+                            <td class="mono">{s.strike}C</td>
+                            <td style="text-align:right;"><span class="pill {dist_pill}">{s.distance:.1f}</span></td>
+                        </tr>
+'''
         html += '''
+                    </tbody>
                 </table>
             </div>
-        '''
+        </div>
+'''
     
-    # Trade Setups - Puts
+    # PUTS Setups
     puts_setups = [s for s in setups if s.direction == 'PUTS']
     if puts_setups:
         html += f'''
-            <div class="card" style="margin-bottom:24px;">
-                <div class="card-header">
-                    <span class="card-title" style="color:{accent_red};">↘ PUTS SETUPS</span>
-                    <span style="font-size:11px;color:{text_muted};">Enter at Ascending Rail</span>
-                </div>
+        <div class="section-header">
+            <div class="section-title" style="color:{red};">↓ Puts Setups</div>
+            <div style="font-size:12px;color:{text_light};">Enter at Ascending Rail</div>
+        </div>
+        
+        <div class="card">
+            <div class="table-wrapper">
                 <table>
-                    <tr>
-                        <th>Cone</th>
-                        <th>Entry</th>
-                        <th>Stop</th>
-                        <th>T1 (12.5%)</th>
-                        <th>T2 (25%)</th>
-                        <th>T3 (50%)</th>
-                        <th>Strike</th>
-                        <th style="text-align:right;">Distance</th>
-                    </tr>
-        '''
+                    <thead>
+                        <tr>
+                            <th>Cone</th>
+                            <th>Entry</th>
+                            <th>Stop</th>
+                            <th>Target 12.5%</th>
+                            <th>Target 25%</th>
+                            <th>Target 50%</th>
+                            <th>Strike</th>
+                            <th style="text-align:right;">Distance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+'''
         for s in puts_setups:
-            row_class = 'active-row' if s.is_active else ''
-            dist_class = 'tag-green' if s.distance <= 5 else 'tag-yellow' if s.distance <= 15 else ''
+            row_class = 'row-active' if s.is_active else ''
+            if s.distance <= 5:
+                dist_pill = 'pill-green'
+            elif s.distance <= 15:
+                dist_pill = 'pill-amber'
+            else:
+                dist_pill = 'pill-neutral'
+            
             html += f'''
-                    <tr class="{row_class}">
-                        <td style="font-weight:600;">{s.cone_name}</td>
-                        <td class="text-red" style="font-weight:600;">{s.entry:.2f}</td>
-                        <td class="text-green">{s.stop:.2f}</td>
-                        <td>{s.target_12:.2f}</td>
-                        <td>{s.target_25:.2f}</td>
-                        <td>{s.target_50:.2f}</td>
-                        <td>{s.strike}P</td>
-                        <td style="text-align:right;"><span class="tag {dist_class}">{s.distance:.1f}</span></td>
-                    </tr>
-            '''
+                        <tr class="{row_class}">
+                            <td class="font-semibold">{s.cone_name}</td>
+                            <td class="mono text-red font-semibold">{s.entry:,.2f}</td>
+                            <td class="mono text-green">{s.stop:,.2f}</td>
+                            <td class="mono">{s.target_12:,.2f}</td>
+                            <td class="mono">{s.target_25:,.2f}</td>
+                            <td class="mono">{s.target_50:,.2f}</td>
+                            <td class="mono">{s.strike}P</td>
+                            <td style="text-align:right;"><span class="pill {dist_pill}">{s.distance:.1f}</span></td>
+                        </tr>
+'''
         html += '''
+                    </tbody>
                 </table>
             </div>
-        '''
+        </div>
+'''
     
-    # Prior Day Reference
+    # Prior Session Reference
     if prior:
         html += f'''
-            <div class="card">
-                <div class="card-header">
-                    <span class="card-title">Prior Session Reference</span>
-                </div>
-                <div class="grid-4">
-                    <div class="metric-box">
-                        <div class="label">High</div>
-                        <div class="value">{prior.get('high', 0):,.2f}</div>
-                    </div>
-                    <div class="metric-box">
-                        <div class="label">Low</div>
-                        <div class="value">{prior.get('low', 0):,.2f}</div>
-                    </div>
-                    <div class="metric-box">
-                        <div class="label">Close</div>
-                        <div class="value">{prior.get('close', 0):,.2f}</div>
-                    </div>
-                    <div class="metric-box">
-                        <div class="label">Range</div>
-                        <div class="value">{prior.get('high', 0) - prior.get('low', 0):,.0f} pts</div>
-                    </div>
-                </div>
+        <div class="section-header">
+            <div class="section-title">Prior Session</div>
+        </div>
+        
+        <div class="data-grid" style="margin-bottom:32px;">
+            <div class="data-cell">
+                <div class="data-cell-label">High</div>
+                <div class="data-cell-value">{prior.get('high', 0):,.2f}</div>
             </div>
-        '''
+            <div class="data-cell">
+                <div class="data-cell-label">Low</div>
+                <div class="data-cell-value">{prior.get('low', 0):,.2f}</div>
+            </div>
+            <div class="data-cell">
+                <div class="data-cell-label">Close</div>
+                <div class="data-cell-value">{prior.get('close', 0):,.2f}</div>
+            </div>
+            <div class="data-cell">
+                <div class="data-cell-label">Range</div>
+                <div class="data-cell-value">{prior.get('high', 0) - prior.get('low', 0):,.0f} pts</div>
+            </div>
+        </div>
+'''
     
     html += '''
-        </div>
-    </body>
-    </html>
-    '''
+    </div>
+</body>
+</html>
+'''
     
     return html
 
