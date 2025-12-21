@@ -154,17 +154,12 @@ class TradeSetup:
     rr_ratio: float
     distance: float
     is_active: bool = False
-    # Options pricing
-    spx_option: Optional[OptionQuote] = None
-    spy_option: Optional[OptionQuote] = None
-    using_spy: bool = False
-    recommended_entry_price: float = 0.0
-    max_entry_price: float = 0.0
-    # SPX equivalent prices (from SPY × 10)
-    spx_equiv_bid: float = 0.0
-    spx_equiv_ask: float = 0.0
-    spx_equiv_mid: float = 0.0
+    # Options pricing - simplified
+    current_option_price: float = 0.0  # Current mid price (SPX equivalent)
+    est_entry_price_10am: float = 0.0  # Estimated price when SPX hits entry at 10AM
     spy_strike_used: int = 0
+    using_spy: bool = False
+    option_delta: float = 0.33  # Estimated delta for calculations
 
 @dataclass
 class DayAssessment:
@@ -324,47 +319,89 @@ def get_trading_day_label() -> str:
     else:
         return next_trading.strftime("%A, %b %d")
 
-def get_option_pricing_for_setup(setup: TradeSetup, current_spx: float) -> TradeSetup:
-    """Fetch live option pricing for a trade setup. Uses SPY and converts to SPX equivalent."""
-    # Use next trading day for 0DTE options (handles weekends)
-    expiry = get_next_trading_day()
+def estimate_option_price_at_entry(current_price: float, current_spx: float, entry_spx: float, 
+                                    strike: float, direction: str, delta: float = 0.33) -> float:
+    """
+    Estimate what the option price will be when SPX reaches the entry point.
     
+    Uses delta approximation:
+    - If SPX moves toward the strike (option goes more ITM), price increases
+    - If SPX moves away from strike (option goes more OTM), price decreases
+    
+    For CALLS: entry is at descending rail (lower than current if we're above)
+    For PUTS: entry is at ascending rail (higher than current if we're below)
+    """
+    spx_move = entry_spx - current_spx  # Positive = SPX going up, Negative = SPX going down
+    
+    if direction == "CALLS":
+        # Call value increases when SPX goes up
+        price_change = spx_move * delta
+    else:
+        # Put value increases when SPX goes down
+        price_change = -spx_move * delta
+    
+    estimated_price = current_price + price_change
+    
+    # Floor at intrinsic value (can't go below 0)
+    return max(round(estimated_price, 2), 0.10)
+
+def get_option_pricing_for_setup(setup: TradeSetup, current_spx: float) -> TradeSetup:
+    """
+    Fetch option pricing and estimate entry price at 10 AM.
+    
+    Returns:
+    - current_option_price: What the option costs RIGHT NOW
+    - est_entry_price_10am: What it should cost when SPX hits the entry rail at 10 AM
+    """
+    expiry = get_next_trading_day()
     option_type = "C" if setup.direction == "CALLS" else "P"
     
-    # Try SPX first (unlikely to work without expensive data subscription)
+    current_mid = 0.0
+    delta = 0.33  # Default delta assumption for OTM options
+    
+    # Try SPX first
     spx_ticker = build_option_ticker("SPX", expiry, setup.strike, option_type)
     spx_quote = polygon_get_option_quote(spx_ticker)
     
     if spx_quote and (spx_quote.bid > 0 or spx_quote.ask > 0):
-        setup.spx_option = spx_quote
         setup.using_spy = False
-        setup.spx_equiv_bid = spx_quote.bid
-        setup.spx_equiv_ask = spx_quote.ask
-        setup.spx_equiv_mid = spx_quote.mid
-        if spx_quote.bid > 0 and spx_quote.ask > 0:
-            setup.recommended_entry_price = round((spx_quote.bid + spx_quote.mid) / 2, 2)
-            setup.max_entry_price = spx_quote.mid
+        current_mid = spx_quote.mid if spx_quote.mid > 0 else (spx_quote.bid + spx_quote.ask) / 2
+        if spx_quote.delta and abs(spx_quote.delta) > 0:
+            delta = abs(spx_quote.delta)
     else:
-        # Fallback to SPY (strike ÷ 10) - This is the common path
+        # Fallback to SPY (strike ÷ 10)
         spy_strike = round(setup.strike / 10)
         setup.spy_strike_used = spy_strike
         spy_ticker = build_option_ticker("SPY", expiry, spy_strike, option_type)
         spy_quote = polygon_get_option_quote(spy_ticker)
         
         if spy_quote and (spy_quote.bid > 0 or spy_quote.ask > 0):
-            setup.spy_option = spy_quote
             setup.using_spy = True
-            
-            # Convert SPY prices to SPX equivalent (multiply by 10)
-            # SPY options are 1/10th the notional of SPX
-            setup.spx_equiv_bid = round(spy_quote.bid * 10, 2)
-            setup.spx_equiv_ask = round(spy_quote.ask * 10, 2)
-            setup.spx_equiv_mid = round(spy_quote.mid * 10, 2)
-            
-            if spy_quote.bid > 0 and spy_quote.ask > 0:
-                # Recommended entry in SPX equivalent terms
-                setup.recommended_entry_price = round((setup.spx_equiv_bid + setup.spx_equiv_mid) / 2, 2)
-                setup.max_entry_price = setup.spx_equiv_mid
+            # Convert SPY to SPX equivalent (multiply by 10)
+            spy_mid = spy_quote.mid if spy_quote.mid > 0 else (spy_quote.bid + spy_quote.ask) / 2
+            current_mid = round(spy_mid * 10, 2)
+            if spy_quote.delta and abs(spy_quote.delta) > 0:
+                delta = abs(spy_quote.delta)
+    
+    # Set current price
+    setup.current_option_price = current_mid
+    setup.option_delta = delta
+    
+    # Estimate price at 10 AM entry
+    if current_mid > 0:
+        setup.est_entry_price_10am = estimate_option_price_at_entry(
+            current_price=current_mid,
+            current_spx=current_spx,
+            entry_spx=setup.entry,
+            strike=setup.strike,
+            direction=setup.direction,
+            delta=delta
+        )
+    else:
+        # If no current price, estimate based on typical OTM pricing
+        # Rough estimate: $0.33 per point of expected move × delta
+        distance_to_strike = abs(setup.entry - setup.strike)
+        setup.est_entry_price_10am = round(max(distance_to_strike * delta * 0.5, 1.00), 2)
     
     return setup
 
@@ -1604,15 +1641,14 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
                 <thead>
                     <tr>
                         <th>Cone</th>
-                        <th>Entry</th>
+                        <th>SPX Entry</th>
                         <th>Strike</th>
-                        <th>Bid</th>
-                        <th>Ask</th>
-                        <th>Entry Price</th>
+                        <th>Current Price</th>
+                        <th>Est. Entry @10AM</th>
                         <th>Stop</th>
-                        <th>T1</th>
-                        <th>T2</th>
-                        <th style="text-align:right;">Dist</th>
+                        <th>T1 (12.5%)</th>
+                        <th>T2 (25%)</th>
+                        <th style="text-align:right;">Distance</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1620,21 +1656,18 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
         for s in calls_setups:
             row_class = 'row-active' if s.is_active else ''
             
-            # Option pricing - always show SPX equivalent
-            if s.spx_equiv_bid > 0:
-                bid_html = f'<span class="mono">${s.spx_equiv_bid:.2f}</span>'
-                ask_html = f'<span class="mono">${s.spx_equiv_ask:.2f}</span>'
-                entry_html = f'<span class="mono text-green font-bold">${s.recommended_entry_price:.2f}</span>'
+            # Current price display
+            if s.current_option_price > 0:
+                current_html = f'<span class="mono">${s.current_option_price:.2f}</span>'
                 if s.using_spy:
-                    bid_html += f'<br><span style="font-size:10px;color:{text_light};">SPY {s.spy_strike_used}C</span>'
-            elif s.spy_option and s.spy_option.bid > 0:
-                # Direct SPY display as fallback
-                bid_html = f'<span class="mono">${s.spy_option.bid:.2f}</span><br><span style="font-size:10px;color:{amber};">SPY</span>'
-                ask_html = f'<span class="mono">${s.spy_option.ask:.2f}</span>'
-                entry_html = f'<span class="mono">${s.spy_option.mid:.2f}</span>'
+                    current_html += f'<br><span style="font-size:10px;color:{text_light};">via SPY {s.spy_strike_used}C</span>'
             else:
-                bid_html = f'<span class="text-muted">—</span>'
-                ask_html = f'<span class="text-muted">—</span>'
+                current_html = f'<span class="text-muted">—</span>'
+            
+            # Estimated entry price at 10 AM
+            if s.est_entry_price_10am > 0:
+                entry_html = f'<span class="mono text-green font-bold">${s.est_entry_price_10am:.2f}</span>'
+            else:
                 entry_html = f'<span class="text-muted">—</span>'
             
             dist_pill = 'pill-green' if s.distance <= 5 else 'pill-amber' if s.distance <= 15 else 'pill-neutral'
@@ -1644,8 +1677,7 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
                         <td class="font-bold">{s.cone_name}</td>
                         <td class="mono text-green">{s.entry:,.2f}</td>
                         <td class="mono">{s.strike}C</td>
-                        <td>{bid_html}</td>
-                        <td>{ask_html}</td>
+                        <td>{current_html}</td>
                         <td>{entry_html}</td>
                         <td class="mono text-red">{s.stop:,.2f}</td>
                         <td class="mono">{s.target_12:,.2f}</td>
@@ -1665,7 +1697,10 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
         html += f'''
         <div class="section-header">
             <div class="section-title" style="color:{red};">▼ Puts Setups</div>
-            <span style="font-size:13px;color:{text_light};">Enter at Ascending Rail</span>
+            <div style="display:flex;align-items:center;gap:12px;">
+                <span class="pill pill-neutral" style="font-size:11px;">0DTE {expiry_str} ({trading_day_label})</span>
+                <span style="font-size:13px;color:{text_light};">Enter at Ascending Rail</span>
+            </div>
         </div>
         
         <div class="neo-card table-card" style="overflow-x:auto;">
@@ -1673,15 +1708,14 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
                 <thead>
                     <tr>
                         <th>Cone</th>
-                        <th>Entry</th>
+                        <th>SPX Entry</th>
                         <th>Strike</th>
-                        <th>Bid</th>
-                        <th>Ask</th>
-                        <th>Entry Price</th>
+                        <th>Current Price</th>
+                        <th>Est. Entry @10AM</th>
                         <th>Stop</th>
-                        <th>T1</th>
-                        <th>T2</th>
-                        <th style="text-align:right;">Dist</th>
+                        <th>T1 (12.5%)</th>
+                        <th>T2 (25%)</th>
+                        <th style="text-align:right;">Distance</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1689,20 +1723,18 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
         for s in puts_setups:
             row_class = 'row-active' if s.is_active else ''
             
-            # Option pricing - always show SPX equivalent
-            if s.spx_equiv_bid > 0:
-                bid_html = f'<span class="mono">${s.spx_equiv_bid:.2f}</span>'
-                ask_html = f'<span class="mono">${s.spx_equiv_ask:.2f}</span>'
-                entry_html = f'<span class="mono text-green font-bold">${s.recommended_entry_price:.2f}</span>'
+            # Current price display
+            if s.current_option_price > 0:
+                current_html = f'<span class="mono">${s.current_option_price:.2f}</span>'
                 if s.using_spy:
-                    bid_html += f'<br><span style="font-size:10px;color:{text_light};">SPY {s.spy_strike_used}P</span>'
-            elif s.spy_option and s.spy_option.bid > 0:
-                bid_html = f'<span class="mono">${s.spy_option.bid:.2f}</span><br><span style="font-size:10px;color:{amber};">SPY</span>'
-                ask_html = f'<span class="mono">${s.spy_option.ask:.2f}</span>'
-                entry_html = f'<span class="mono">${s.spy_option.mid:.2f}</span>'
+                    current_html += f'<br><span style="font-size:10px;color:{text_light};">via SPY {s.spy_strike_used}P</span>'
             else:
-                bid_html = f'<span class="text-muted">—</span>'
-                ask_html = f'<span class="text-muted">—</span>'
+                current_html = f'<span class="text-muted">—</span>'
+            
+            # Estimated entry price at 10 AM
+            if s.est_entry_price_10am > 0:
+                entry_html = f'<span class="mono text-green font-bold">${s.est_entry_price_10am:.2f}</span>'
+            else:
                 entry_html = f'<span class="text-muted">—</span>'
             
             dist_pill = 'pill-green' if s.distance <= 5 else 'pill-amber' if s.distance <= 15 else 'pill-neutral'
@@ -1712,8 +1744,7 @@ def render_neomorphic_dashboard(spx: float, vix: VIXZone, cones: List[Cone], set
                         <td class="font-bold">{s.cone_name}</td>
                         <td class="mono text-red">{s.entry:,.2f}</td>
                         <td class="mono">{s.strike}P</td>
-                        <td>{bid_html}</td>
-                        <td>{ask_html}</td>
+                        <td>{current_html}</td>
                         <td>{entry_html}</td>
                         <td class="mono text-green">{s.stop:,.2f}</td>
                         <td class="mono">{s.target_12:,.2f}</td>
