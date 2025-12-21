@@ -1272,156 +1272,534 @@ def render_dashboard(spx: float, vix: VIXZone, cones: List[Cone], setups: List[T
                      active_cone_info: Dict = None, polygon_status: PolygonStatus = None,
                      candle_verification: Dict = None, vix_auto: bool = False, pivot_auto: bool = False,
                      pivot_source: str = "") -> str:
-    """Render the complete dashboard with Polygon status."""
+    """Render an institutional-grade trading dashboard."""
     
-    # Theme colors
+    # Professional trading terminal color scheme
     if dark_mode:
-        bg_main = "#0f172a"
-        bg_card = "#1e293b"
-        text_primary = "#f1f5f9"
-        text_secondary = "#94a3b8"
-        border_color = "#334155"
+        bg_main = "#0a0a0f"
+        bg_card = "#12121a"
+        bg_elevated = "#1a1a24"
+        text_primary = "#e8e8ed"
+        text_secondary = "#6b6b7b"
+        text_muted = "#45454f"
+        border_color = "#2a2a35"
+        accent_green = "#00d4aa"
+        accent_red = "#ff4757"
+        accent_yellow = "#ffd43b"
+        accent_blue = "#4dabf7"
     else:
-        bg_main = "#f8fafc"
+        bg_main = "#f5f5f7"
         bg_card = "#ffffff"
-        text_primary = "#1e293b"
-        text_secondary = "#64748b"
-        border_color = "#e2e8f0"
+        bg_elevated = "#fafafa"
+        text_primary = "#1a1a2e"
+        text_secondary = "#5a5a6e"
+        text_muted = "#8a8a9a"
+        border_color = "#e5e5ea"
+        accent_green = "#00a67e"
+        accent_red = "#dc3545"
+        accent_yellow = "#e6a700"
+        accent_blue = "#0066cc"
     
-    # Build HTML
+    # Determine bias styling
+    if vix.bias == 'CALLS':
+        bias_bg = f"linear-gradient(135deg, {accent_green}15, {accent_green}05)"
+        bias_border = accent_green
+        bias_text = accent_green
+        bias_glow = f"0 0 40px {accent_green}20"
+    elif vix.bias == 'PUTS':
+        bias_bg = f"linear-gradient(135deg, {accent_red}15, {accent_red}05)"
+        bias_border = accent_red
+        bias_text = accent_red
+        bias_glow = f"0 0 40px {accent_red}20"
+    else:
+        bias_bg = f"linear-gradient(135deg, {accent_yellow}15, {accent_yellow}05)"
+        bias_border = accent_yellow
+        bias_text = accent_yellow
+        bias_glow = f"0 0 40px {accent_yellow}20"
+    
+    # Connection status
+    conn_status = ""
+    if polygon_status:
+        if polygon_status.connected:
+            conn_status = f'<span style="color:{accent_green};font-size:10px;letter-spacing:1px;">● LIVE</span>'
+        else:
+            conn_status = f'<span style="color:{accent_red};font-size:10px;letter-spacing:1px;">● OFFLINE</span>'
+    
+    # Auto/Manual badges
+    vix_badge = f'<span style="background:{accent_blue}20;color:{accent_blue};padding:2px 6px;border-radius:3px;font-size:9px;letter-spacing:0.5px;">AUTO</span>' if vix_auto else f'<span style="background:{accent_yellow}20;color:{accent_yellow};padding:2px 6px;border-radius:3px;font-size:9px;letter-spacing:0.5px;">MANUAL</span>'
+    pivot_badge = f'<span style="background:{accent_blue}20;color:{accent_blue};padding:2px 6px;border-radius:3px;font-size:9px;letter-spacing:0.5px;">AUTO</span>' if pivot_auto else f'<span style="background:{accent_yellow}20;color:{accent_yellow};padding:2px 6px;border-radius:3px;font-size:9px;letter-spacing:0.5px;">MANUAL</span>'
+    
     html = f'''
     <!DOCTYPE html>
     <html>
     <head>
+        <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
         <style>
             * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            
             body {{ 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                font-family: 'Inter', -apple-system, sans-serif;
                 background: {bg_main};
                 color: {text_primary};
-                padding: 20px;
+                line-height: 1.5;
+                -webkit-font-smoothing: antialiased;
             }}
-            .container {{ max-width: 1200px; margin: 0 auto; }}
+            
+            .dashboard {{
+                max-width: 1400px;
+                margin: 0 auto;
+                padding: 24px;
+            }}
+            
+            /* Header */
+            .header {{
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                margin-bottom: 24px;
+                padding-bottom: 20px;
+                border-bottom: 1px solid {border_color};
+            }}
+            
+            .header-left h1 {{
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 13px;
+                font-weight: 600;
+                letter-spacing: 2px;
+                color: {text_muted};
+                margin-bottom: 4px;
+            }}
+            
+            .header-left .price {{
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 36px;
+                font-weight: 700;
+                color: {text_primary};
+                letter-spacing: -1px;
+            }}
+            
+            .header-left .price .ticker {{
+                font-size: 14px;
+                color: {text_secondary};
+                margin-right: 8px;
+                vertical-align: middle;
+            }}
+            
+            .header-right {{
+                text-align: right;
+            }}
+            
+            .header-right .time {{
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 24px;
+                font-weight: 600;
+                color: {text_primary};
+            }}
+            
+            .header-right .date {{
+                font-size: 12px;
+                color: {text_secondary};
+                margin-top: 4px;
+            }}
+            
+            /* Bias Hero */
+            .bias-hero {{
+                background: {bias_bg};
+                border: 1px solid {bias_border}40;
+                border-radius: 16px;
+                padding: 32px 40px;
+                margin-bottom: 24px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                box-shadow: {bias_glow};
+            }}
+            
+            .bias-main {{
+                display: flex;
+                align-items: center;
+                gap: 24px;
+            }}
+            
+            .bias-indicator {{
+                width: 64px;
+                height: 64px;
+                border-radius: 50%;
+                background: {bias_border}20;
+                border: 2px solid {bias_border};
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 28px;
+            }}
+            
+            .bias-text h2 {{
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 32px;
+                font-weight: 700;
+                color: {bias_text};
+                letter-spacing: 2px;
+            }}
+            
+            .bias-text p {{
+                font-size: 13px;
+                color: {text_secondary};
+                margin-top: 4px;
+            }}
+            
+            .bias-metrics {{
+                display: flex;
+                gap: 40px;
+            }}
+            
+            .bias-metric {{
+                text-align: center;
+            }}
+            
+            .bias-metric .label {{
+                font-size: 10px;
+                color: {text_muted};
+                letter-spacing: 1px;
+                text-transform: uppercase;
+                margin-bottom: 4px;
+            }}
+            
+            .bias-metric .value {{
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 20px;
+                font-weight: 600;
+                color: {text_primary};
+            }}
+            
+            /* Grid Layout */
+            .grid-2 {{
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+                margin-bottom: 24px;
+            }}
+            
+            .grid-3 {{
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 16px;
+                margin-bottom: 24px;
+            }}
+            
+            .grid-4 {{
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 12px;
+            }}
+            
+            /* Cards */
             .card {{
                 background: {bg_card};
                 border: 1px solid {border_color};
                 border-radius: 12px;
                 padding: 20px;
-                margin-bottom: 20px;
             }}
-            .header {{
+            
+            .card-header {{
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 16px;
+                padding-bottom: 12px;
+                border-bottom: 1px solid {border_color};
+            }}
+            
+            .card-title {{
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 1.5px;
+                text-transform: uppercase;
+                color: {text_muted};
+            }}
+            
+            /* Metric Boxes */
+            .metric-box {{
+                background: {bg_elevated};
+                border-radius: 8px;
+                padding: 16px;
                 text-align: center;
-                padding: 30px 20px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 16px;
-                margin-bottom: 20px;
             }}
-            .header h1 {{ color: white; font-size: 32px; font-weight: 800; }}
-            .header p {{ color: rgba(255,255,255,0.9); font-size: 14px; margin-top: 8px; }}
-            .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }}
-            .bias-box {{
-                padding: 20px;
-                border-radius: 12px;
-                text-align: center;
+            
+            .metric-box .label {{
+                font-size: 10px;
+                color: {text_muted};
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                margin-bottom: 6px;
             }}
-            .bias-calls {{ background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; }}
-            .bias-puts {{ background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; }}
-            .bias-wait {{ background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; }}
-            table {{ width: 100%; border-collapse: collapse; }}
-            th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid {border_color}; }}
-            th {{ font-weight: 600; color: {text_secondary}; font-size: 12px; text-transform: uppercase; }}
+            
+            .metric-box .value {{
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 22px;
+                font-weight: 600;
+                color: {text_primary};
+            }}
+            
+            .metric-box .sub {{
+                font-size: 11px;
+                color: {text_secondary};
+                margin-top: 4px;
+            }}
+            
+            /* Tables */
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+            }}
+            
+            th {{
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                color: {text_muted};
+                text-align: left;
+                padding: 12px 16px;
+                border-bottom: 1px solid {border_color};
+            }}
+            
+            td {{
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 13px;
+                padding: 14px 16px;
+                border-bottom: 1px solid {border_color}80;
+                color: {text_primary};
+            }}
+            
+            tr:last-child td {{
+                border-bottom: none;
+            }}
+            
+            tr:hover td {{
+                background: {bg_elevated};
+            }}
+            
+            .text-green {{ color: {accent_green}; }}
+            .text-red {{ color: {accent_red}; }}
+            .text-yellow {{ color: {accent_yellow}; }}
+            .text-muted {{ color: {text_muted}; }}
+            
+            /* Tags */
             .tag {{
                 display: inline-block;
-                padding: 4px 12px;
-                border-radius: 6px;
+                padding: 4px 10px;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: 600;
+                font-family: 'JetBrains Mono', monospace;
+            }}
+            
+            .tag-green {{ background: {accent_green}15; color: {accent_green}; }}
+            .tag-red {{ background: {accent_red}15; color: {accent_red}; }}
+            .tag-yellow {{ background: {accent_yellow}15; color: {accent_yellow}; }}
+            .tag-blue {{ background: {accent_blue}15; color: {accent_blue}; }}
+            
+            /* Active Row */
+            .active-row {{
+                background: {accent_green}08 !important;
+                border-left: 3px solid {accent_green};
+            }}
+            
+            .active-row td:first-child {{
+                padding-left: 13px;
+            }}
+            
+            /* Status Banner */
+            .status-banner {{
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 14px 20px;
+                border-radius: 10px;
+                margin-bottom: 20px;
+            }}
+            
+            .status-banner.alert {{
+                background: {accent_red}10;
+                border: 1px solid {accent_red}30;
+            }}
+            
+            .status-banner.success {{
+                background: {accent_green}10;
+                border: 1px solid {accent_green}30;
+            }}
+            
+            .status-banner.warning {{
+                background: {accent_yellow}10;
+                border: 1px solid {accent_yellow}30;
+            }}
+            
+            .status-banner .icon {{
+                font-size: 24px;
+            }}
+            
+            .status-banner .content h4 {{
+                font-size: 14px;
+                font-weight: 600;
+                margin-bottom: 2px;
+            }}
+            
+            .status-banner .content p {{
                 font-size: 12px;
+                color: {text_secondary};
+            }}
+            
+            /* Cone Visual */
+            .cone-row {{
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }}
+            
+            .cone-name {{
+                min-width: 70px;
                 font-weight: 600;
             }}
-            .tag-green {{ background: #ecfdf5; color: #059669; }}
-            .tag-red {{ background: #fef2f2; color: #dc2626; }}
-            .tag-yellow {{ background: #fffbeb; color: #d97706; }}
-            .setup-row {{ transition: background 0.2s; }}
-            .setup-row:hover {{ background: #f1f5f9; }}
-            .active-row {{ background: #ecfdf5 !important; }}
+            
+            .cone-visual {{
+                flex: 1;
+                height: 8px;
+                background: {bg_elevated};
+                border-radius: 4px;
+                position: relative;
+                overflow: hidden;
+            }}
+            
+            .cone-fill {{
+                height: 100%;
+                border-radius: 4px;
+                background: linear-gradient(90deg, {accent_red}60, {accent_green}60);
+            }}
+            
         </style>
     </head>
     <body>
-        <div class="container">
+        <div class="dashboard">
+            
             <!-- Header -->
             <div class="header">
-                <h1>📈 SPX PROPHET v5.0</h1>
-                <p>Where Structure Becomes Foresight • Now with Polygon.io Integration</p>
-                <p style="margin-top:12px;font-size:18px;font-weight:600;">
-                    SPX: {spx:,.2f} | VIX: {vix.current:.2f} | {get_ct_now().strftime('%I:%M %p CT')}
-                </p>
+                <div class="header-left">
+                    <h1>SPX PROPHET</h1>
+                    <div class="price">
+                        <span class="ticker">SPX</span>{spx:,.2f}
+                    </div>
+                    <div style="margin-top:8px;display:flex;gap:12px;align-items:center;">
+                        {conn_status}
+                        <span style="color:{text_muted};font-size:11px;">VIX {vix_badge}</span>
+                        <span style="color:{text_muted};font-size:11px;">PIVOTS {pivot_badge}</span>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="time">{get_ct_now().strftime('%H:%M')}</div>
+                    <div class="date">{get_ct_now().strftime('%B %d, %Y')} CT</div>
+                </div>
             </div>
     '''
     
-    # Polygon Status Badge
-    if polygon_status:
-        html += render_polygon_status_badge(polygon_status)
-    
-    # Auto-detection Badge
-    html += render_auto_detection_badge(vix_auto, pivot_auto, pivot_source)
-    
-    # Active Cone Banner
+    # Active Cone Alert Banner
     if active_cone_info:
-        html += render_active_cone_banner(active_cone_info, spx)
+        inside = active_cone_info.get('inside_cone')
+        at_rail = active_cone_info.get('at_rail', False)
+        distance = active_cone_info.get('distance', 0)
+        rail_type = active_cone_info.get('rail_type')
+        
+        if inside and at_rail:
+            if rail_type == 'ascending':
+                html += f'''
+                <div class="status-banner alert">
+                    <div class="icon">🎯</div>
+                    <div class="content">
+                        <h4 style="color:{accent_red};">AT {inside.name} ASCENDING RAIL — PUTS ENTRY ZONE</h4>
+                        <p>{distance:.1f} pts from rail at {inside.ascending_rail:.2f}</p>
+                    </div>
+                </div>
+                '''
+            else:
+                html += f'''
+                <div class="status-banner success">
+                    <div class="icon">🎯</div>
+                    <div class="content">
+                        <h4 style="color:{accent_green};">AT {inside.name} DESCENDING RAIL — CALLS ENTRY ZONE</h4>
+                        <p>{distance:.1f} pts from rail at {inside.descending_rail:.2f}</p>
+                    </div>
+                </div>
+                '''
     
-    # 30-Min Candle Close Verification
-    if candle_verification:
-        html += render_candle_close_verification(candle_verification)
-    
-    # Bias Box
-    bias_class = 'bias-calls' if vix.bias == 'CALLS' else 'bias-puts' if vix.bias == 'PUTS' else 'bias-wait'
-    bias_icon = '📈' if vix.bias == 'CALLS' else '📉' if vix.bias == 'PUTS' else '⏳'
-    
+    # Bias Hero Section
+    bias_icon = '↗' if vix.bias == 'CALLS' else '↘' if vix.bias == 'PUTS' else '⟷'
     html += f'''
-            <div class="card bias-box {bias_class}">
-                <div style="font-size:48px;">{bias_icon}</div>
-                <div style="font-size:28px;font-weight:800;margin:10px 0;">{vix.bias}</div>
-                <div style="font-size:14px;opacity:0.9;">VIX at {vix.position_pct:.0f}% of zone</div>
-            </div>
-    '''
-    
-    # VIX Zone Card
-    zone_source = "🤖 Auto-detected from Polygon" if vix.auto_detected else "✏️ Manual input"
-    html += f'''
-            <div class="card">
-                <h3 style="margin-bottom:15px;">VIX Zone Analysis</h3>
-                <div style="font-size:11px;color:{text_secondary};margin-bottom:10px;">{zone_source}</div>
-                <div class="grid" style="grid-template-columns: repeat(4, 1fr);">
-                    <div>
-                        <div style="color:{text_secondary};font-size:12px;">Bottom</div>
-                        <div style="font-size:20px;font-weight:700;">{vix.bottom:.2f}</div>
+            <!-- Bias Hero -->
+            <div class="bias-hero">
+                <div class="bias-main">
+                    <div class="bias-indicator">{bias_icon}</div>
+                    <div class="bias-text">
+                        <h2>{vix.bias}</h2>
+                        <p>VIX at {vix.position_pct:.0f}% of overnight zone</p>
                     </div>
-                    <div>
-                        <div style="color:{text_secondary};font-size:12px;">Top</div>
-                        <div style="font-size:20px;font-weight:700;">{vix.top:.2f}</div>
+                </div>
+                <div class="bias-metrics">
+                    <div class="bias-metric">
+                        <div class="label">VIX</div>
+                        <div class="value">{vix.current:.2f}</div>
                     </div>
-                    <div>
-                        <div style="color:{text_secondary};font-size:12px;">Zone Size</div>
-                        <div style="font-size:20px;font-weight:700;">{vix.zone_size:.2f}</div>
+                    <div class="bias-metric">
+                        <div class="label">Zone</div>
+                        <div class="value">{vix.bottom:.2f} - {vix.top:.2f}</div>
                     </div>
-                    <div>
-                        <div style="color:{text_secondary};font-size:12px;">Expected Move</div>
-                        <div style="font-size:20px;font-weight:700;">{vix.expected_move[0]}-{vix.expected_move[1]} pts</div>
+                    <div class="bias-metric">
+                        <div class="label">Expected Move</div>
+                        <div class="value">{vix.expected_move[0]}-{vix.expected_move[1]} pts</div>
                     </div>
                 </div>
             </div>
     '''
     
-    # Cone Rails Table
+    # Day Assessment
+    if assessment.recommendation == 'FULL':
+        assess_class = 'success'
+        assess_icon = '✓'
+        assess_color = accent_green
+    elif assessment.recommendation == 'REDUCED':
+        assess_class = 'warning'
+        assess_icon = '!'
+        assess_color = accent_yellow
+    else:
+        assess_class = 'alert'
+        assess_icon = '✕'
+        assess_color = accent_red
+    
+    warnings_html = ''.join([f'<span style="display:block;margin-top:4px;">• {w}</span>' for w in assessment.warnings]) if assessment.warnings else ''
+    
     html += f'''
-            <div class="card">
-                <h3 style="margin-bottom:15px;">Structural Cones @ 10:00 AM CT</h3>
+            <!-- Day Assessment -->
+            <div class="status-banner {assess_class}" style="margin-bottom:24px;">
+                <div class="icon" style="font-size:20px;width:36px;height:36px;border-radius:50%;background:{assess_color}20;display:flex;align-items:center;justify-content:center;color:{assess_color};font-weight:700;">{assess_icon}</div>
+                <div class="content" style="flex:1;">
+                    <h4 style="color:{assess_color};">{assessment.recommendation} SIZE — Score: {assessment.score}/100</h4>
+                    <p style="color:{text_secondary};">{warnings_html if warnings_html else 'No warnings'}</p>
+                </div>
+            </div>
+    '''
+    
+    # Structural Cones Table
+    html += f'''
+            <!-- Cones -->
+            <div class="card" style="margin-bottom:24px;">
+                <div class="card-header">
+                    <span class="card-title">Structural Cones @ 10:00 AM CT</span>
+                </div>
                 <table>
                     <tr>
                         <th>Pivot</th>
-                        <th>Ascending Rail ▲</th>
-                        <th>Descending Rail ▼</th>
-                        <th>Width</th>
-                        <th>Blocks</th>
+                        <th>Ascending Rail</th>
+                        <th>Descending Rail</th>
+                        <th style="text-align:center;">Width</th>
+                        <th style="text-align:center;">Blocks</th>
                     </tr>
     '''
     
@@ -1430,10 +1808,10 @@ def render_dashboard(spx: float, vix: VIXZone, cones: List[Cone], setups: List[T
         html += f'''
                     <tr>
                         <td style="font-weight:600;">{cone.name}</td>
-                        <td style="color:#dc2626;">{cone.ascending_rail:.2f}</td>
-                        <td style="color:#059669;">{cone.descending_rail:.2f}</td>
-                        <td><span class="tag {width_class}">{cone.width:.1f} pts</span></td>
-                        <td>{cone.blocks}</td>
+                        <td class="text-red">{cone.ascending_rail:.2f}</td>
+                        <td class="text-green">{cone.descending_rail:.2f}</td>
+                        <td style="text-align:center;"><span class="tag {width_class}">{cone.width:.0f} pts</span></td>
+                        <td style="text-align:center;color:{text_muted};">{cone.blocks}</td>
                     </tr>
         '''
     
@@ -1442,38 +1820,40 @@ def render_dashboard(spx: float, vix: VIXZone, cones: List[Cone], setups: List[T
             </div>
     '''
     
-    # CALLS Setups
+    # Trade Setups - Calls
     calls_setups = [s for s in setups if s.direction == 'CALLS']
     if calls_setups:
         html += f'''
-            <div class="card">
-                <h3 style="margin-bottom:15px;color:#059669;">📈 CALLS Setups (Enter at Descending Rail)</h3>
+            <div class="card" style="margin-bottom:24px;">
+                <div class="card-header">
+                    <span class="card-title" style="color:{accent_green};">↗ CALLS SETUPS</span>
+                    <span style="font-size:11px;color:{text_muted};">Enter at Descending Rail</span>
+                </div>
                 <table>
                     <tr>
                         <th>Cone</th>
                         <th>Entry</th>
                         <th>Stop</th>
-                        <th>12.5%</th>
-                        <th>25%</th>
-                        <th>50%</th>
+                        <th>T1 (12.5%)</th>
+                        <th>T2 (25%)</th>
+                        <th>T3 (50%)</th>
                         <th>Strike</th>
-                        <th>Est. Profit</th>
-                        <th>Distance</th>
+                        <th style="text-align:right;">Distance</th>
                     </tr>
         '''
         for s in calls_setups:
             row_class = 'active-row' if s.is_active else ''
+            dist_class = 'tag-green' if s.distance <= 5 else 'tag-yellow' if s.distance <= 15 else ''
             html += f'''
-                    <tr class="setup-row {row_class}">
+                    <tr class="{row_class}">
                         <td style="font-weight:600;">{s.cone_name}</td>
-                        <td style="color:#059669;font-weight:600;">{s.entry:.2f}</td>
-                        <td style="color:#dc2626;">{s.stop:.2f}</td>
+                        <td class="text-green" style="font-weight:600;">{s.entry:.2f}</td>
+                        <td class="text-red">{s.stop:.2f}</td>
                         <td>{s.target_12:.2f}</td>
                         <td>{s.target_25:.2f}</td>
                         <td>{s.target_50:.2f}</td>
                         <td>{s.strike}C</td>
-                        <td>${s.profit_25:.0f}</td>
-                        <td><span class="tag {'tag-green' if s.distance <= 5 else 'tag-yellow' if s.distance <= 15 else ''}">{s.distance:.1f} pts</span></td>
+                        <td style="text-align:right;"><span class="tag {dist_class}">{s.distance:.1f}</span></td>
                     </tr>
             '''
         html += '''
@@ -1481,38 +1861,40 @@ def render_dashboard(spx: float, vix: VIXZone, cones: List[Cone], setups: List[T
             </div>
         '''
     
-    # PUTS Setups
+    # Trade Setups - Puts
     puts_setups = [s for s in setups if s.direction == 'PUTS']
     if puts_setups:
         html += f'''
-            <div class="card">
-                <h3 style="margin-bottom:15px;color:#dc2626;">📉 PUTS Setups (Enter at Ascending Rail)</h3>
+            <div class="card" style="margin-bottom:24px;">
+                <div class="card-header">
+                    <span class="card-title" style="color:{accent_red};">↘ PUTS SETUPS</span>
+                    <span style="font-size:11px;color:{text_muted};">Enter at Ascending Rail</span>
+                </div>
                 <table>
                     <tr>
                         <th>Cone</th>
                         <th>Entry</th>
                         <th>Stop</th>
-                        <th>12.5%</th>
-                        <th>25%</th>
-                        <th>50%</th>
+                        <th>T1 (12.5%)</th>
+                        <th>T2 (25%)</th>
+                        <th>T3 (50%)</th>
                         <th>Strike</th>
-                        <th>Est. Profit</th>
-                        <th>Distance</th>
+                        <th style="text-align:right;">Distance</th>
                     </tr>
         '''
         for s in puts_setups:
             row_class = 'active-row' if s.is_active else ''
+            dist_class = 'tag-green' if s.distance <= 5 else 'tag-yellow' if s.distance <= 15 else ''
             html += f'''
-                    <tr class="setup-row {row_class}">
+                    <tr class="{row_class}">
                         <td style="font-weight:600;">{s.cone_name}</td>
-                        <td style="color:#dc2626;font-weight:600;">{s.entry:.2f}</td>
-                        <td style="color:#059669;">{s.stop:.2f}</td>
+                        <td class="text-red" style="font-weight:600;">{s.entry:.2f}</td>
+                        <td class="text-green">{s.stop:.2f}</td>
                         <td>{s.target_12:.2f}</td>
                         <td>{s.target_25:.2f}</td>
                         <td>{s.target_50:.2f}</td>
                         <td>{s.strike}P</td>
-                        <td>${s.profit_25:.0f}</td>
-                        <td><span class="tag {'tag-green' if s.distance <= 5 else 'tag-yellow' if s.distance <= 15 else ''}">{s.distance:.1f} pts</span></td>
+                        <td style="text-align:right;"><span class="tag {dist_class}">{s.distance:.1f}</span></td>
                     </tr>
             '''
         html += '''
@@ -1520,34 +1902,35 @@ def render_dashboard(spx: float, vix: VIXZone, cones: List[Cone], setups: List[T
             </div>
         '''
     
-    # Day Assessment
-    score_color = '#059669' if assessment.score >= 70 else '#d97706' if assessment.score >= 50 else '#dc2626'
-    html += f'''
+    # Prior Day Reference
+    if prior:
+        html += f'''
             <div class="card">
-                <h3 style="margin-bottom:15px;">Day Assessment</h3>
-                <div style="display:flex;align-items:center;gap:20px;margin-bottom:15px;">
-                    <div style="font-size:48px;font-weight:800;color:{score_color};">{assessment.score}</div>
-                    <div>
-                        <div style="font-size:18px;font-weight:600;">{assessment.recommendation} SIZE</div>
-                        <div style="color:{text_secondary};">{'Tradeable' if assessment.tradeable else 'Skip Today'}</div>
+                <div class="card-header">
+                    <span class="card-title">Prior Session Reference</span>
+                </div>
+                <div class="grid-4">
+                    <div class="metric-box">
+                        <div class="label">High</div>
+                        <div class="value">{prior.get('high', 0):,.2f}</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="label">Low</div>
+                        <div class="value">{prior.get('low', 0):,.2f}</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="label">Close</div>
+                        <div class="value">{prior.get('close', 0):,.2f}</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="label">Range</div>
+                        <div class="value">{prior.get('high', 0) - prior.get('low', 0):,.0f} pts</div>
                     </div>
                 </div>
-    '''
-    
-    if assessment.reasons:
-        html += '<div style="margin-bottom:10px;"><strong>✅ Positive:</strong></div><ul style="margin-left:20px;">'
-        for r in assessment.reasons:
-            html += f'<li style="color:#059669;">{r}</li>'
-        html += '</ul>'
-    
-    if assessment.warnings:
-        html += '<div style="margin-bottom:10px;margin-top:10px;"><strong>⚠️ Warnings:</strong></div><ul style="margin-left:20px;">'
-        for w in assessment.warnings:
-            html += f'<li style="color:#d97706;">{w}</li>'
-        html += '</ul>'
+            </div>
+        '''
     
     html += '''
-            </div>
         </div>
     </body>
     </html>
@@ -1628,7 +2011,7 @@ def main():
         st.markdown("---")
         
         # VIX Zone Section
-        st.markdown("### 📊 VIX Zone (5pm-6am CT)")
+        st.markdown("### 📊 VIX Zone (2am-6am CT)")
         st.session_state.use_manual_vix = st.checkbox("Manual VIX Override", value=st.session_state.use_manual_vix)
         
         if st.session_state.use_manual_vix:
