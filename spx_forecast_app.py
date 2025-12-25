@@ -5,7 +5,7 @@ Run with: streamlit run test_polygon_streamlit.py
 
 import streamlit as st
 import requests
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, date
 import pytz
 
 POLYGON_API_KEY = "DCWuTS1R_fukpfjgf7QnXrLTEOS_giq6"
@@ -13,8 +13,25 @@ POLYGON_BASE_URL = "https://api.polygon.io"
 
 CT_TZ = pytz.timezone('America/Chicago')
 
+# US Market Holidays 2025
+HOLIDAYS_2025 = [
+    date(2025, 1, 1),   # New Year's Day
+    date(2025, 1, 20),  # MLK Day
+    date(2025, 2, 17),  # Presidents Day
+    date(2025, 4, 18),  # Good Friday
+    date(2025, 5, 26),  # Memorial Day
+    date(2025, 6, 19),  # Juneteenth
+    date(2025, 7, 4),   # Independence Day
+    date(2025, 9, 1),   # Labor Day
+    date(2025, 11, 27), # Thanksgiving
+    date(2025, 12, 25), # Christmas
+]
+
 def get_ct_now():
     return datetime.now(CT_TZ)
+
+def is_market_holiday(d: date) -> bool:
+    return d in HOLIDAYS_2025
 
 def get_next_trading_day():
     now = get_ct_now()
@@ -23,17 +40,16 @@ def get_next_trading_day():
     current_time = now.time()
     market_close = time(16, 0)
     
-    if weekday == 5:
-        next_day = today + timedelta(days=2)
-    elif weekday == 6:
+    # If weekend, holiday, or after market close, start from tomorrow
+    if weekday >= 5 or current_time > market_close or is_market_holiday(today):
         next_day = today + timedelta(days=1)
-    elif current_time > market_close:
-        if weekday == 4:
-            next_day = today + timedelta(days=3)
-        else:
-            next_day = today + timedelta(days=1)
     else:
         next_day = today
+    
+    # Skip weekends and holidays
+    while next_day.weekday() >= 5 or is_market_holiday(next_day):
+        next_day += timedelta(days=1)
+    
     return datetime.combine(next_day, time(0, 0))
 
 def build_option_ticker(underlying: str, expiry_date: datetime, strike: float, option_type: str) -> str:
@@ -51,13 +67,20 @@ st.markdown("---")
 now = get_ct_now()
 next_trading = get_next_trading_day()
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.metric("Current CT Time", now.strftime('%H:%M:%S'))
 with col2:
     st.metric("Today", now.strftime('%A, %b %d'))
 with col3:
-    st.metric("Options Expiry", next_trading.strftime('%Y-%m-%d'))
+    is_holiday = is_market_holiday(now.date())
+    st.metric("Holiday?", "🎄 YES" if is_holiday else "No")
+with col4:
+    st.metric("Next Trading Day", next_trading.strftime('%a %b %d'))
+
+if is_market_holiday(now.date()):
+    st.warning(f"⚠️ Today ({now.strftime('%B %d')}) is a market holiday. Markets are CLOSED.")
+    st.info(f"📅 Next trading day is **{next_trading.strftime('%A, %B %d, %Y')}**")
 
 st.markdown("---")
 
@@ -88,6 +111,8 @@ st.markdown("---")
 
 # Build option tickers
 st.subheader("2️⃣ Option Ticker Construction")
+
+st.info(f"📅 Building options for expiry: **{next_trading.strftime('%Y-%m-%d')}** ({next_trading.strftime('%A')})")
 
 atm_strike = int(round(spx_price / 5) * 5)
 call_strike = atm_strike + 20
@@ -259,18 +284,27 @@ if st.button("🚀 Run Diagnostic", type="primary"):
         st.success("✅ Options quotes ARE available! The main app should work.")
     else:
         st.error("❌ No options quotes returned")
-        st.markdown("""
-        **Possible causes:**
-        1. **Polygon Free Tier** - Free tier does NOT include options quotes. You need Options Starter ($79/mo) or higher.
-        2. **Market not open yet** - SPX options may not have quotes in pre-market
-        3. **API Key issue** - Your key may not have options permissions
-        4. **Rate limiting** - You may have exceeded API limits
         
-        **To verify your plan:**
-        - Log in to [polygon.io](https://polygon.io)
-        - Check your subscription level
-        - Options require "Options Starter" or higher
-        """)
+        if is_market_holiday(now.date()):
+            st.warning("""
+            **🎄 Market is closed for a holiday!**
+            
+            Options quotes won't be available until the next trading day.
+            The app will show estimated premiums instead of live prices.
+            """)
+        else:
+            st.markdown("""
+            **Possible causes:**
+            1. **Polygon Free Tier** - Free tier does NOT include options quotes. You need Options Starter ($79/mo) or higher.
+            2. **Market not open yet** - SPX options may not have quotes in pre-market
+            3. **API Key issue** - Your key may not have options permissions
+            4. **Rate limiting** - You may have exceeded API limits
+            
+            **To verify your plan:**
+            - Log in to [polygon.io](https://polygon.io)
+            - Check your subscription level
+            - Options require "Options Starter" or higher
+            """)
 
 st.markdown("---")
 st.caption("Run this diagnostic when SPX Prophet isn't showing option prices")
