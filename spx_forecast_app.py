@@ -1,6 +1,6 @@
 """
-Polygon Options API Diagnostic - v4 - Find Available Contracts
-Run with: streamlit run test_polygon_streamlit.py
+Polygon Options API Diagnostic - v4 FIXED
+Run with: streamlit run test_polygon_v4.py
 """
 
 import streamlit as st
@@ -8,7 +8,7 @@ import requests
 from datetime import datetime, time, timedelta, date
 import pytz
 
-# Updated API key
+# Your new API key
 POLYGON_API_KEY = "jrbBZ2y12cJAOp2Buqtlay0TdprcTDIm"
 POLYGON_BASE_URL = "https://api.polygon.io"
 
@@ -17,198 +17,162 @@ CT_TZ = pytz.timezone('America/Chicago')
 def get_ct_now():
     return datetime.now(CT_TZ)
 
-st.set_page_config(page_title="Polygon API Diagnostic v4", page_icon="🔍", layout="wide")
+st.set_page_config(page_title="Polygon v4 FIXED", page_icon="🔍", layout="wide")
 
-st.title("🔍 Polygon Options API Diagnostic v4")
-st.caption("Finding available SPX contracts")
+st.title("🔍 Polygon Options Diagnostic v4 FIXED")
 
 now = get_ct_now()
-st.info(f"📅 Current date: **{now.strftime('%A, %B %d, %Y')}** | Time: **{now.strftime('%H:%M CT')}**")
+st.info(f"📅 **{now.strftime('%A, %B %d, %Y')}** | **{now.strftime('%H:%M CT')}**")
 
 st.markdown("---")
 
-# Step 1: Search for ANY SPX contracts (no date filter)
-st.subheader("1️⃣ Find ALL Available SPX Contracts")
+##############################################
+# TEST 1: Search ALL SPX contracts (NO date filter)
+##############################################
+st.subheader("1️⃣ Find ALL SPX Contracts (NO date filter)")
 
-if st.button("🔍 Search ALL I:SPX Contracts (no date filter)", type="primary"):
-    
-    try:
-        url = f"{POLYGON_BASE_URL}/v3/reference/options/contracts"
-        params = {
-            "underlying_ticker": "I:SPX",
-            "limit": 50,
-            "apiKey": POLYGON_API_KEY
-        }
-        response = requests.get(url, params=params, timeout=10)
-        
-        st.write(f"**Status:** {response.status_code}")
-        data = response.json()
-        
-        if response.status_code == 200:
+if st.button("🔍 Search ALL I:SPX Contracts", key="btn1"):
+    with st.spinner("Searching..."):
+        try:
+            url = f"{POLYGON_BASE_URL}/v3/reference/options/contracts"
+            params = {
+                "underlying_ticker": "I:SPX",
+                "limit": 100,
+                "apiKey": POLYGON_API_KEY
+            }
+            response = requests.get(url, params=params, timeout=15)
+            
+            st.write(f"**Status:** {response.status_code}")
+            data = response.json()
+            
             results = data.get("results", [])
             if results:
-                st.success(f"✅ Found **{len(results)}** contracts!")
+                st.success(f"✅ Found **{len(results)}** SPX contracts!")
                 
-                # Get unique expiration dates
                 expirations = sorted(set([c.get("expiration_date", "") for c in results]))
-                st.markdown(f"**Available Expiration Dates:** {', '.join(expirations[:10])}")
+                st.write(f"**Expiration dates found:** {', '.join(expirations[:15])}")
                 
-                # Show sample contracts
-                st.markdown("**Sample Contracts:**")
-                for contract in results[:15]:
-                    ticker = contract.get("ticker", "N/A")
-                    strike = contract.get("strike_price", 0)
-                    cp = contract.get("contract_type", "")
-                    exp = contract.get("expiration_date", "")
-                    st.code(f"{ticker} | Strike: {strike} | {cp} | Exp: {exp}")
+                st.markdown("**Sample contracts:**")
+                for c in results[:10]:
+                    st.code(f"{c.get('ticker')} | Strike: {c.get('strike_price')} | {c.get('contract_type')} | Exp: {c.get('expiration_date')}")
                 
-                st.session_state['sample_contract'] = results[0].get("ticker")
-                st.session_state['available_expirations'] = expirations
+                st.session_state['found_contract'] = results[0].get("ticker")
             else:
-                st.warning("⚠️ No contracts found")
+                st.warning("⚠️ No I:SPX contracts found")
                 st.json(data)
-        else:
-            st.error(f"❌ Error: {data}")
-            
-    except Exception as e:
-        st.error(f"❌ Exception: {e}")
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
 
 st.markdown("---")
 
-# Step 2: Try SPY instead (definitely has contracts)
-st.subheader("2️⃣ Find SPY Contracts (for comparison)")
+##############################################
+# TEST 2: Search SPY contracts (should always work)
+##############################################
+st.subheader("2️⃣ Find SPY Contracts (should work)")
 
-if st.button("🔍 Search SPY Contracts", type="secondary"):
-    
-    try:
-        url = f"{POLYGON_BASE_URL}/v3/reference/options/contracts"
-        params = {
-            "underlying_ticker": "SPY",
-            "expiration_date.gte": now.strftime("%Y-%m-%d"),
-            "expiration_date.lte": (now + timedelta(days=7)).strftime("%Y-%m-%d"),
-            "limit": 20,
-            "apiKey": POLYGON_API_KEY
-        }
-        response = requests.get(url, params=params, timeout=10)
-        
-        st.write(f"**Status:** {response.status_code}")
-        data = response.json()
-        
-        if response.status_code == 200:
+if st.button("🔍 Search SPY Contracts", key="btn2"):
+    with st.spinner("Searching..."):
+        try:
+            url = f"{POLYGON_BASE_URL}/v3/reference/options/contracts"
+            params = {
+                "underlying_ticker": "SPY",
+                "limit": 50,
+                "apiKey": POLYGON_API_KEY
+            }
+            response = requests.get(url, params=params, timeout=15)
+            
+            st.write(f"**Status:** {response.status_code}")
+            data = response.json()
+            
             results = data.get("results", [])
             if results:
                 st.success(f"✅ Found **{len(results)}** SPY contracts!")
                 
                 expirations = sorted(set([c.get("expiration_date", "") for c in results]))
-                st.markdown(f"**Available Expiration Dates:** {', '.join(expirations)}")
+                st.write(f"**Expiration dates:** {', '.join(expirations[:10])}")
                 
-                for contract in results[:10]:
-                    ticker = contract.get("ticker", "N/A")
-                    strike = contract.get("strike_price", 0)
-                    cp = contract.get("contract_type", "")
-                    exp = contract.get("expiration_date", "")
-                    st.code(f"{ticker} | Strike: {strike} | {cp} | Exp: {exp}")
+                for c in results[:8]:
+                    st.code(f"{c.get('ticker')} | Strike: {c.get('strike_price')} | {c.get('contract_type')}")
                 
                 st.session_state['spy_contract'] = results[0].get("ticker")
             else:
                 st.warning("⚠️ No SPY contracts found")
-        else:
-            st.error(f"❌ Error: {data}")
-            
-    except Exception as e:
-        st.error(f"❌ Exception: {e}")
-
-st.markdown("---")
-
-# Step 3: Test Snapshot on found contract
-st.subheader("3️⃣ Test Options Snapshot")
-
-sample = st.session_state.get('sample_contract', '') or st.session_state.get('spy_contract', '')
-if sample:
-    st.info(f"Testing with: **{sample}**")
-
-manual_ticker = st.text_input("Or enter a ticker manually:", value=sample)
-
-if st.button("📊 Get Snapshot", type="secondary"):
-    ticker_to_test = manual_ticker or sample
-    
-    if not ticker_to_test:
-        st.warning("⚠️ No contract to test")
-    else:
-        try:
-            url = f"{POLYGON_BASE_URL}/v3/snapshot/options/{ticker_to_test}"
-            params = {"apiKey": POLYGON_API_KEY}
-            response = requests.get(url, params=params, timeout=10)
-            
-            st.write(f"**Status:** {response.status_code}")
-            data = response.json()
-            
-            if response.status_code == 200 and data.get("results"):
-                st.success("✅ Snapshot retrieved!")
-                result = data["results"]
-                
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.markdown("**Greeks**")
-                    greeks = result.get("greeks", {})
-                    st.metric("Delta", f"{greeks.get('delta', 0):.4f}")
-                    st.metric("Gamma", f"{greeks.get('gamma', 0):.6f}")
-                    st.metric("Theta", f"{greeks.get('theta', 0):.4f}")
-                    st.metric("Vega", f"{greeks.get('vega', 0):.4f}")
-                
-                with col2:
-                    st.markdown("**IV & OI**")
-                    st.metric("Implied Vol", f"{result.get('implied_volatility', 0):.2%}")
-                    st.metric("Open Interest", f"{result.get('open_interest', 0):,}")
-                
-                with col3:
-                    st.markdown("**Day Data**")
-                    day = result.get("day", {})
-                    st.metric("Close", f"${day.get('close', 0):.2f}")
-                    st.metric("Volume", f"{day.get('volume', 0):,}")
-                
-                with st.expander("Full Response"):
-                    st.json(result)
-            else:
-                st.warning(f"⚠️ Response: {data}")
-                
+                st.json(data)
         except Exception as e:
-            st.error(f"❌ Exception: {e}")
+            st.error(f"❌ Error: {e}")
 
 st.markdown("---")
 
-# Step 4: Check what indices are available
-st.subheader("4️⃣ Check Available Indices")
+##############################################
+# TEST 3: Get snapshot for a contract
+##############################################
+st.subheader("3️⃣ Get Options Snapshot (Greeks, IV)")
 
-if st.button("📋 List Available Indices"):
+contract = st.session_state.get('found_contract') or st.session_state.get('spy_contract') or ""
+test_ticker = st.text_input("Contract ticker to test:", value=contract)
+
+if st.button("📊 Get Snapshot", key="btn3"):
+    if not test_ticker:
+        st.warning("Enter a ticker or run tests above first")
+    else:
+        with st.spinner("Fetching snapshot..."):
+            try:
+                url = f"{POLYGON_BASE_URL}/v3/snapshot/options/{test_ticker}"
+                params = {"apiKey": POLYGON_API_KEY}
+                response = requests.get(url, params=params, timeout=15)
+                
+                st.write(f"**Status:** {response.status_code}")
+                data = response.json()
+                
+                if response.status_code == 200 and data.get("results"):
+                    st.success("✅ Got snapshot!")
+                    r = data["results"]
+                    
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.markdown("**Greeks**")
+                        g = r.get("greeks", {})
+                        st.metric("Delta", f"{g.get('delta', 0):.4f}")
+                        st.metric("Gamma", f"{g.get('gamma', 0):.6f}")
+                        st.metric("Theta", f"{g.get('theta', 0):.4f}")
+                        st.metric("Vega", f"{g.get('vega', 0):.4f}")
+                    with c2:
+                        st.markdown("**IV & OI**")
+                        st.metric("IV", f"{r.get('implied_volatility', 0):.2%}")
+                        st.metric("Open Interest", f"{r.get('open_interest', 0):,}")
+                    with c3:
+                        st.markdown("**Price**")
+                        d = r.get("day", {})
+                        st.metric("Close", f"${d.get('close', 0):.2f}")
+                        st.metric("Volume", f"{d.get('volume', 0):,}")
+                    
+                    with st.expander("Full JSON"):
+                        st.json(r)
+                else:
+                    st.warning(f"No data: {data}")
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
+
+st.markdown("---")
+
+##############################################
+# TEST 4: Check your subscription
+##############################################
+st.subheader("4️⃣ Check API Access")
+
+if st.button("🔑 Check API Key Status", key="btn4"):
     try:
-        url = f"{POLYGON_BASE_URL}/v3/reference/tickers"
-        params = {
-            "type": "INDEX",
-            "market": "indices",
-            "search": "SPX",
-            "limit": 20,
-            "apiKey": POLYGON_API_KEY
-        }
+        url = f"{POLYGON_BASE_URL}/v1/marketstatus/now"
+        params = {"apiKey": POLYGON_API_KEY}
         response = requests.get(url, params=params, timeout=10)
         
-        st.write(f"**Status:** {response.status_code}")
-        data = response.json()
-        
-        if response.status_code == 200 and data.get("results"):
-            st.success(f"✅ Found indices!")
-            for idx in data["results"]:
-                st.code(f"{idx.get('ticker', 'N/A')} - {idx.get('name', 'N/A')}")
+        if response.status_code == 200:
+            st.success("✅ API key is valid!")
+            st.json(response.json())
         else:
-            st.warning(f"Response: {data}")
+            st.error(f"❌ Status {response.status_code}: {response.text}")
     except Exception as e:
-        st.error(f"❌ Exception: {e}")
+        st.error(f"❌ Error: {e}")
 
 st.markdown("---")
-st.markdown("""
-**Debug Notes:**
-- If no I:SPX contracts found, the Indices plan might not be active yet
-- Try SPY contracts as a fallback (should always work with Options plan)
-- Contract data might not be available on holidays
-""")
+st.caption("v4 FIXED - No date filtering on SPX search")
