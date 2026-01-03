@@ -1,14 +1,16 @@
 """
 Stock Prophet - Daily Trading Entry System
-Powered by Polygon API + ThinkorSwim Manual Inputs
+Uses MA Bias + Day Structure for 10 Popular Stocks
+Data from Polygon API or Manual ThinkorSwim Input
 """
 
 import streamlit as st
 import requests
 import pandas as pd
+from dataclasses import dataclass, field
+from typing import Optional, List, Tuple
 from datetime import datetime, timedelta
-from dataclasses import dataclass
-from typing import Optional, Dict, List, Tuple
+from enum import Enum
 import time
 
 # ============================================================================
@@ -18,16 +20,25 @@ import time
 POLYGON_API_KEY = "DCWuTS1R_fukpfjgf7QnXrLTEOS_giq6"
 POLYGON_BASE_URL = "https://api.polygon.io"
 
-WATCHLIST = ["AAPL", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "MSFT", "AMD", "SPY", "QQQ"]
+# Stock Universe
+STOCK_UNIVERSE = ["AAPL", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "MSFT", "AMD", "SPY", "QQQ"]
 
-STOP_BUFFER = {
-    "AAPL": 0.50, "NVDA": 1.00, "TSLA": 1.00, "AMZN": 1.00, "META": 1.00,
-    "GOOGL": 0.75, "MSFT": 0.50, "AMD": 0.50, "SPY": 0.50, "QQQ": 0.50
-}
+# Risk Management
+STOP_BUFFER_PERCENT = 0.002  # 0.2% buffer beyond entry line
 
 # ============================================================================
-# DATA CLASSES
+# DATA MODELS
 # ============================================================================
+
+class MABias(Enum):
+    BULLISH = "Bullish"
+    BEARISH = "Bearish"
+    NEUTRAL = "Neutral"
+
+class TradeDirection(Enum):
+    LONG = "LONG"
+    SHORT = "SHORT"
+    NO_TRADE = "NO TRADE"
 
 @dataclass
 class StockData:
@@ -38,157 +49,135 @@ class StockData:
     prev_low: Optional[float] = None
     ema_50: Optional[float] = None
     sma_200: Optional[float] = None
-    ma_bias: str = "Neutral"
-    high_line: Optional[float] = None
-    low_line: Optional[float] = None
-    use_manual: bool = False
+    ma_bias: MABias = MABias.NEUTRAL
+    high_line: Optional[float] = None  # Overnight ceiling
+    low_line: Optional[float] = None   # Overnight floor
+    use_polygon: bool = True
     polygon_connected: bool = False
     last_updated: Optional[datetime] = None
 
 @dataclass
 class TradeSetup:
-    direction: str  # "LONG", "SHORT", "NO TRADE"
+    direction: TradeDirection
     entry: Optional[float] = None
     exit_target: Optional[float] = None
     stop_loss: Optional[float] = None
     reward: Optional[float] = None
     risk: Optional[float] = None
     rr_ratio: Optional[float] = None
-    warnings: List[str] = None
-    
-    def __post_init__(self):
-        if self.warnings is None:
-            self.warnings = []
+    warnings: List[str] = field(default_factory=list)
+    is_valid: bool = False
 
 # ============================================================================
 # POLYGON API FUNCTIONS
 # ============================================================================
 
-def check_polygon_connection() -> bool:
-    """Test Polygon API connection"""
-    try:
-        url = f"{POLYGON_BASE_URL}/v3/reference/tickers?ticker=AAPL&apiKey={POLYGON_API_KEY}"
-        response = requests.get(url, timeout=5)
-        return response.status_code == 200
-    except Exception as e:
-        # Log error for debugging but don't crash
-        print(f"Polygon connection check failed: {e}")
-        return False
-
+@st.cache_data(ttl=60)  # Cache for 1 minute
 def fetch_current_price(symbol: str) -> Tuple[Optional[float], bool]:
-    """Fetch current price snapshot (15-min delayed)"""
+    """Fetch current price snapshot from Polygon"""
     try:
-        url = f"{POLYGON_BASE_URL}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}?apiKey={POLYGON_API_KEY}"
-        response = requests.get(url, timeout=10)
+        url = f"{POLYGON_BASE_URL}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
+        params = {"apiKey": POLYGON_API_KEY}
+        response = requests.get(url, params=params, timeout=10)
+        
         if response.status_code == 200:
             data = response.json()
-            if "ticker" in data and "lastTrade" in data["ticker"]:
-                return data["ticker"]["lastTrade"]["p"], True
-            elif "ticker" in data and "day" in data["ticker"]:
-                return data["ticker"]["day"]["c"], True
-        # If snapshot fails, try previous day close as fallback
+            if data.get("status") == "OK" and "ticker" in data:
+                ticker_data = data["ticker"]
+                # Try to get last trade price, fallback to day close
+                if "lastTrade" in ticker_data:
+                    return ticker_data["lastTrade"].get("p"), True
+                elif "day" in ticker_data:
+                    return ticker_data["day"].get("c"), True
+                elif "prevDay" in ticker_data:
+                    return ticker_data["prevDay"].get("c"), True
         return None, False
     except Exception as e:
-        print(f"Price fetch failed for {symbol}: {e}")
+        st.error(f"Error fetching price for {symbol}: {e}")
         return None, False
 
-def fetch_prev_day(symbol: str) -> Tuple[Optional[float], Optional[float], Optional[float], bool]:
-    """Fetch previous day OHLC"""
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def fetch_previous_day(symbol: str) -> Tuple[Optional[float], Optional[float], Optional[float], bool]:
+    """Fetch previous day OHLC from Polygon"""
     try:
-        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{symbol}/prev?adjusted=true&apiKey={POLYGON_API_KEY}"
-        response = requests.get(url, timeout=10)
+        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{symbol}/prev"
+        params = {"apiKey": POLYGON_API_KEY}
+        response = requests.get(url, params=params, timeout=10)
+        
         if response.status_code == 200:
             data = response.json()
-            if "results" in data and len(data["results"]) > 0:
+            if data.get("status") == "OK" and data.get("results"):
                 result = data["results"][0]
-                return result.get("c"), result.get("h"), result.get("l"), True
-    except:
-        pass
-    return None, None, None, False
+                return result.get("h"), result.get("l"), result.get("c"), True
+        return None, None, None, False
+    except Exception as e:
+        st.error(f"Error fetching previous day for {symbol}: {e}")
+        return None, None, None, False
 
-def fetch_historical_bars(symbol: str, days: int = 250) -> Optional[pd.DataFrame]:
-    """Fetch historical bars for MA calculation"""
+@st.cache_data(ttl=900)  # Cache for 15 minutes
+def fetch_historical_bars(symbol: str, days: int = 250) -> Tuple[Optional[pd.DataFrame], bool]:
+    """Fetch historical daily bars for MA calculation"""
     try:
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days + 50)  # Extra buffer for trading days
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=days + 50)).strftime("%Y-%m-%d")
         
-        url = (f"{POLYGON_BASE_URL}/v2/aggs/ticker/{symbol}/range/1/day/"
-               f"{start_date.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}"
-               f"?adjusted=true&sort=asc&apiKey={POLYGON_API_KEY}")
+        url = f"{POLYGON_BASE_URL}/v2/aggs/ticker/{symbol}/range/1/day/{start_date}/{end_date}"
+        params = {"apiKey": POLYGON_API_KEY, "limit": 300}
+        response = requests.get(url, params=params, timeout=15)
         
-        response = requests.get(url, timeout=15)
         if response.status_code == 200:
             data = response.json()
-            if "results" in data and len(data["results"]) > 0:
+            if data.get("status") == "OK" and data.get("results"):
                 df = pd.DataFrame(data["results"])
                 df['date'] = pd.to_datetime(df['t'], unit='ms')
-                df = df.rename(columns={'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'v': 'volume'})
-                return df[['date', 'open', 'high', 'low', 'close', 'volume']]
+                df = df.sort_values('date')
+                return df, True
+        return None, False
     except Exception as e:
-        pass
-    return None
+        st.error(f"Error fetching history for {symbol}: {e}")
+        return None, False
 
-def calculate_ma_bias(df: pd.DataFrame, current_price: float) -> Tuple[Optional[float], Optional[float], str]:
-    """Calculate 50 EMA and 200 SMA, determine bias"""
+def calculate_moving_averages(df: pd.DataFrame) -> Tuple[Optional[float], Optional[float]]:
+    """Calculate 50 EMA and 200 SMA from historical data"""
     if df is None or len(df) < 200:
-        return None, None, "Neutral"
+        return None, None
     
-    # Calculate EMAs and SMAs on daily data (proxy for 30-min, adjust as needed)
-    df['ema_50'] = df['close'].ewm(span=50, adjust=False).mean()
-    df['sma_200'] = df['close'].rolling(window=200).mean()
-    
-    ema_50 = df['ema_50'].iloc[-1]
-    sma_200 = df['sma_200'].iloc[-1]
-    
-    # Determine bias
-    if ema_50 > sma_200 and current_price > ema_50:
-        bias = "Bullish"
-    elif ema_50 < sma_200 and current_price < ema_50:
-        bias = "Bearish"
-    else:
-        bias = "Neutral"
-    
-    return ema_50, sma_200, bias
+    try:
+        # Calculate EMAs and SMAs
+        df['ema_50'] = df['c'].ewm(span=50, adjust=False).mean()
+        df['sma_200'] = df['c'].rolling(window=200).mean()
+        
+        # Get latest values
+        ema_50 = df['ema_50'].iloc[-1]
+        sma_200 = df['sma_200'].iloc[-1]
+        
+        return round(ema_50, 2), round(sma_200, 2)
+    except Exception:
+        return None, None
 
-def fetch_all_stock_data(symbol: str) -> StockData:
-    """Fetch all data for a single stock from Polygon"""
-    stock = StockData(symbol=symbol)
+def determine_ma_bias(current_price: Optional[float], ema_50: Optional[float], sma_200: Optional[float]) -> MABias:
+    """Determine MA Bias based on price relationship to MAs"""
+    if None in (current_price, ema_50, sma_200):
+        return MABias.NEUTRAL
     
-    # Get current price
-    price, connected = fetch_current_price(symbol)
-    if price:
-        stock.current_price = price
-        stock.polygon_connected = True
-    
-    # Get previous day data
-    prev_close, prev_high, prev_low, success = fetch_prev_day(symbol)
-    if success:
-        stock.prev_close = prev_close
-        stock.prev_high = prev_high
-        stock.prev_low = prev_low
-        stock.polygon_connected = True
-    
-    # Get historical data for MA calculation
-    if stock.current_price:
-        df = fetch_historical_bars(symbol)
-        if df is not None:
-            ema_50, sma_200, bias = calculate_ma_bias(df, stock.current_price)
-            stock.ema_50 = ema_50
-            stock.sma_200 = sma_200
-            stock.ma_bias = bias
-    
-    stock.last_updated = datetime.now()
-    return stock
+    # Bullish: 50 EMA > 200 SMA AND Price > 50 EMA
+    if ema_50 > sma_200 and current_price > ema_50:
+        return MABias.BULLISH
+    # Bearish: 50 EMA < 200 SMA AND Price < 50 EMA
+    elif ema_50 < sma_200 and current_price < ema_50:
+        return MABias.BEARISH
+    else:
+        return MABias.NEUTRAL
 
 # ============================================================================
 # TRADE LOGIC
 # ============================================================================
 
 def calculate_trade_setup(stock: StockData) -> TradeSetup:
-    """Calculate trade setup based on MA bias and day structure"""
-    setup = TradeSetup(direction="NO TRADE")
+    """Calculate trade setup based on MA Bias and Day Structure"""
+    setup = TradeSetup(direction=TradeDirection.NO_TRADE)
     
-    # Check for required data
+    # Validate required data
     if stock.high_line is None or stock.low_line is None:
         setup.warnings.append("⚠️ Missing High Line or Low Line")
         return setup
@@ -197,579 +186,595 @@ def calculate_trade_setup(stock: StockData) -> TradeSetup:
         setup.warnings.append("⚠️ No current price available")
         return setup
     
-    buffer = STOP_BUFFER.get(stock.symbol, 0.50)
-    
-    # Get current time for entry window check
-    now = datetime.now()
-    current_hour = now.hour
-    current_minute = now.minute
-    
-    if stock.ma_bias == "Bullish":
-        # LONG setup: Entry at Floor, Exit at Ceiling
-        setup.direction = "LONG"
-        setup.entry = stock.low_line
-        setup.exit_target = stock.high_line
-        setup.stop_loss = stock.low_line - buffer
-        setup.reward = stock.high_line - stock.low_line
-        setup.risk = buffer
-        
-    elif stock.ma_bias == "Bearish":
-        # SHORT setup: Entry at Ceiling, Exit at Floor
-        setup.direction = "SHORT"
-        setup.entry = stock.high_line
-        setup.exit_target = stock.low_line
-        setup.stop_loss = stock.high_line + buffer
-        setup.reward = stock.high_line - stock.low_line
-        setup.risk = buffer
-        
-    else:  # Neutral
-        setup.direction = "NO TRADE"
-        setup.warnings.append("⚠️ MA Bias is Neutral - No clear direction")
+    if stock.high_line <= stock.low_line:
+        setup.warnings.append("⚠️ High Line must be greater than Low Line")
         return setup
     
-    # Calculate R:R ratio
-    if setup.risk and setup.risk > 0:
-        setup.rr_ratio = setup.reward / setup.risk
+    # Check time window (optimal entry 9-10am)
+    current_hour = datetime.now().hour
+    if current_hour < 9 or current_hour > 10:
+        setup.warnings.append(f"ℹ️ Current time: {datetime.now().strftime('%I:%M %p')} - Optimal entry window is 9-10am ET")
     
-    # Entry window warning (9-10am optimal)
-    if current_hour < 9 or current_hour >= 10:
-        setup.warnings.append(f"⏰ Outside optimal entry window (9-10am EST)")
+    # Determine trade based on bias
+    if stock.ma_bias == MABias.BULLISH:
+        # LONG at Floor, Exit at Ceiling
+        setup.direction = TradeDirection.LONG
+        setup.entry = stock.low_line
+        setup.exit_target = stock.high_line
+        setup.stop_loss = round(stock.low_line * (1 - STOP_BUFFER_PERCENT), 2)
+        setup.is_valid = True
+        
+        # Check if price is near entry
+        if stock.current_price > stock.low_line * 1.02:
+            setup.warnings.append("⚠️ Price above Floor - may have missed entry")
+        
+    elif stock.ma_bias == MABias.BEARISH:
+        # SHORT at Ceiling, Exit at Floor
+        setup.direction = TradeDirection.SHORT
+        setup.entry = stock.high_line
+        setup.exit_target = stock.low_line
+        setup.stop_loss = round(stock.high_line * (1 + STOP_BUFFER_PERCENT), 2)
+        setup.is_valid = True
+        
+        # Check if price is near entry
+        if stock.current_price < stock.high_line * 0.98:
+            setup.warnings.append("⚠️ Price below Ceiling - may have missed entry")
+    else:
+        setup.warnings.append("⚠️ Neutral bias - no clear trade direction")
+        return setup
     
-    # Price position warnings
-    if setup.direction == "LONG" and stock.current_price > stock.low_line:
-        diff = stock.current_price - stock.low_line
-        setup.warnings.append(f"📍 Price ${diff:.2f} above entry zone")
-    elif setup.direction == "SHORT" and stock.current_price < stock.high_line:
-        diff = stock.high_line - stock.current_price
-        setup.warnings.append(f"📍 Price ${diff:.2f} below entry zone")
+    # Calculate reward/risk
+    if setup.entry and setup.exit_target and setup.stop_loss:
+        if setup.direction == TradeDirection.LONG:
+            setup.reward = round(setup.exit_target - setup.entry, 2)
+            setup.risk = round(setup.entry - setup.stop_loss, 2)
+        else:
+            setup.reward = round(setup.entry - setup.exit_target, 2)
+            setup.risk = round(setup.stop_loss - setup.entry, 2)
+        
+        if setup.risk > 0:
+            setup.rr_ratio = round(setup.reward / setup.risk, 2)
+            if setup.rr_ratio < 1.5:
+                setup.warnings.append(f"⚠️ R:R ratio ({setup.rr_ratio}) below 1.5 minimum")
     
     return setup
 
 # ============================================================================
-# STREAMLIT UI
+# UI COMPONENTS
 # ============================================================================
 
-def apply_custom_css():
-    """Apply dark glassmorphism theme"""
+def inject_styles():
+    """Inject custom CSS for glassmorphism dark theme"""
     st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
-    
-    :root {
-        --bg-primary: #0a0a0f;
-        --bg-secondary: rgba(20, 20, 30, 0.8);
-        --bg-card: rgba(25, 25, 40, 0.6);
-        --glass-border: rgba(255, 255, 255, 0.1);
-        --text-primary: #ffffff;
-        --text-secondary: rgba(255, 255, 255, 0.7);
-        --text-muted: rgba(255, 255, 255, 0.4);
-        --accent-green: #00ff88;
-        --accent-red: #ff4466;
-        --accent-blue: #4488ff;
-        --accent-gold: #ffd700;
-        --glow-green: 0 0 30px rgba(0, 255, 136, 0.3);
-        --glow-red: 0 0 30px rgba(255, 68, 102, 0.3);
-        --glow-blue: 0 0 20px rgba(68, 136, 255, 0.2);
-    }
-    
+    /* Dark theme base */
     .stApp {
-        background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #0f0f1a 100%);
-        font-family: 'Space Grotesk', sans-serif;
+        background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #16213e 100%);
     }
     
-    .stApp > header {
-        background: transparent !important;
-    }
-    
-    /* Main container */
-    .main .block-container {
-        padding-top: 2rem;
-        max-width: 1400px;
-    }
-    
-    /* Sidebar styling */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, rgba(20, 20, 35, 0.95) 0%, rgba(10, 10, 20, 0.98) 100%);
-        border-right: 1px solid var(--glass-border);
-    }
-    
-    section[data-testid="stSidebar"] .stMarkdown {
-        color: var(--text-secondary);
-    }
-    
-    /* Glass card effect */
+    /* Glassmorphism card */
     .glass-card {
-        background: var(--bg-card);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border: 1px solid var(--glass-border);
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
         border-radius: 16px;
-        padding: 1.5rem;
-        margin-bottom: 1rem;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 20px;
+        margin: 10px 0;
         transition: all 0.3s ease;
     }
     
     .glass-card:hover {
-        border-color: rgba(255, 255, 255, 0.2);
         transform: translateY(-2px);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     }
     
-    .glass-card.long-setup {
-        border-color: rgba(0, 255, 136, 0.4);
-        box-shadow: var(--glow-green);
+    /* Long trade glow */
+    .long-glow {
+        box-shadow: 0 0 20px rgba(34, 197, 94, 0.3),
+                    0 0 40px rgba(34, 197, 94, 0.1);
+        border-color: rgba(34, 197, 94, 0.5);
     }
     
-    .glass-card.short-setup {
-        border-color: rgba(255, 68, 102, 0.4);
-        box-shadow: var(--glow-red);
+    /* Short trade glow */
+    .short-glow {
+        box-shadow: 0 0 20px rgba(239, 68, 68, 0.3),
+                    0 0 40px rgba(239, 68, 68, 0.1);
+        border-color: rgba(239, 68, 68, 0.5);
     }
     
-    .glass-card.no-trade {
-        border-color: rgba(128, 128, 128, 0.3);
-        opacity: 0.7;
+    /* No trade (neutral) */
+    .neutral-glow {
+        box-shadow: 0 0 20px rgba(107, 114, 128, 0.2);
+        border-color: rgba(107, 114, 128, 0.3);
     }
     
-    /* Top stats bar */
-    .stats-bar {
-        background: var(--bg-card);
-        backdrop-filter: blur(20px);
-        border: 1px solid var(--glass-border);
-        border-radius: 12px;
-        padding: 1rem 1.5rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 2rem;
+    /* Status indicators */
+    .status-connected {
+        color: #22c55e;
+        font-weight: 600;
     }
     
-    .status-indicator {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.9rem;
+    .status-disconnected {
+        color: #ef4444;
+        font-weight: 600;
     }
     
-    .status-dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        animation: pulse 2s infinite;
-    }
-    
-    .status-dot.connected {
-        background: var(--accent-green);
-        box-shadow: 0 0 10px var(--accent-green);
-    }
-    
-    .status-dot.disconnected {
-        background: var(--accent-red);
-        box-shadow: 0 0 10px var(--accent-red);
-    }
-    
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
-    }
-    
-    /* Stock card elements */
+    /* Stock symbol header */
     .stock-symbol {
-        font-family: 'JetBrains Mono', monospace;
         font-size: 1.8rem;
         font-weight: 700;
-        letter-spacing: -0.02em;
-        margin-bottom: 0.5rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
     }
     
-    .stock-price {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 1.4rem;
-        color: var(--text-primary);
+    /* Price display */
+    .current-price {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #e2e8f0;
     }
     
-    .bias-badge {
-        display: inline-block;
+    /* Bias badges */
+    .bias-bullish {
+        background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+        color: white;
         padding: 4px 12px;
         border-radius: 20px;
-        font-size: 0.75rem;
         font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    
-    .bias-bullish {
-        background: rgba(0, 255, 136, 0.2);
-        color: var(--accent-green);
-        border: 1px solid rgba(0, 255, 136, 0.3);
+        display: inline-block;
     }
     
     .bias-bearish {
-        background: rgba(255, 68, 102, 0.2);
-        color: var(--accent-red);
-        border: 1px solid rgba(255, 68, 102, 0.3);
-    }
-    
-    .bias-neutral {
-        background: rgba(128, 128, 128, 0.2);
-        color: rgba(255, 255, 255, 0.6);
-        border: 1px solid rgba(128, 128, 128, 0.3);
-    }
-    
-    .trade-direction {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 1.2rem;
-        font-weight: 700;
-        padding: 8px 16px;
-        border-radius: 8px;
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        color: white;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-weight: 600;
         display: inline-block;
     }
     
+    .bias-neutral {
+        background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+        color: white;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-weight: 600;
+        display: inline-block;
+    }
+    
+    /* Trade direction badges */
     .trade-long {
-        background: linear-gradient(135deg, rgba(0, 255, 136, 0.3), rgba(0, 200, 100, 0.2));
-        color: var(--accent-green);
-        border: 1px solid rgba(0, 255, 136, 0.4);
+        background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+        color: white;
+        padding: 8px 20px;
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 1.1rem;
+        display: inline-block;
     }
     
     .trade-short {
-        background: linear-gradient(135deg, rgba(255, 68, 102, 0.3), rgba(200, 50, 80, 0.2));
-        color: var(--accent-red);
-        border: 1px solid rgba(255, 68, 102, 0.4);
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        color: white;
+        padding: 8px 20px;
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 1.1rem;
+        display: inline-block;
     }
     
     .trade-none {
-        background: rgba(128, 128, 128, 0.2);
-        color: rgba(255, 255, 255, 0.5);
-        border: 1px solid rgba(128, 128, 128, 0.3);
+        background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+        color: white;
+        padding: 8px 20px;
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 1.1rem;
+        display: inline-block;
     }
     
+    /* Data rows */
     .data-row {
         display: flex;
         justify-content: space-between;
+        align-items: center;
         padding: 8px 0;
         border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.9rem;
     }
     
     .data-label {
-        color: var(--text-muted);
+        color: #94a3b8;
+        font-size: 0.9rem;
     }
     
     .data-value {
-        color: var(--text-primary);
-        font-weight: 500;
-    }
-    
-    .warning-box {
-        background: rgba(255, 200, 50, 0.1);
-        border: 1px solid rgba(255, 200, 50, 0.3);
-        border-radius: 8px;
-        padding: 8px 12px;
-        margin-top: 8px;
-        font-size: 0.85rem;
-        color: rgba(255, 200, 50, 0.9);
-    }
-    
-    /* Rules section */
-    .rules-section {
-        background: var(--bg-card);
-        backdrop-filter: blur(20px);
-        border: 1px solid var(--glass-border);
-        border-radius: 16px;
-        padding: 1.5rem;
-        margin-top: 2rem;
-    }
-    
-    .rules-title {
-        font-size: 1.2rem;
+        color: #e2e8f0;
         font-weight: 600;
-        margin-bottom: 1rem;
-        color: var(--accent-gold);
+    }
+    
+    /* Warning text */
+    .warning-text {
+        color: #fbbf24;
+        font-size: 0.85rem;
+        margin: 4px 0;
+    }
+    
+    /* Top bar */
+    .top-bar {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        border-radius: 12px;
+        padding: 15px 20px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 15px;
     }
     
     /* Summary badges */
     .summary-badge {
-        display: inline-block;
-        padding: 8px 16px;
-        border-radius: 8px;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.9rem;
+        padding: 6px 14px;
+        border-radius: 20px;
         font-weight: 600;
-        margin-right: 10px;
+        font-size: 0.9rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
     }
     
     .summary-long {
-        background: rgba(0, 255, 136, 0.2);
-        color: var(--accent-green);
+        background: rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+        border: 1px solid rgba(34, 197, 94, 0.3);
     }
     
     .summary-short {
-        background: rgba(255, 68, 102, 0.2);
-        color: var(--accent-red);
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
     }
     
     .summary-none {
-        background: rgba(128, 128, 128, 0.2);
-        color: rgba(255, 255, 255, 0.6);
+        background: rgba(107, 114, 128, 0.2);
+        color: #9ca3af;
+        border: 1px solid rgba(107, 114, 128, 0.3);
     }
     
-    /* Expander styling */
-    .streamlit-expanderHeader {
-        background: var(--bg-card) !important;
-        border: 1px solid var(--glass-border) !important;
-        border-radius: 12px !important;
+    /* Rules section */
+    .rules-section {
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 12px;
+        padding: 20px;
+        margin-top: 30px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
     }
     
-    /* Button styling */
-    .stButton > button {
-        background: linear-gradient(135deg, rgba(68, 136, 255, 0.3), rgba(50, 100, 200, 0.2)) !important;
-        border: 1px solid rgba(68, 136, 255, 0.4) !important;
-        color: white !important;
-        font-family: 'Space Grotesk', sans-serif !important;
-        font-weight: 600 !important;
-        border-radius: 8px !important;
-        transition: all 0.3s ease !important;
+    .rules-title {
+        color: #a78bfa;
+        font-size: 1.2rem;
+        font-weight: 600;
+        margin-bottom: 15px;
     }
     
-    .stButton > button:hover {
-        background: linear-gradient(135deg, rgba(68, 136, 255, 0.5), rgba(50, 100, 200, 0.4)) !important;
-        box-shadow: var(--glow-blue) !important;
-        transform: translateY(-1px) !important;
-    }
-    
-    /* Input styling */
-    .stNumberInput input, .stSelectbox select, .stTextInput input {
-        background: rgba(30, 30, 50, 0.8) !important;
-        border: 1px solid var(--glass-border) !important;
-        color: white !important;
-        font-family: 'JetBrains Mono', monospace !important;
-    }
-    
-    /* Toggle styling */
-    .stCheckbox label {
-        color: var(--text-secondary) !important;
-    }
-    
-    /* Metric styling */
-    [data-testid="stMetricValue"] {
-        font-family: 'JetBrains Mono', monospace !important;
+    .rule-item {
+        color: #cbd5e1;
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
     }
     
     /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* Improve sidebar */
+    .css-1d391kg {
+        background: rgba(0, 0, 0, 0.3);
+    }
     </style>
     """, unsafe_allow_html=True)
 
+def render_top_bar(stocks: List[StockData], setups: List[TradeSetup], polygon_status: bool):
+    """Render top summary bar"""
+    long_count = sum(1 for s in setups if s.direction == TradeDirection.LONG)
+    short_count = sum(1 for s in setups if s.direction == TradeDirection.SHORT)
+    no_trade_count = sum(1 for s in setups if s.direction == TradeDirection.NO_TRADE)
+    
+    status_class = "status-connected" if polygon_status else "status-disconnected"
+    status_icon = "🟢" if polygon_status else "🔴"
+    status_text = "Connected (15-min delayed)" if polygon_status else "Disconnected"
+    
+    st.markdown(f"""
+    <div class="top-bar">
+        <div>
+            <span style="color: #94a3b8; margin-right: 8px;">Polygon:</span>
+            <span class="{status_class}">{status_icon} {status_text}</span>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <span class="summary-badge summary-long">📈 {long_count} LONG</span>
+            <span class="summary-badge summary-short">📉 {short_count} SHORT</span>
+            <span class="summary-badge summary-none">⏸️ {no_trade_count} NO TRADE</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def format_price(price: Optional[float]) -> str:
+    """Format price for display"""
+    if price is None:
+        return "N/A"
+    return f"${price:,.2f}"
+
 def render_stock_card(stock: StockData, setup: TradeSetup):
-    """Render a single stock card"""
-    # Determine card class based on setup
-    if setup.direction == "LONG":
-        card_class = "long-setup"
-    elif setup.direction == "SHORT":
-        card_class = "short-setup"
+    """Render individual stock card with trade setup"""
+    # Determine card glow class
+    if setup.direction == TradeDirection.LONG:
+        glow_class = "long-glow"
+    elif setup.direction == TradeDirection.SHORT:
+        glow_class = "short-glow"
     else:
-        card_class = "no-trade"
+        glow_class = "neutral-glow"
     
-    # Bias badge class
-    bias_class = f"bias-{stock.ma_bias.lower()}"
+    # Determine bias class
+    if stock.ma_bias == MABias.BULLISH:
+        bias_class = "bias-bullish"
+    elif stock.ma_bias == MABias.BEARISH:
+        bias_class = "bias-bearish"
+    else:
+        bias_class = "bias-neutral"
     
-    # Trade direction class
-    if setup.direction == "LONG":
+    # Determine trade class
+    if setup.direction == TradeDirection.LONG:
         trade_class = "trade-long"
-    elif setup.direction == "SHORT":
+    elif setup.direction == TradeDirection.SHORT:
         trade_class = "trade-short"
     else:
         trade_class = "trade-none"
     
-    # Connection status
-    conn_status = "🟢" if stock.polygon_connected else "🔴"
-    data_source = "Manual" if stock.use_manual else "Polygon"
+    # Format MA values
+    ema_50_str = f"${stock.ema_50:.2f}" if stock.ema_50 else "N/A"
+    sma_200_str = f"${stock.sma_200:.2f}" if stock.sma_200 else "N/A"
     
-    with st.expander(f"**{stock.symbol}** — ${stock.current_price or 0:.2f} {conn_status}", expanded=True):
-        st.markdown(f"""
-        <div class="glass-card {card_class}">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
-                <div>
-                    <div class="stock-symbol">{stock.symbol}</div>
-                    <div class="stock-price">${stock.current_price or 0:.2f}</div>
-                    <div style="font-size: 0.75rem; color: rgba(255,255,255,0.4); margin-top: 4px;">
-                        {conn_status} {data_source} {f"• Updated: {stock.last_updated.strftime('%H:%M:%S')}" if stock.last_updated else ""}
-                    </div>
-                </div>
-                <span class="bias-badge {bias_class}">{stock.ma_bias}</span>
+    # Build warnings HTML
+    warnings_html = ""
+    for warning in setup.warnings:
+        warnings_html += f'<div class="warning-text">{warning}</div>'
+    
+    # Status indicator
+    status_indicator = "🟢" if stock.polygon_connected else "🔴"
+    if not stock.use_polygon:
+        status_indicator = "📝"  # Manual mode
+    
+    html = f"""
+    <div class="glass-card {glow_class}">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <div>
+                <span class="stock-symbol">{stock.symbol}</span>
+                <span style="margin-left: 8px;">{status_indicator}</span>
+            </div>
+            <span class="current-price">{format_price(stock.current_price)}</span>
+        </div>
+        
+        <div style="margin-bottom: 15px;">
+            <span class="{bias_class}">{stock.ma_bias.value}</span>
+            <span style="color: #64748b; font-size: 0.8rem; margin-left: 10px;">
+                50 EMA: {ema_50_str} | 200 SMA: {sma_200_str}
+            </span>
+        </div>
+        
+        <div class="data-row">
+            <span class="data-label">📊 Day Structure</span>
+            <span class="data-value">Floor: {format_price(stock.low_line)} | Ceiling: {format_price(stock.high_line)}</span>
+        </div>
+        
+        <div style="margin: 15px 0; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 10px;">
+            <div style="margin-bottom: 10px;">
+                <span class="{trade_class}">{setup.direction.value}</span>
             </div>
             
-            <div style="margin-bottom: 1rem;">
-                <div class="data-row">
-                    <span class="data-label">50 EMA</span>
-                    <span class="data-value">${stock.ema_50:.2f if stock.ema_50 else 'N/A'}</span>
-                </div>
-                <div class="data-row">
-                    <span class="data-label">200 SMA</span>
-                    <span class="data-value">${stock.sma_200:.2f if stock.sma_200 else 'N/A'}</span>
-                </div>
-            </div>
-            
-            <div style="background: rgba(255,255,255,0.05); border-radius: 8px; padding: 12px; margin-bottom: 1rem;">
-                <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.1em;">Day Structure</div>
-                <div class="data-row" style="border: none;">
-                    <span class="data-label">🔺 Ceiling (High Line)</span>
-                    <span class="data-value">${stock.high_line:.2f if stock.high_line else 'Not Set'}</span>
-                </div>
-                <div class="data-row" style="border: none;">
-                    <span class="data-label">🔻 Floor (Low Line)</span>
-                    <span class="data-value">${stock.low_line:.2f if stock.low_line else 'Not Set'}</span>
-                </div>
-            </div>
-            
-            <div style="text-align: center; margin-bottom: 1rem;">
-                <span class="trade-direction {trade_class}">{"📈 " if setup.direction == "LONG" else "📉 " if setup.direction == "SHORT" else "⏸️ "}{setup.direction}</span>
-            </div>
-            
-            {f'''
             <div class="data-row">
                 <span class="data-label">Entry</span>
-                <span class="data-value" style="color: {"#00ff88" if setup.direction == "LONG" else "#ff4466"};">${setup.entry:.2f}</span>
+                <span class="data-value">{format_price(setup.entry)}</span>
             </div>
             <div class="data-row">
-                <span class="data-label">Exit Target</span>
-                <span class="data-value">${setup.exit_target:.2f}</span>
+                <span class="data-label">Target</span>
+                <span class="data-value" style="color: #22c55e;">{format_price(setup.exit_target)}</span>
             </div>
             <div class="data-row">
                 <span class="data-label">Stop Loss</span>
-                <span class="data-value" style="color: #ff4466;">${setup.stop_loss:.2f}</span>
+                <span class="data-value" style="color: #ef4444;">{format_price(setup.stop_loss)}</span>
             </div>
             <div class="data-row">
                 <span class="data-label">Reward / Risk</span>
-                <span class="data-value" style="color: #ffd700;">${setup.reward:.2f} / ${setup.risk:.2f} ({setup.rr_ratio:.1f}R)</span>
+                <span class="data-value">{setup.reward if setup.reward else 'N/A'} / {setup.risk if setup.risk else 'N/A'} pts</span>
             </div>
-            ''' if setup.entry else ''}
+            <div class="data-row" style="border-bottom: none;">
+                <span class="data-label">R:R Ratio</span>
+                <span class="data-value" style="color: {'#22c55e' if setup.rr_ratio and setup.rr_ratio >= 1.5 else '#fbbf24'};">{setup.rr_ratio if setup.rr_ratio else 'N/A'}:1</span>
+            </div>
         </div>
-        """, unsafe_allow_html=True)
         
-        # Render warnings
-        if setup.warnings:
-            for warning in setup.warnings:
-                st.markdown(f"""<div class="warning-box">{warning}</div>""", unsafe_allow_html=True)
-
-def render_sidebar_inputs(symbol: str, stock: StockData) -> StockData:
-    """Render sidebar inputs for a stock"""
-    st.markdown(f"### {symbol}")
+        {warnings_html}
+    </div>
+    """
     
-    # Manual override toggle
-    use_manual = st.checkbox(f"Manual Override", key=f"{symbol}_manual", value=stock.use_manual)
-    stock.use_manual = use_manual
-    
-    if use_manual:
-        # Manual current price
-        stock.current_price = st.number_input(
-            "Current Price", 
-            value=float(stock.current_price or 0),
-            step=0.01,
-            key=f"{symbol}_price"
-        )
-        
-        # Manual MA Bias
-        bias_options = ["Bullish", "Bearish", "Neutral"]
-        bias_index = bias_options.index(stock.ma_bias) if stock.ma_bias in bias_options else 2
-        stock.ma_bias = st.selectbox(
-            "MA Bias",
-            options=bias_options,
-            index=bias_index,
-            key=f"{symbol}_bias"
-        )
-    else:
-        # Show Polygon data
-        if stock.current_price:
-            st.markdown(f"**Price:** ${stock.current_price:.2f}")
-        else:
-            st.markdown("**Price:** Not available")
-        
-        if stock.ema_50 and stock.sma_200:
-            st.markdown(f"**50 EMA:** ${stock.ema_50:.2f}")
-            st.markdown(f"**200 SMA:** ${stock.sma_200:.2f}")
-            st.markdown(f"**Bias:** {stock.ma_bias}")
-        
-        # Allow manual bias override even when using Polygon
-        if st.checkbox(f"Override MA Bias", key=f"{symbol}_bias_override"):
-            stock.ma_bias = st.selectbox(
-                "MA Bias",
-                options=["Bullish", "Bearish", "Neutral"],
-                index=["Bullish", "Bearish", "Neutral"].index(stock.ma_bias),
-                key=f"{symbol}_bias_select"
-            )
-    
-    # Day Structure (always manual from TOS)
-    st.markdown("**Day Structure (from TOS)**")
-    stock.high_line = st.number_input(
-        "High Line (Ceiling)",
-        value=float(stock.high_line or 0),
-        step=0.01,
-        key=f"{symbol}_high"
-    )
-    stock.low_line = st.number_input(
-        "Low Line (Floor)",
-        value=float(stock.low_line or 0),
-        step=0.01,
-        key=f"{symbol}_low"
-    )
-    
-    st.markdown("---")
-    return stock
+    st.markdown(html, unsafe_allow_html=True)
 
 def render_trading_rules():
-    """Render collapsible trading rules"""
+    """Render collapsible trading rules reference"""
     with st.expander("📖 Trading Rules Reference", expanded=False):
         st.markdown("""
         <div class="rules-section">
-            <div class="rules-title">⚡ THE TWO PILLARS</div>
+            <div class="rules-title">🎯 THE TWO PILLARS</div>
             
-            <h4>1️⃣ MA BIAS → Direction</h4>
-            <p><strong>50 EMA vs 200 SMA on 30-min Chart</strong></p>
-            <ul>
-                <li><span style="color: #00ff88;">BULLISH:</span> 50 EMA > 200 SMA AND Price > 50 EMA → LONG ONLY</li>
-                <li><span style="color: #ff4466;">BEARISH:</span> 50 EMA < 200 SMA AND Price < 50 EMA → SHORT ONLY</li>
-                <li><span style="color: rgba(255,255,255,0.5);">NEUTRAL:</span> Mixed signals → NO TRADE</li>
-            </ul>
+            <div class="rule-item">
+                <strong>1. MA Bias → Direction</strong><br>
+                • <span style="color: #22c55e;">BULLISH:</span> 50 EMA > 200 SMA AND Price > 50 EMA → LONG only<br>
+                • <span style="color: #ef4444;">BEARISH:</span> 50 EMA < 200 SMA AND Price < 50 EMA → SHORT only<br>
+                • <span style="color: #6b7280;">NEUTRAL:</span> Mixed signals → NO TRADE
+            </div>
             
-            <h4>2️⃣ DAY STRUCTURE → Entry/Exit Zones</h4>
-            <p><strong>High Line + Low Line from TOS Overnight Session (5pm-7am)</strong></p>
-            <ul>
-                <li><strong>High Line = Ceiling:</strong> SHORT entry / LONG exit</li>
-                <li><strong>Low Line = Floor:</strong> LONG entry / SHORT exit</li>
-            </ul>
+            <div class="rule-item">
+                <strong>2. Day Structure → Entry/Exit Zones</strong><br>
+                • High Line = Overnight Ceiling (5pm-7am high from TOS)<br>
+                • Low Line = Overnight Floor (5pm-7am low from TOS)<br>
+                • LONG: Enter at Floor, Exit at Ceiling<br>
+                • SHORT: Enter at Ceiling, Exit at Floor
+            </div>
             
-            <div class="rules-title" style="margin-top: 1.5rem;">📊 TRADE EXECUTION</div>
+            <div class="rules-title" style="margin-top: 20px;">⚠️ RISK MANAGEMENT</div>
             
-            <h4>LONG Setup (Bullish Bias)</h4>
-            <ul>
-                <li>Entry: At Floor (Low Line)</li>
-                <li>Exit: At Ceiling (High Line)</li>
-                <li>Stop: Below Floor (Low Line - buffer)</li>
-            </ul>
+            <div class="rule-item">
+                • Stop Loss: 0.2% beyond entry line<br>
+                • Minimum R:R Ratio: 1.5:1<br>
+                • Optimal Entry Window: 9-10am ET<br>
+                • Never trade against the MA Bias
+            </div>
             
-            <h4>SHORT Setup (Bearish Bias)</h4>
-            <ul>
-                <li>Entry: At Ceiling (High Line)</li>
-                <li>Exit: At Floor (Low Line)</li>
-                <li>Stop: Above Ceiling (High Line + buffer)</li>
-            </ul>
+            <div class="rules-title" style="margin-top: 20px;">✅ TRADE EXECUTION</div>
             
-            <div class="rules-title" style="margin-top: 1.5rem;">⏰ TIMING</div>
-            <ul>
-                <li><strong>Optimal Entry Window:</strong> 9:00 AM - 10:00 AM EST</li>
-                <li><strong>Avoid:</strong> Trading outside the entry window unless setup is exceptional</li>
-            </ul>
-            
-            <div class="rules-title" style="margin-top: 1.5rem;">⚠️ CONFLICT RULES</div>
-            <ul>
-                <li>If bias is NEUTRAL → NO TRADE</li>
-                <li>If High Line or Low Line not set → NO TRADE</li>
-                <li>If price already past entry zone → Reduced position or wait for pullback</li>
-            </ul>
+            <div class="rule-item">
+                • Wait for price to reach your entry zone<br>
+                • Confirm with price action (rejection candle, volume)<br>
+                • Set stop immediately upon entry<br>
+                • Take profit at target or trail stop
+            </div>
         </div>
         """, unsafe_allow_html=True)
+
+# ============================================================================
+# SIDEBAR INPUTS
+# ============================================================================
+
+def render_sidebar_inputs(symbol: str) -> dict:
+    """Render sidebar inputs for a stock and return values"""
+    st.sidebar.markdown(f"### {symbol}")
+    
+    # Initialize session state for this stock if not exists
+    if f"{symbol}_data" not in st.session_state:
+        st.session_state[f"{symbol}_data"] = {
+            "use_polygon": True,
+            "manual_price": 0.0,
+            "manual_bias": "Neutral",
+            "high_line": 0.0,
+            "low_line": 0.0
+        }
+    
+    data = st.session_state[f"{symbol}_data"]
+    
+    # Data source toggle
+    use_polygon = st.sidebar.toggle(
+        "Use Polygon Data",
+        value=data["use_polygon"],
+        key=f"{symbol}_polygon_toggle"
+    )
+    data["use_polygon"] = use_polygon
+    
+    # Manual price override
+    if not use_polygon:
+        manual_price = st.sidebar.number_input(
+            "Current Price ($)",
+            min_value=0.0,
+            value=data["manual_price"],
+            step=0.01,
+            key=f"{symbol}_manual_price"
+        )
+        data["manual_price"] = manual_price
+    
+    # MA Bias (auto or manual)
+    if not use_polygon:
+        manual_bias = st.sidebar.selectbox(
+            "MA Bias",
+            options=["Bullish", "Bearish", "Neutral"],
+            index=["Bullish", "Bearish", "Neutral"].index(data["manual_bias"]),
+            key=f"{symbol}_manual_bias"
+        )
+        data["manual_bias"] = manual_bias
+    
+    # High Line (always manual - overnight ceiling)
+    high_line = st.sidebar.number_input(
+        "High Line (Ceiling) $",
+        min_value=0.0,
+        value=data["high_line"],
+        step=0.01,
+        key=f"{symbol}_high_line"
+    )
+    data["high_line"] = high_line
+    
+    # Low Line (always manual - overnight floor)
+    low_line = st.sidebar.number_input(
+        "Low Line (Floor) $",
+        min_value=0.0,
+        value=data["low_line"],
+        step=0.01,
+        key=f"{symbol}_low_line"
+    )
+    data["low_line"] = low_line
+    
+    st.sidebar.markdown("---")
+    
+    return data
+
+# ============================================================================
+# MAIN APPLICATION
+# ============================================================================
+
+def fetch_all_stock_data(symbols: List[str]) -> Tuple[List[StockData], bool]:
+    """Fetch data for all stocks"""
+    stocks = []
+    any_connected = False
+    
+    for symbol in symbols:
+        # Get sidebar inputs
+        inputs = st.session_state.get(f"{symbol}_data", {
+            "use_polygon": True,
+            "manual_price": 0.0,
+            "manual_bias": "Neutral",
+            "high_line": 0.0,
+            "low_line": 0.0
+        })
+        
+        stock = StockData(symbol=symbol)
+        stock.use_polygon = inputs.get("use_polygon", True)
+        stock.high_line = inputs.get("high_line") if inputs.get("high_line", 0) > 0 else None
+        stock.low_line = inputs.get("low_line") if inputs.get("low_line", 0) > 0 else None
+        
+        if stock.use_polygon:
+            # Fetch from Polygon
+            price, connected = fetch_current_price(symbol)
+            stock.current_price = price
+            stock.polygon_connected = connected
+            any_connected = any_connected or connected
+            
+            # Fetch previous day
+            prev_high, prev_low, prev_close, _ = fetch_previous_day(symbol)
+            stock.prev_high = prev_high
+            stock.prev_low = prev_low
+            stock.prev_close = prev_close
+            
+            # Fetch historical and calculate MAs
+            df, _ = fetch_historical_bars(symbol)
+            if df is not None:
+                stock.ema_50, stock.sma_200 = calculate_moving_averages(df)
+            
+            # Determine MA Bias
+            stock.ma_bias = determine_ma_bias(stock.current_price, stock.ema_50, stock.sma_200)
+            
+            stock.last_updated = datetime.now()
+        else:
+            # Use manual inputs
+            stock.current_price = inputs.get("manual_price") if inputs.get("manual_price", 0) > 0 else None
+            bias_str = inputs.get("manual_bias", "Neutral")
+            stock.ma_bias = MABias(bias_str)
+            stock.polygon_connected = False
+        
+        stocks.append(stock)
+    
+    return stocks, any_connected
 
 def main():
     st.set_page_config(
@@ -779,124 +784,64 @@ def main():
         initial_sidebar_state="expanded"
     )
     
-    apply_custom_css()
+    inject_styles()
     
-    # Initialize session state
-    if 'stocks' not in st.session_state:
-        st.session_state.stocks = {symbol: StockData(symbol=symbol) for symbol in WATCHLIST}
-    if 'polygon_connected' not in st.session_state:
-        st.session_state.polygon_connected = False
-    if 'last_refresh' not in st.session_state:
-        st.session_state.last_refresh = None
-    
-    # Header
+    # Title
     st.markdown("""
-    <div style="text-align: center; margin-bottom: 2rem;">
-        <h1 style="font-family: 'Space Grotesk', sans-serif; font-size: 2.5rem; font-weight: 700; 
-                   background: linear-gradient(135deg, #4488ff, #00ff88); -webkit-background-clip: text; 
-                   -webkit-text-fill-color: transparent; margin-bottom: 0.5rem;">
-            📈 STOCK PROPHET
-        </h1>
-        <p style="color: rgba(255,255,255,0.6); font-family: 'JetBrains Mono', monospace; font-size: 0.9rem;">
-            Daily Trading Entry System • MA Bias + Day Structure
-        </p>
-    </div>
+    <h1 style="
+        text-align: center;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 2.5rem;
+        margin-bottom: 10px;
+    ">📈 STOCK PROPHET</h1>
+    <p style="text-align: center; color: #94a3b8; margin-bottom: 30px;">
+        Daily Trading Entries • MA Bias + Day Structure System
+    </p>
     """, unsafe_allow_html=True)
     
-    # Check Polygon connection
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # Sidebar header
+    st.sidebar.markdown("## 🎛️ Stock Inputs")
+    st.sidebar.markdown("Set High/Low Lines from TOS overnight session (5pm-7am)")
+    st.sidebar.markdown("---")
     
-    with col1:
-        if st.button("🔄 Refresh All", use_container_width=True):
-            with st.spinner("Fetching data from Polygon..."):
-                st.session_state.polygon_connected = check_polygon_connection()
-                for symbol in WATCHLIST:
-                    if not st.session_state.stocks[symbol].use_manual:
-                        new_data = fetch_all_stock_data(symbol)
-                        # Preserve manual inputs
-                        new_data.high_line = st.session_state.stocks[symbol].high_line
-                        new_data.low_line = st.session_state.stocks[symbol].low_line
-                        new_data.use_manual = st.session_state.stocks[symbol].use_manual
-                        st.session_state.stocks[symbol] = new_data
-                st.session_state.last_refresh = datetime.now()
-                st.rerun()
+    # Refresh button
+    if st.sidebar.button("🔄 Refresh All Data", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
     
-    # Connection status and summary
-    polygon_status = "🟢 Connected" if st.session_state.polygon_connected else "🔴 Disconnected"
+    st.sidebar.markdown("---")
     
-    # Calculate summary
-    long_count = 0
-    short_count = 0
-    no_trade_count = 0
+    # Render sidebar inputs for each stock
+    for symbol in STOCK_UNIVERSE:
+        render_sidebar_inputs(symbol)
     
-    for symbol in WATCHLIST:
-        stock = st.session_state.stocks[symbol]
-        setup = calculate_trade_setup(stock)
-        if setup.direction == "LONG":
-            long_count += 1
-        elif setup.direction == "SHORT":
-            short_count += 1
-        else:
-            no_trade_count += 1
+    # Fetch all stock data
+    with st.spinner("Fetching market data..."):
+        stocks, polygon_status = fetch_all_stock_data(STOCK_UNIVERSE)
     
-    st.markdown(f"""
-    <div class="stats-bar">
-        <div class="status-indicator">
-            <span class="status-dot {'connected' if st.session_state.polygon_connected else 'disconnected'}"></span>
-            <span>Polygon API: {polygon_status}</span>
-            <span style="color: rgba(255,255,255,0.4); margin-left: 10px;">
-                {f"Last refresh: {st.session_state.last_refresh.strftime('%H:%M:%S')}" if st.session_state.last_refresh else "Not refreshed yet"}
-            </span>
-        </div>
-        <div>
-            <span class="summary-badge summary-long">{long_count} LONG</span>
-            <span class="summary-badge summary-short">{short_count} SHORT</span>
-            <span class="summary-badge summary-none">{no_trade_count} NO TRADE</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Calculate trade setups
+    setups = [calculate_trade_setup(stock) for stock in stocks]
     
-    # Sidebar for inputs
-    with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; margin-bottom: 1.5rem;">
-            <h2 style="font-family: 'Space Grotesk', sans-serif; color: white;">⚙️ Stock Inputs</h2>
-            <p style="color: rgba(255,255,255,0.5); font-size: 0.85rem;">Configure each stock's parameters</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Stock selector tabs
-        selected_stock = st.selectbox(
-            "Select Stock to Configure",
-            options=WATCHLIST,
-            key="stock_selector"
-        )
-        
-        st.markdown("---")
-        
-        # Render inputs for selected stock
-        stock = st.session_state.stocks[selected_stock]
-        updated_stock = render_sidebar_inputs(selected_stock, stock)
-        st.session_state.stocks[selected_stock] = updated_stock
+    # Render top bar
+    render_top_bar(stocks, setups, polygon_status)
     
-    # Main content - Stock cards grid
+    # Render stock cards in a grid
     col1, col2 = st.columns(2)
     
-    for i, symbol in enumerate(WATCHLIST):
-        stock = st.session_state.stocks[symbol]
-        setup = calculate_trade_setup(stock)
-        
+    for i, (stock, setup) in enumerate(zip(stocks, setups)):
         with col1 if i % 2 == 0 else col2:
-            render_stock_card(stock, setup)
+            with st.expander(f"{stock.symbol} - {setup.direction.value}", expanded=True):
+                render_stock_card(stock, setup)
     
-    # Trading Rules Reference
+    # Trading rules reference
     render_trading_rules()
     
     # Footer
     st.markdown("""
-    <div style="text-align: center; margin-top: 3rem; padding: 1rem; color: rgba(255,255,255,0.3); font-size: 0.8rem;">
-        <p>Stock Prophet v1.0 • Data from Polygon.io (15-min delayed) • For educational purposes only</p>
-        <p>⚠️ Not financial advice. Always do your own research and manage risk appropriately.</p>
+    <div style="text-align: center; margin-top: 40px; padding: 20px; color: #64748b; font-size: 0.8rem;">
+        Stock Prophet v1.0 • Data from Polygon.io (15-min delayed) • Not financial advice
     </div>
     """, unsafe_allow_html=True)
 
