@@ -1,992 +1,501 @@
 """
-Stock Prophet Elite - Premium Trading Dashboard
-Hybrid approach: Streamlit for inputs, HTML components for display
+SCHWAB API VALIDATION APP
+========================
+Phase 1: Test that the Schwab API connection works before building Market Prophet
+
+This minimal Streamlit app:
+1. Handles OAuth 2.0 authentication with Schwab
+2. Fetches a quote to prove the connection works
+3. Stores and refreshes tokens properly
+
+Run with: streamlit run app.py
 """
 
 import streamlit as st
-import streamlit.components.v1 as components
-from dataclasses import dataclass, field
-from typing import Optional, List
-from datetime import datetime
-from enum import Enum
+import requests
+import base64
+import json
+import os
+import webbrowser
+import urllib.parse
+from datetime import datetime, timedelta
+from pathlib import Path
+import threading
+import socket
+import ssl
 
-# ============================================================================
+# =============================================================================
 # CONFIGURATION
-# ============================================================================
+# =============================================================================
 
-STOCK_UNIVERSE = ["AAPL", "NVDA", "MSFT"]
+# Schwab API Credentials (from your documentation)
+CLIENT_ID = "mLgLwkRB1Y93Gtqc80G2qS4exFtSZD4rpmEJGvPD7SA6eZ9x"
+CLIENT_SECRET = "5BBVH9UK5jJ8c8EUuLHKX69mEBUaubz63L0X4z9hHDUb5tpGxxvaV5AX1A9k5S4s"
+REDIRECT_URI = "https://127.0.0.1:8080/callback"
 
-STOCK_INFO = {
-    "AAPL": {"name": "Apple Inc.", "icon": "🍎", "color": "#00d4aa"},
-    "NVDA": {"name": "NVIDIA Corp.", "icon": "💚", "color": "#76b900"},
-    "MSFT": {"name": "Microsoft", "icon": "🪟", "color": "#00a4ef"},
-}
+# API URLs
+AUTH_URL = "https://api.schwabapi.com/v1/oauth/authorize"
+TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
+API_BASE = "https://api.schwabapi.com/marketdata/v1"
 
-STOP_BUFFER_PERCENT = 0.002
+# Token storage file
+TOKEN_FILE = Path("tokens.json")
 
-# ============================================================================
-# DATA MODELS
-# ============================================================================
+# =============================================================================
+# TOKEN MANAGEMENT
+# =============================================================================
 
-class MABias(Enum):
-    BULLISH = "Bullish"
-    BEARISH = "Bearish"
-    NEUTRAL = "Neutral"
+def save_tokens(tokens: dict):
+    """Save tokens to file"""
+    tokens['saved_at'] = datetime.now().isoformat()
+    with open(TOKEN_FILE, 'w') as f:
+        json.dump(tokens, f, indent=2)
+    st.session_state.tokens = tokens
 
-class TradeDirection(Enum):
-    LONG = "LONG"
-    SHORT = "SHORT"
-    NO_TRADE = "NO TRADE"
+def load_tokens() -> dict | None:
+    """Load tokens from file"""
+    if TOKEN_FILE.exists():
+        with open(TOKEN_FILE, 'r') as f:
+            return json.load(f)
+    return None
 
-@dataclass
-class StockData:
-    symbol: str
-    current_price: Optional[float] = None
-    ema_50: Optional[float] = None
-    sma_200: Optional[float] = None
-    ma_bias: MABias = MABias.NEUTRAL
-    high_point_1: Optional[float] = None
-    high_time_1: str = ""
-    high_point_2: Optional[float] = None
-    high_time_2: str = ""
-    low_point_1: Optional[float] = None
-    low_time_1: str = ""
-    low_point_2: Optional[float] = None
-    low_time_2: str = ""
-    ceiling: Optional[float] = None
-    floor: Optional[float] = None
+def get_basic_auth_header() -> str:
+    """Generate Basic Auth header for token requests"""
+    credentials = f"{CLIENT_ID}:{CLIENT_SECRET}"
+    encoded = base64.b64encode(credentials.encode()).decode()
+    return f"Basic {encoded}"
 
-@dataclass
-class TradeSetup:
-    direction: TradeDirection
-    entry: Optional[float] = None
-    exit_target: Optional[float] = None
-    stop_loss: Optional[float] = None
-    reward: Optional[float] = None
-    risk: Optional[float] = None
-    rr_ratio: Optional[float] = None
-    warnings: List[str] = field(default_factory=list)
-    is_valid: bool = False
+def is_token_expired(tokens: dict) -> bool:
+    """Check if access token is expired"""
+    if not tokens or 'saved_at' not in tokens:
+        return True
+    saved_at = datetime.fromisoformat(tokens['saved_at'])
+    expires_in = tokens.get('expires_in', 1800)  # Default 30 min
+    expiry_time = saved_at + timedelta(seconds=expires_in - 60)  # 1 min buffer
+    return datetime.now() >= expiry_time
 
-# ============================================================================
-# TRADE LOGIC
-# ============================================================================
-
-def determine_ma_bias(current_price: Optional[float], ema_50: Optional[float], sma_200: Optional[float]) -> MABias:
-    if None in (current_price, ema_50, sma_200):
-        return MABias.NEUTRAL
-    if ema_50 > sma_200 and current_price > ema_50:
-        return MABias.BULLISH
-    elif ema_50 < sma_200 and current_price < ema_50:
-        return MABias.BEARISH
-    return MABias.NEUTRAL
-
-def calculate_trade_setup(stock: StockData) -> TradeSetup:
-    setup = TradeSetup(direction=TradeDirection.NO_TRADE)
+def exchange_code_for_tokens(auth_code: str) -> dict | None:
+    """Exchange authorization code for access/refresh tokens"""
+    headers = {
+        "Authorization": get_basic_auth_header(),
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    data = {
+        "grant_type": "authorization_code",
+        "code": auth_code,
+        "redirect_uri": REDIRECT_URI
+    }
     
-    if stock.ceiling is None or stock.floor is None:
-        setup.warnings.append("Set overnight high/low points")
-        return setup
-    
-    if stock.current_price is None:
-        setup.warnings.append("Enter current price")
-        return setup
-    
-    if stock.ceiling <= stock.floor:
-        setup.warnings.append("Ceiling must be > Floor")
-        return setup
-    
-    current_hour = datetime.now().hour
-    if not (9 <= current_hour <= 10):
-        setup.warnings.append(f"Now: {datetime.now().strftime('%I:%M %p')} • Best: 9-10am ET")
-    
-    if stock.ma_bias == MABias.BULLISH:
-        setup.direction = TradeDirection.LONG
-        setup.entry = stock.floor
-        setup.exit_target = stock.ceiling
-        setup.stop_loss = round(stock.floor * (1 - STOP_BUFFER_PERCENT), 2)
-        setup.is_valid = True
-        if stock.current_price > stock.floor * 1.02:
-            setup.warnings.append("Price above Floor")
-        
-    elif stock.ma_bias == MABias.BEARISH:
-        setup.direction = TradeDirection.SHORT
-        setup.entry = stock.ceiling
-        setup.exit_target = stock.floor
-        setup.stop_loss = round(stock.ceiling * (1 + STOP_BUFFER_PERCENT), 2)
-        setup.is_valid = True
-        if stock.current_price < stock.ceiling * 0.98:
-            setup.warnings.append("Price below Ceiling")
-    else:
-        setup.warnings.append("Neutral bias - no trade")
-        return setup
-    
-    if setup.entry and setup.exit_target and setup.stop_loss:
-        if setup.direction == TradeDirection.LONG:
-            setup.reward = round(setup.exit_target - setup.entry, 2)
-            setup.risk = round(setup.entry - setup.stop_loss, 2)
+    try:
+        response = requests.post(TOKEN_URL, headers=headers, data=data)
+        if response.status_code == 200:
+            tokens = response.json()
+            save_tokens(tokens)
+            return tokens
         else:
-            setup.reward = round(setup.entry - setup.exit_target, 2)
-            setup.risk = round(setup.stop_loss - setup.entry, 2)
-        
-        if setup.risk > 0:
-            setup.rr_ratio = round(setup.reward / setup.risk, 2)
-            if setup.rr_ratio < 1.5:
-                setup.warnings.append(f"R:R {setup.rr_ratio}:1 < 1.5")
-    
-    return setup
+            st.error(f"Token exchange failed: {response.status_code}")
+            st.code(response.text)
+            return None
+    except Exception as e:
+        st.error(f"Token exchange error: {e}")
+        return None
 
-# ============================================================================
-# HTML CARD GENERATOR
-# ============================================================================
-
-def generate_stock_card_html(stock: StockData, setup: TradeSetup) -> str:
-    """Generate complete HTML for a stock card"""
-    info = STOCK_INFO.get(stock.symbol, {"name": stock.symbol, "icon": "📊", "color": "#667eea"})
-    
-    # Determine classes and icons
-    if setup.direction == TradeDirection.LONG:
-        glow_class = "long-glow"
-        signal_class = "long"
-        signal_icon = "🚀"
-        direction_text = "LONG"
-    elif setup.direction == TradeDirection.SHORT:
-        glow_class = "short-glow"
-        signal_class = "short"
-        signal_icon = "🔻"
-        direction_text = "SHORT"
-    else:
-        glow_class = ""
-        signal_class = "none"
-        signal_icon = "⏸️"
-        direction_text = "NO TRADE"
-    
-    if stock.ma_bias == MABias.BULLISH:
-        bias_class = "bullish"
-        bias_text = "BULLISH"
-    elif stock.ma_bias == MABias.BEARISH:
-        bias_class = "bearish"
-        bias_text = "BEARISH"
-    else:
-        bias_class = "neutral"
-        bias_text = "NEUTRAL"
-    
-    # Format values
-    def fmt(val):
-        return f"${val:,.2f}" if val else "—"
-    
-    price_str = fmt(stock.current_price)
-    ema_str = fmt(stock.ema_50)
-    sma_str = fmt(stock.sma_200)
-    ceiling_str = fmt(stock.ceiling)
-    floor_str = fmt(stock.floor)
-    entry_str = fmt(setup.entry)
-    target_str = fmt(setup.exit_target)
-    stop_str = fmt(setup.stop_loss)
-    reward_str = f"{setup.reward} pts" if setup.reward else "—"
-    risk_str = f"{setup.risk} pts" if setup.risk else "—"
-    rr_str = f"{setup.rr_ratio}:1" if setup.rr_ratio else "—"
-    
-    # Ceiling/Floor details
-    ceil_detail = ""
-    if stock.high_point_1 and stock.high_time_1:
-        ceil_detail += f"H1: ${stock.high_point_1:.2f} @ {stock.high_time_1}"
-    if stock.high_point_2 and stock.high_time_2:
-        ceil_detail += f" • H2: ${stock.high_point_2:.2f} @ {stock.high_time_2}"
-    
-    floor_detail = ""
-    if stock.low_point_1 and stock.low_time_1:
-        floor_detail += f"L1: ${stock.low_point_1:.2f} @ {stock.low_time_1}"
-    if stock.low_point_2 and stock.low_time_2:
-        floor_detail += f" • L2: ${stock.low_point_2:.2f} @ {stock.low_time_2}"
-    
-    # Warnings
-    warnings_html = ""
-    for w in setup.warnings:
-        warnings_html += f'<div class="warning-box">⚠️ {w}</div>'
-    
-    return f"""
-    <div class="card {glow_class}">
-        <div class="card-header">
-            <div class="stock-id">
-                <div class="stock-icon">{info['icon']}</div>
-                <div>
-                    <div class="symbol">{stock.symbol}</div>
-                    <div class="company">{info['name']}</div>
-                </div>
-            </div>
-            <div class="price-area">
-                <div class="price">{price_str}</div>
-                <div class="price-label">Current Price</div>
-            </div>
-        </div>
-        
-        <div class="bias-row">
-            <div class="bias-left">
-                <span class="section-label">MA BIAS</span>
-                <span class="bias-badge {bias_class}">{bias_text}</span>
-            </div>
-            <div class="ma-vals">
-                <div class="ma-item"><span class="ma-label">50 EMA</span><span class="ma-val">{ema_str}</span></div>
-                <div class="ma-item"><span class="ma-label">200 SMA</span><span class="ma-val">{sma_str}</span></div>
-            </div>
-        </div>
-        
-        <div class="structure-row">
-            <div class="structure-box ceiling-box">
-                <div class="struct-label">🔺 CEILING</div>
-                <div class="struct-val ceiling-val">{ceiling_str}</div>
-                <div class="struct-detail">{ceil_detail}</div>
-            </div>
-            <div class="structure-box floor-box">
-                <div class="struct-label">🔻 FLOOR</div>
-                <div class="struct-val floor-val">{floor_str}</div>
-                <div class="struct-detail">{floor_detail}</div>
-            </div>
-        </div>
-        
-        <div class="signal-area {signal_class}">
-            <div class="signal-header">
-                <span class="signal-icon">{signal_icon}</span>
-                <span class="signal-text">{direction_text}</span>
-            </div>
-            <div class="levels-grid">
-                <div class="level-item">
-                    <div class="level-label">ENTRY</div>
-                    <div class="level-val entry-val">{entry_str}</div>
-                </div>
-                <div class="level-item">
-                    <div class="level-label">TARGET</div>
-                    <div class="level-val target-val">{target_str}</div>
-                </div>
-                <div class="level-item">
-                    <div class="level-label">STOP</div>
-                    <div class="level-val stop-val">{stop_str}</div>
-                </div>
-            </div>
-            <div class="rr-row">
-                <div class="rr-item"><span class="rr-label">Reward</span><span class="rr-val">{reward_str}</span></div>
-                <div class="rr-item"><span class="rr-label">Risk</span><span class="rr-val">{risk_str}</span></div>
-                <div class="rr-item"><span class="rr-label">R:R</span><span class="rr-val highlight">{rr_str}</span></div>
-            </div>
-        </div>
-        
-        {warnings_html}
-    </div>
-    """
-
-def generate_full_dashboard_html(stocks: List[StockData], setups: List[TradeSetup]) -> str:
-    """Generate complete dashboard HTML with all cards"""
-    
-    # Count trades
-    long_count = sum(1 for s in setups if s.direction == TradeDirection.LONG)
-    short_count = sum(1 for s in setups if s.direction == TradeDirection.SHORT)
-    wait_count = sum(1 for s in setups if s.direction == TradeDirection.NO_TRADE)
-    
-    # Generate all cards
-    cards_html = ""
-    for stock, setup in zip(stocks, setups):
-        cards_html += generate_stock_card_html(stock, setup)
-    
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-        <style>
-            * {{
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }}
-            
-            body {{
-                font-family: 'Inter', -apple-system, sans-serif;
-                background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #0f0f1a 100%);
-                min-height: 100vh;
-                padding: 20px;
-                color: #fff;
-            }}
-            
-            /* Header */
-            .header {{
-                text-align: center;
-                padding: 30px 0 40px;
-                position: relative;
-            }}
-            
-            .header::before {{
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 50%;
-                transform: translateX(-50%);
-                width: 500px;
-                height: 200px;
-                background: radial-gradient(ellipse, rgba(102, 126, 234, 0.15) 0%, transparent 70%);
-                pointer-events: none;
-            }}
-            
-            .title {{
-                font-size: 2.8rem;
-                font-weight: 800;
-                background: linear-gradient(135deg, #667eea 0%, #a855f7 50%, #00d4aa 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
-                letter-spacing: -1px;
-                margin-bottom: 8px;
-            }}
-            
-            .subtitle {{
-                color: #6b7280;
-                font-size: 0.95rem;
-                letter-spacing: 2px;
-                text-transform: uppercase;
-            }}
-            
-            /* Status Bar */
-            .status-bar {{
-                display: flex;
-                justify-content: center;
-                gap: 15px;
-                margin-bottom: 30px;
-                flex-wrap: wrap;
-            }}
-            
-            .status-badge {{
-                padding: 10px 20px;
-                border-radius: 50px;
-                font-weight: 600;
-                font-size: 0.85rem;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                backdrop-filter: blur(10px);
-            }}
-            
-            .status-badge.long {{
-                background: rgba(0, 212, 170, 0.15);
-                border: 1px solid rgba(0, 212, 170, 0.3);
-                color: #00d4aa;
-            }}
-            
-            .status-badge.short {{
-                background: rgba(255, 71, 87, 0.15);
-                border: 1px solid rgba(255, 71, 87, 0.3);
-                color: #ff4757;
-            }}
-            
-            .status-badge.wait {{
-                background: rgba(107, 114, 128, 0.15);
-                border: 1px solid rgba(107, 114, 128, 0.3);
-                color: #9ca3af;
-            }}
-            
-            /* Cards Container */
-            .cards-container {{
-                display: flex;
-                flex-direction: column;
-                gap: 25px;
-                max-width: 800px;
-                margin: 0 auto;
-            }}
-            
-            /* Card Base */
-            .card {{
-                background: rgba(255, 255, 255, 0.03);
-                backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 20px;
-                padding: 25px;
-                transition: all 0.3s ease;
-                position: relative;
-                overflow: hidden;
-            }}
-            
-            .card::before {{
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                height: 1px;
-                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-            }}
-            
-            .card:hover {{
-                transform: translateY(-3px);
-                box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-            }}
-            
-            .card.long-glow {{
-                border-color: rgba(0, 212, 170, 0.3);
-                box-shadow: 0 0 40px rgba(0, 212, 170, 0.1), inset 0 0 60px rgba(0, 212, 170, 0.03);
-            }}
-            
-            .card.short-glow {{
-                border-color: rgba(255, 71, 87, 0.3);
-                box-shadow: 0 0 40px rgba(255, 71, 87, 0.1), inset 0 0 60px rgba(255, 71, 87, 0.03);
-            }}
-            
-            /* Card Header */
-            .card-header {{
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 20px;
-                padding-bottom: 20px;
-                border-bottom: 1px solid rgba(255,255,255,0.05);
-            }}
-            
-            .stock-id {{
-                display: flex;
-                align-items: center;
-                gap: 15px;
-            }}
-            
-            .stock-icon {{
-                width: 50px;
-                height: 50px;
-                background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
-                border-radius: 12px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 1.5rem;
-                border: 1px solid rgba(255,255,255,0.1);
-            }}
-            
-            .symbol {{
-                font-size: 1.5rem;
-                font-weight: 700;
-                color: #fff;
-            }}
-            
-            .company {{
-                font-size: 0.8rem;
-                color: #6b7280;
-                margin-top: 2px;
-            }}
-            
-            .price-area {{
-                text-align: right;
-            }}
-            
-            .price {{
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 1.8rem;
-                font-weight: 600;
-                color: #fff;
-            }}
-            
-            .price-label {{
-                font-size: 0.7rem;
-                color: #6b7280;
-                margin-top: 4px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }}
-            
-            /* Bias Row */
-            .bias-row {{
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 15px 20px;
-                background: rgba(0,0,0,0.2);
-                border-radius: 12px;
-                margin-bottom: 15px;
-            }}
-            
-            .bias-left {{
-                display: flex;
-                align-items: center;
-                gap: 15px;
-            }}
-            
-            .section-label {{
-                font-size: 0.7rem;
-                color: #6b7280;
-                letter-spacing: 1px;
-            }}
-            
-            .bias-badge {{
-                padding: 6px 16px;
-                border-radius: 20px;
-                font-size: 0.75rem;
-                font-weight: 700;
-                letter-spacing: 1px;
-            }}
-            
-            .bias-badge.bullish {{
-                background: linear-gradient(135deg, rgba(0, 212, 170, 0.2), rgba(0, 212, 170, 0.1));
-                color: #00d4aa;
-                border: 1px solid rgba(0, 212, 170, 0.4);
-            }}
-            
-            .bias-badge.bearish {{
-                background: linear-gradient(135deg, rgba(255, 71, 87, 0.2), rgba(255, 71, 87, 0.1));
-                color: #ff4757;
-                border: 1px solid rgba(255, 71, 87, 0.4);
-            }}
-            
-            .bias-badge.neutral {{
-                background: rgba(107, 114, 128, 0.2);
-                color: #9ca3af;
-                border: 1px solid rgba(107, 114, 128, 0.4);
-            }}
-            
-            .ma-vals {{
-                display: flex;
-                gap: 25px;
-            }}
-            
-            .ma-item {{
-                display: flex;
-                flex-direction: column;
-                align-items: flex-end;
-                gap: 2px;
-            }}
-            
-            .ma-label {{
-                font-size: 0.65rem;
-                color: #6b7280;
-                letter-spacing: 0.5px;
-            }}
-            
-            .ma-val {{
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 0.9rem;
-                color: #e5e7eb;
-            }}
-            
-            /* Structure Row */
-            .structure-row {{
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 12px;
-                margin-bottom: 15px;
-            }}
-            
-            .structure-box {{
-                padding: 18px;
-                border-radius: 12px;
-                text-align: center;
-                background: rgba(0,0,0,0.2);
-                border: 1px solid transparent;
-                transition: all 0.3s ease;
-            }}
-            
-            .ceiling-box {{
-                border-color: rgba(255, 71, 87, 0.2);
-            }}
-            
-            .ceiling-box:hover {{
-                border-color: rgba(255, 71, 87, 0.4);
-                box-shadow: 0 0 20px rgba(255, 71, 87, 0.1);
-            }}
-            
-            .floor-box {{
-                border-color: rgba(0, 212, 170, 0.2);
-            }}
-            
-            .floor-box:hover {{
-                border-color: rgba(0, 212, 170, 0.4);
-                box-shadow: 0 0 20px rgba(0, 212, 170, 0.1);
-            }}
-            
-            .struct-label {{
-                font-size: 0.7rem;
-                color: #6b7280;
-                letter-spacing: 1px;
-                margin-bottom: 8px;
-            }}
-            
-            .struct-val {{
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 1.4rem;
-                font-weight: 600;
-                margin-bottom: 6px;
-            }}
-            
-            .ceiling-val {{ color: #ff4757; }}
-            .floor-val {{ color: #00d4aa; }}
-            
-            .struct-detail {{
-                font-size: 0.65rem;
-                color: #6b7280;
-                min-height: 16px;
-            }}
-            
-            /* Signal Area */
-            .signal-area {{
-                padding: 20px;
-                border-radius: 16px;
-                background: rgba(0,0,0,0.3);
-                position: relative;
-                overflow: hidden;
-            }}
-            
-            .signal-area::before {{
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                height: 3px;
-            }}
-            
-            .signal-area.long::before {{
-                background: linear-gradient(90deg, #00d4aa, transparent);
-            }}
-            
-            .signal-area.short::before {{
-                background: linear-gradient(90deg, #ff4757, transparent);
-            }}
-            
-            .signal-area.none::before {{
-                background: linear-gradient(90deg, #6b7280, transparent);
-            }}
-            
-            .signal-header {{
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                margin-bottom: 20px;
-            }}
-            
-            .signal-icon {{
-                font-size: 1.8rem;
-            }}
-            
-            .signal-text {{
-                font-size: 1.5rem;
-                font-weight: 800;
-                letter-spacing: 2px;
-            }}
-            
-            .signal-area.long .signal-text {{
-                color: #00d4aa;
-                text-shadow: 0 0 30px rgba(0, 212, 170, 0.5);
-            }}
-            
-            .signal-area.short .signal-text {{
-                color: #ff4757;
-                text-shadow: 0 0 30px rgba(255, 71, 87, 0.5);
-            }}
-            
-            .signal-area.none .signal-text {{
-                color: #6b7280;
-            }}
-            
-            /* Levels Grid */
-            .levels-grid {{
-                display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 10px;
-                margin-bottom: 15px;
-            }}
-            
-            .level-item {{
-                background: rgba(255,255,255,0.03);
-                border: 1px solid rgba(255,255,255,0.05);
-                border-radius: 10px;
-                padding: 12px;
-                text-align: center;
-            }}
-            
-            .level-label {{
-                font-size: 0.65rem;
-                color: #6b7280;
-                letter-spacing: 1px;
-                margin-bottom: 6px;
-            }}
-            
-            .level-val {{
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 1rem;
-                font-weight: 600;
-            }}
-            
-            .entry-val {{ color: #667eea; }}
-            .target-val {{ color: #00d4aa; }}
-            .stop-val {{ color: #ff4757; }}
-            
-            /* RR Row */
-            .rr-row {{
-                display: flex;
-                justify-content: center;
-                gap: 30px;
-                padding: 12px;
-                background: rgba(255,255,255,0.02);
-                border-radius: 10px;
-                border: 1px solid rgba(255,255,255,0.05);
-            }}
-            
-            .rr-item {{
-                text-align: center;
-            }}
-            
-            .rr-label {{
-                font-size: 0.65rem;
-                color: #6b7280;
-                display: block;
-                margin-bottom: 4px;
-            }}
-            
-            .rr-val {{
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 0.9rem;
-                color: #e5e7eb;
-            }}
-            
-            .rr-val.highlight {{
-                color: #f59e0b;
-                font-weight: 600;
-            }}
-            
-            /* Warnings */
-            .warning-box {{
-                margin-top: 12px;
-                padding: 10px 15px;
-                background: rgba(245, 158, 11, 0.1);
-                border: 1px solid rgba(245, 158, 11, 0.3);
-                border-radius: 8px;
-                font-size: 0.8rem;
-                color: #f59e0b;
-            }}
-            
-            /* Footer */
-            .footer {{
-                text-align: center;
-                padding: 40px 20px;
-                color: #4b5563;
-                font-size: 0.8rem;
-            }}
-            
-            /* Animations */
-            @keyframes fadeIn {{
-                from {{ opacity: 0; transform: translateY(20px); }}
-                to {{ opacity: 1; transform: translateY(0); }}
-            }}
-            
-            .card {{
-                animation: fadeIn 0.5s ease-out forwards;
-            }}
-            
-            .card:nth-child(1) {{ animation-delay: 0.1s; }}
-            .card:nth-child(2) {{ animation-delay: 0.2s; }}
-            .card:nth-child(3) {{ animation-delay: 0.3s; }}
-            
-            /* Responsive */
-            @media (max-width: 600px) {{
-                .card-header {{ flex-direction: column; gap: 15px; text-align: center; }}
-                .price-area {{ text-align: center; }}
-                .bias-row {{ flex-direction: column; gap: 15px; }}
-                .ma-vals {{ justify-content: center; }}
-                .ma-item {{ align-items: center; }}
-                .levels-grid {{ grid-template-columns: 1fr; }}
-                .rr-row {{ flex-direction: column; gap: 15px; }}
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1 class="title">STOCK PROPHET</h1>
-            <p class="subtitle">Elite Trading Intelligence</p>
-        </div>
-        
-        <div class="status-bar">
-            <div class="status-badge long">📈 {long_count} LONG</div>
-            <div class="status-badge short">📉 {short_count} SHORT</div>
-            <div class="status-badge wait">⏸️ {wait_count} WAIT</div>
-        </div>
-        
-        <div class="cards-container">
-            {cards_html}
-        </div>
-        
-        <div class="footer">
-            Stock Prophet Elite v2.0 • Not financial advice
-        </div>
-    </body>
-    </html>
-    """
-
-# ============================================================================
-# STREAMLIT SIDEBAR
-# ============================================================================
-
-def render_sidebar_inputs(symbol: str) -> dict:
-    info = STOCK_INFO.get(symbol, {"name": symbol, "icon": "📊"})
-    
-    st.sidebar.markdown(f"## {info['icon']} {symbol}")
-    st.sidebar.caption(info['name'])
-    
-    key_prefix = f"{symbol}"
-    
-    # Initialize defaults
-    defaults = {
-        "price": 0.0,
-        "ema": 0.0,
-        "sma": 0.0,
-        "h1": 0.0, "h1_time": "",
-        "h2": 0.0, "h2_time": "",
-        "l1": 0.0, "l1_time": "",
-        "l2": 0.0, "l2_time": "",
+def refresh_access_token(refresh_token: str) -> dict | None:
+    """Use refresh token to get new access token"""
+    headers = {
+        "Authorization": get_basic_auth_header(),
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token
     }
     
-    # Price
-    price = st.sidebar.number_input(
-        "💰 Current Price",
-        min_value=0.0,
-        value=0.0,
-        step=0.01,
-        format="%.2f",
-        key=f"{key_prefix}_price"
-    )
+    try:
+        response = requests.post(TOKEN_URL, headers=headers, data=data)
+        if response.status_code == 200:
+            tokens = response.json()
+            # Keep the refresh token if not returned
+            if 'refresh_token' not in tokens:
+                tokens['refresh_token'] = refresh_token
+            save_tokens(tokens)
+            return tokens
+        else:
+            st.error(f"Token refresh failed: {response.status_code}")
+            st.code(response.text)
+            return None
+    except Exception as e:
+        st.error(f"Token refresh error: {e}")
+        return None
+
+def get_valid_token() -> str | None:
+    """Get a valid access token, refreshing if necessary"""
+    tokens = st.session_state.get('tokens') or load_tokens()
     
-    # MAs side by side
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        ema = st.number_input("50 EMA", min_value=0.0, value=0.0, step=0.01, format="%.2f", key=f"{key_prefix}_ema")
-    with col2:
-        sma = st.number_input("200 SMA", min_value=0.0, value=0.0, step=0.01, format="%.2f", key=f"{key_prefix}_sma")
+    if not tokens:
+        return None
     
-    # Overnight Highs
-    st.sidebar.markdown("**🔺 Overnight Highs**")
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        h1 = st.number_input("High 1 $", min_value=0.0, value=0.0, step=0.01, format="%.2f", key=f"{key_prefix}_h1")
-    with col2:
-        h1_time = st.text_input("Time", value="", key=f"{key_prefix}_h1t", placeholder="e.g. 5:30 PM")
+    if is_token_expired(tokens):
+        st.info("Token expired, refreshing...")
+        tokens = refresh_access_token(tokens.get('refresh_token'))
+        if not tokens:
+            return None
     
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        h2 = st.number_input("High 2 $", min_value=0.0, value=0.0, step=0.01, format="%.2f", key=f"{key_prefix}_h2")
-    with col2:
-        h2_time = st.text_input("Time", value="", key=f"{key_prefix}_h2t", placeholder="e.g. 6:15 AM")
+    return tokens.get('access_token')
+
+# =============================================================================
+# API CALLS
+# =============================================================================
+
+def get_quote(symbol: str) -> dict | None:
+    """Fetch quote for a symbol"""
+    token = get_valid_token()
+    if not token:
+        st.error("No valid token available. Please authenticate first.")
+        return None
     
-    # Overnight Lows
-    st.sidebar.markdown("**🔻 Overnight Lows**")
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        l1 = st.number_input("Low 1 $", min_value=0.0, value=0.0, step=0.01, format="%.2f", key=f"{key_prefix}_l1")
-    with col2:
-        l1_time = st.text_input("Time", value="", key=f"{key_prefix}_l1t", placeholder="e.g. 8:00 PM")
-    
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        l2 = st.number_input("Low 2 $", min_value=0.0, value=0.0, step=0.01, format="%.2f", key=f"{key_prefix}_l2")
-    with col2:
-        l2_time = st.text_input("Time", value="", key=f"{key_prefix}_l2t", placeholder="e.g. 4:30 AM")
-    
-    st.sidebar.markdown("---")
-    
-    return {
-        "price": price,
-        "ema": ema,
-        "sma": sma,
-        "h1": h1, "h1_time": h1_time,
-        "h2": h2, "h2_time": h2_time,
-        "l1": l1, "l1_time": l1_time,
-        "l2": l2, "l2_time": l2_time,
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}"
     }
+    
+    # URL encode the symbol ($ becomes %24 for indices)
+    encoded_symbol = urllib.parse.quote(symbol, safe='')
+    url = f"{API_BASE}/quotes?symbols={encoded_symbol}&fields=quote,reference"
+    
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 401:
+            st.error("Authentication failed. Token may be invalid.")
+            # Clear tokens and force re-auth
+            if TOKEN_FILE.exists():
+                TOKEN_FILE.unlink()
+            st.session_state.tokens = None
+            return None
+        else:
+            st.error(f"API Error {response.status_code}")
+            st.code(response.text)
+            return None
+    except Exception as e:
+        st.error(f"API request error: {e}")
+        return None
 
-def process_inputs(symbol: str, inputs: dict) -> StockData:
-    stock = StockData(symbol=symbol)
+def get_options_chain(symbol: str, dte: int = 0) -> dict | None:
+    """Fetch options chain for a symbol"""
+    token = get_valid_token()
+    if not token:
+        st.error("No valid token available. Please authenticate first.")
+        return None
     
-    stock.current_price = inputs["price"] if inputs["price"] > 0 else None
-    stock.ema_50 = inputs["ema"] if inputs["ema"] > 0 else None
-    stock.sma_200 = inputs["sma"] if inputs["sma"] > 0 else None
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}"
+    }
     
-    stock.high_point_1 = inputs["h1"] if inputs["h1"] > 0 else None
-    stock.high_time_1 = inputs["h1_time"]
-    stock.high_point_2 = inputs["h2"] if inputs["h2"] > 0 else None
-    stock.high_time_2 = inputs["h2_time"]
+    encoded_symbol = urllib.parse.quote(symbol, safe='')
+    url = f"{API_BASE}/chains?symbol={encoded_symbol}&contractType=ALL&strikeCount=10&includeUnderlyingQuote=true&daysToExpiration={dte}"
     
-    stock.low_point_1 = inputs["l1"] if inputs["l1"] > 0 else None
-    stock.low_time_1 = inputs["l1_time"]
-    stock.low_point_2 = inputs["l2"] if inputs["l2"] > 0 else None
-    stock.low_time_2 = inputs["l2_time"]
-    
-    # Calculate ceiling (max of highs) and floor (min of lows)
-    highs = [h for h in [stock.high_point_1, stock.high_point_2] if h]
-    lows = [l for l in [stock.low_point_1, stock.low_point_2] if l]
-    
-    stock.ceiling = max(highs) if highs else None
-    stock.floor = min(lows) if lows else None
-    
-    stock.ma_bias = determine_ma_bias(stock.current_price, stock.ema_50, stock.sma_200)
-    
-    return stock
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"Options Chain Error {response.status_code}")
+            st.code(response.text)
+            return None
+    except Exception as e:
+        st.error(f"Options chain error: {e}")
+        return None
 
-# ============================================================================
-# MAIN
-# ============================================================================
+def get_price_history(symbol: str) -> dict | None:
+    """Fetch price history (30-min candles) for a symbol"""
+    token = get_valid_token()
+    if not token:
+        st.error("No valid token available. Please authenticate first.")
+        return None
+    
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}"
+    }
+    
+    encoded_symbol = urllib.parse.quote(symbol, safe='')
+    url = f"{API_BASE}/pricehistory?symbol={encoded_symbol}&periodType=day&period=2&frequencyType=minute&frequency=30&needExtendedHoursData=true&needPreviousClose=true"
+    
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"Price History Error {response.status_code}")
+            st.code(response.text)
+            return None
+    except Exception as e:
+        st.error(f"Price history error: {e}")
+        return None
 
-def main():
-    st.set_page_config(
-        page_title="Stock Prophet Elite",
-        page_icon="📈",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
+# =============================================================================
+# STREAMLIT UI
+# =============================================================================
+
+st.set_page_config(
+    page_title="Schwab API Test",
+    page_icon="📊",
+    layout="wide"
+)
+
+st.title("🔌 Schwab API Connection Test")
+st.markdown("**Phase 1**: Validate API connectivity before building Market Prophet")
+
+# Initialize session state
+if 'tokens' not in st.session_state:
+    st.session_state.tokens = load_tokens()
+
+# =============================================================================
+# SIDEBAR: Authentication
+# =============================================================================
+
+with st.sidebar:
+    st.header("🔐 Authentication")
     
-    # Hide Streamlit elements
-    st.markdown("""
-    <style>
-    #MainMenu, footer, header {visibility: hidden;}
-    .stApp {background: #0a0a0f;}
-    section[data-testid="stSidebar"] {background: linear-gradient(180deg, #0d0d14, #12121a);}
-    section[data-testid="stSidebar"] * {color: #e5e7eb;}
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Sidebar Title
-    st.sidebar.markdown("# 🎛️ ThinkorSwim Data")
-    st.sidebar.caption("Enter overnight session values")
-    st.sidebar.markdown("---")
-    
-    # Collect inputs for each stock
-    all_inputs = {}
-    for symbol in STOCK_UNIVERSE:
-        all_inputs[symbol] = render_sidebar_inputs(symbol)
-    
-    # Process all stocks
-    stocks = [process_inputs(symbol, all_inputs[symbol]) for symbol in STOCK_UNIVERSE]
-    setups = [calculate_trade_setup(stock) for stock in stocks]
-    
-    # Generate and render the HTML dashboard
-    dashboard_html = generate_full_dashboard_html(stocks, setups)
-    
-    # Use components.html for proper rendering
-    components.html(dashboard_html, height=1800, scrolling=True)
-    
-    # Trading rules in expander (using Streamlit)
-    with st.expander("📖 Trading Rules", expanded=False):
+    # Show current auth status
+    tokens = st.session_state.tokens
+    if tokens and not is_token_expired(tokens):
+        st.success("✅ Authenticated")
+        saved_at = datetime.fromisoformat(tokens['saved_at'])
+        expires_in = tokens.get('expires_in', 1800)
+        expires_at = saved_at + timedelta(seconds=expires_in)
+        st.caption(f"Token expires: {expires_at.strftime('%H:%M:%S')}")
+        
+        if st.button("🔄 Refresh Token"):
+            new_tokens = refresh_access_token(tokens.get('refresh_token'))
+            if new_tokens:
+                st.success("Token refreshed!")
+                st.rerun()
+        
+        if st.button("🚪 Logout"):
+            if TOKEN_FILE.exists():
+                TOKEN_FILE.unlink()
+            st.session_state.tokens = None
+            st.rerun()
+    else:
+        st.warning("⚠️ Not authenticated")
+        
+        st.markdown("### Step 1: Generate Auth URL")
+        
+        # Generate authorization URL
+        auth_params = {
+            "response_type": "code",
+            "client_id": CLIENT_ID,
+            "redirect_uri": REDIRECT_URI,
+            "scope": "readonly"
+        }
+        auth_url = f"{AUTH_URL}?{urllib.parse.urlencode(auth_params)}"
+        
+        st.code(auth_url, language=None)
+        
         st.markdown("""
-        ### The Two Pillars
-        
-        **1. MA Bias → Direction**
-        - 🟢 **BULLISH:** 50 EMA > 200 SMA AND Price > 50 EMA → LONG only
-        - 🔴 **BEARISH:** 50 EMA < 200 SMA AND Price < 50 EMA → SHORT only
-        - ⚪ **NEUTRAL:** Mixed signals → NO TRADE
-        
-        **2. Day Structure → Levels**
-        - **Ceiling** = Higher of two overnight highs (5pm-7am)
-        - **Floor** = Lower of two overnight lows (5pm-7am)
-        
-        ### Trade Execution
-        - 🚀 **LONG:** Enter at Floor → Target Ceiling
-        - 🔻 **SHORT:** Enter at Ceiling → Target Floor
-        - ⏰ Optimal: 9-10am ET
-        
-        ### Risk Management
-        - 🛡️ Stop: 0.2% beyond entry
-        - ⚖️ Min R:R: 1.5:1
+        **Instructions:**
+        1. Copy the URL above and paste it in your browser
+        2. Log in to Schwab and authorize the app
+        3. You'll be redirected to `https://127.0.0.1:8080/callback?code=...`
+        4. Copy the `code` parameter from the URL
+        5. Paste it below
         """)
+        
+        st.markdown("### Step 2: Enter Auth Code")
+        auth_code = st.text_input("Authorization Code", type="password", 
+                                   help="The 'code' parameter from the callback URL")
+        
+        if st.button("🔑 Exchange for Tokens", disabled=not auth_code):
+            with st.spinner("Exchanging code for tokens..."):
+                tokens = exchange_code_for_tokens(auth_code)
+                if tokens:
+                    st.success("✅ Authentication successful!")
+                    st.rerun()
 
-if __name__ == "__main__":
-    main()
+# =============================================================================
+# MAIN: API Tests
+# =============================================================================
+
+# Check if authenticated
+if not st.session_state.tokens or is_token_expired(st.session_state.tokens):
+    st.info("👈 Please authenticate using the sidebar first")
+    st.stop()
+
+st.success("✅ Connected to Schwab API")
+
+# Test tabs
+tab1, tab2, tab3, tab4 = st.tabs(["📈 Quote Test", "⛓️ Options Chain", "📊 Price History", "🔧 Raw API"])
+
+# -----------------------------------------------------------------------------
+# Tab 1: Quote Test
+# -----------------------------------------------------------------------------
+with tab1:
+    st.subheader("Test Quote Endpoint")
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        symbol = st.text_input("Symbol", value="$SPX", 
+                               help="Use $ prefix for indices (e.g., $SPX, $VIX)")
+    with col2:
+        st.write("")  # Spacer
+        st.write("")
+        fetch_quote = st.button("📥 Fetch Quote", type="primary")
+    
+    if fetch_quote:
+        with st.spinner(f"Fetching {symbol}..."):
+            data = get_quote(symbol)
+            if data:
+                st.success(f"✅ Successfully fetched {symbol}")
+                
+                # Display nicely formatted quote
+                for sym, info in data.items():
+                    st.markdown(f"### {sym}")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    quote = info.get('quote', {})
+                    ref = info.get('reference', {})
+                    
+                    with col1:
+                        st.metric("Last Price", f"${quote.get('lastPrice', 'N/A'):,.2f}")
+                    with col2:
+                        change = quote.get('netChange', 0)
+                        pct = quote.get('netPercentChange', 0)
+                        st.metric("Change", f"${change:+,.2f}", f"{pct:+.2f}%")
+                    with col3:
+                        st.metric("Bid", f"${quote.get('bidPrice', 'N/A'):,.2f}")
+                    with col4:
+                        st.metric("Ask", f"${quote.get('askPrice', 'N/A'):,.2f}")
+                    
+                    with st.expander("📋 Full Response"):
+                        st.json(info)
+
+# -----------------------------------------------------------------------------
+# Tab 2: Options Chain Test
+# -----------------------------------------------------------------------------
+with tab2:
+    st.subheader("Test Options Chain Endpoint")
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        opt_symbol = st.text_input("Underlying Symbol", value="$SPX", key="opt_sym")
+    with col2:
+        dte = st.number_input("Days to Expiration", min_value=0, max_value=30, value=0)
+    with col3:
+        st.write("")
+        st.write("")
+        fetch_chain = st.button("📥 Fetch Chain", type="primary")
+    
+    if fetch_chain:
+        with st.spinner(f"Fetching {opt_symbol} options chain..."):
+            data = get_options_chain(opt_symbol, dte)
+            if data:
+                st.success(f"✅ Successfully fetched options chain")
+                
+                # Summary
+                underlying = data.get('underlying', {})
+                st.markdown(f"**Underlying:** {underlying.get('last', 'N/A')} | "
+                           f"**Contracts:** {data.get('numberOfContracts', 'N/A')}")
+                
+                # Show call/put counts
+                calls = data.get('callExpDateMap', {})
+                puts = data.get('putExpDateMap', {})
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**CALLS**")
+                    for exp_date, strikes in list(calls.items())[:1]:  # First expiration
+                        st.caption(f"Expiration: {exp_date}")
+                        for strike, contracts in list(strikes.items())[:5]:  # First 5 strikes
+                            c = contracts[0]
+                            st.text(f"  {strike}: Bid ${c.get('bid', 0):.2f} / Ask ${c.get('ask', 0):.2f} | Δ={c.get('delta', 0):.3f}")
+                
+                with col2:
+                    st.markdown("**PUTS**")
+                    for exp_date, strikes in list(puts.items())[:1]:
+                        st.caption(f"Expiration: {exp_date}")
+                        for strike, contracts in list(strikes.items())[:5]:
+                            c = contracts[0]
+                            st.text(f"  {strike}: Bid ${c.get('bid', 0):.2f} / Ask ${c.get('ask', 0):.2f} | Δ={c.get('delta', 0):.3f}")
+                
+                with st.expander("📋 Full Response"):
+                    st.json(data)
+
+# -----------------------------------------------------------------------------
+# Tab 3: Price History Test
+# -----------------------------------------------------------------------------
+with tab3:
+    st.subheader("Test Price History Endpoint (30-min candles)")
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        hist_symbol = st.text_input("Symbol", value="$SPX", key="hist_sym")
+    with col2:
+        st.write("")
+        st.write("")
+        fetch_hist = st.button("📥 Fetch History", type="primary")
+    
+    if fetch_hist:
+        with st.spinner(f"Fetching {hist_symbol} price history..."):
+            data = get_price_history(hist_symbol)
+            if data:
+                st.success(f"✅ Successfully fetched price history")
+                
+                candles = data.get('candles', [])
+                st.metric("Candles Returned", len(candles))
+                st.caption(f"Previous Close: ${data.get('previousClose', 'N/A'):,.2f}")
+                
+                # Show last 10 candles
+                if candles:
+                    st.markdown("**Last 10 Candles (30-min):**")
+                    for candle in candles[-10:]:
+                        dt = datetime.fromtimestamp(candle['datetime'] / 1000)
+                        st.text(f"  {dt.strftime('%m/%d %H:%M')} | "
+                               f"O:{candle['open']:,.2f} H:{candle['high']:,.2f} "
+                               f"L:{candle['low']:,.2f} C:{candle['close']:,.2f}")
+                
+                with st.expander("📋 Full Response"):
+                    st.json(data)
+
+# -----------------------------------------------------------------------------
+# Tab 4: Raw API Test
+# -----------------------------------------------------------------------------
+with tab4:
+    st.subheader("Raw API Request")
+    st.caption("Test any Market Data endpoint directly")
+    
+    endpoint = st.text_input("Endpoint (after /marketdata/v1/)", value="quotes?symbols=$SPX,$VIX")
+    
+    if st.button("🚀 Send Request"):
+        token = get_valid_token()
+        if token:
+            url = f"{API_BASE}/{endpoint}"
+            headers = {
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}"
+            }
+            
+            with st.spinner("Sending request..."):
+                try:
+                    response = requests.get(url, headers=headers)
+                    st.code(f"GET {url}", language=None)
+                    st.metric("Status Code", response.status_code)
+                    
+                    if response.status_code == 200:
+                        st.success("✅ Success")
+                        st.json(response.json())
+                    else:
+                        st.error("❌ Error")
+                        st.code(response.text)
+                except Exception as e:
+                    st.error(f"Request failed: {e}")
+
+# =============================================================================
+# Footer
+# =============================================================================
+st.divider()
+st.caption("Schwab API Test App | Phase 1 of Market Prophet")
