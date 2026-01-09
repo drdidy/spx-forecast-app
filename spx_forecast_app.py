@@ -9,6 +9,9 @@ This minimal Streamlit app:
 3. Stores and refreshes tokens properly
 
 Run with: streamlit run app.py
+
+IMPORTANT: Also run the callback server in a separate terminal:
+    python callback_server.py
 """
 
 import streamlit as st
@@ -20,9 +23,8 @@ import webbrowser
 import urllib.parse
 from datetime import datetime, timedelta
 from pathlib import Path
-import threading
-import socket
-import ssl
+import subprocess
+import sys
 
 # =============================================================================
 # CONFIGURATION
@@ -40,6 +42,7 @@ API_BASE = "https://api.schwabapi.com/marketdata/v1"
 
 # Token storage file
 TOKEN_FILE = Path("tokens.json")
+AUTH_CODE_FILE = Path("auth_code.txt")  # Callback server writes here
 
 # =============================================================================
 # TOKEN MANAGEMENT
@@ -260,6 +263,17 @@ if 'tokens' not in st.session_state:
 with st.sidebar:
     st.header("🔐 Authentication")
     
+    # Check if callback server captured a code
+    if AUTH_CODE_FILE.exists():
+        captured_code = AUTH_CODE_FILE.read_text().strip()
+        if captured_code and not st.session_state.tokens:
+            st.info("🎯 Auth code captured! Exchanging...")
+            tokens = exchange_code_for_tokens(captured_code)
+            AUTH_CODE_FILE.unlink()  # Delete after use
+            if tokens:
+                st.success("✅ Authentication successful!")
+                st.rerun()
+    
     # Show current auth status
     tokens = st.session_state.tokens
     if tokens and not is_token_expired(tokens):
@@ -283,7 +297,16 @@ with st.sidebar:
     else:
         st.warning("⚠️ Not authenticated")
         
-        st.markdown("### Step 1: Generate Auth URL")
+        st.markdown("""
+        ### 🚀 Easy Auth (Recommended)
+        
+        **Step 1:** Start callback server in a separate terminal:
+        ```bash
+        python callback_server.py
+        ```
+        
+        **Step 2:** Click the button below to open Schwab login:
+        """)
         
         # Generate authorization URL
         auth_params = {
@@ -294,19 +317,27 @@ with st.sidebar:
         }
         auth_url = f"{AUTH_URL}?{urllib.parse.urlencode(auth_params)}"
         
-        st.code(auth_url, language=None)
+        # Link button
+        st.link_button("🔐 Login to Schwab", auth_url, type="primary")
         
         st.markdown("""
-        **Instructions:**
-        1. Copy the URL above and paste it in your browser
-        2. Log in to Schwab and authorize the app
-        3. You'll be redirected to `https://127.0.0.1:8080/callback?code=...`
-        4. Copy the `code` parameter from the URL
-        5. Paste it below
+        **Step 3:** After logging in, return here - the code is captured automatically!
         """)
         
-        st.markdown("### Step 2: Enter Auth Code")
-        auth_code = st.text_input("Authorization Code", type="password", 
+        # Auto-refresh to check for captured code
+        if st.button("🔄 Check for Auth Code"):
+            st.rerun()
+        
+        st.divider()
+        
+        st.markdown("### 📋 Manual Method (Backup)")
+        st.caption("If the callback server isn't working:")
+        
+        with st.expander("Show manual auth URL"):
+            st.code(auth_url, language=None)
+            st.caption("Copy URL → Browser → Login → Copy `code` from redirect URL")
+        
+        auth_code = st.text_input("Paste Authorization Code", type="password", 
                                    help="The 'code' parameter from the callback URL")
         
         if st.button("🔑 Exchange for Tokens", disabled=not auth_code):
