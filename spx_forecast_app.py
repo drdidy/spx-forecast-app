@@ -808,16 +808,44 @@ st.markdown("""
 # ============================================================================
 
 DEFAULT_INPUTS = {
+    # VIX Zone (Manual from TradingView)
     "vix_overnight_high": 0.0,
     "vix_overnight_low": 0.0,
     "vix_current": 0.0,
+    
+    # ES/SPX Offset
     "es_spx_offset": 7.0,
+    
+    # Prior Day (for Cone Rails) - prices in ES
     "prior_high": 0.0,
     "prior_low": 0.0,
     "prior_close": 0.0,
+    
+    # Day Structure - CEILING (connect overnight highs)
+    # Anchor 1: First high point
+    "ceiling_anchor1_price": 0.0,
+    "ceiling_anchor1_hour": 17,  # 5:00 PM CT default
+    "ceiling_anchor1_minute": 0,
+    # Anchor 2: Second high point
+    "ceiling_anchor2_price": 0.0,
+    "ceiling_anchor2_hour": 2,   # 2:00 AM CT default
+    "ceiling_anchor2_minute": 0,
+    
+    # Day Structure - FLOOR (connect overnight lows)
+    # Anchor 1: First low point
+    "floor_anchor1_price": 0.0,
+    "floor_anchor1_hour": 17,    # 5:00 PM CT default
+    "floor_anchor1_minute": 0,
+    # Anchor 2: Second low point
+    "floor_anchor2_price": 0.0,
+    "floor_anchor2_hour": 2,     # 2:00 AM CT default
+    "floor_anchor2_minute": 0,
+    
+    # Manual override (optional)
+    "use_manual_structure": False,
     "manual_ceiling": 0.0,
     "manual_floor": 0.0,
-    "use_manual_structure": False,
+    
     "last_updated": ""
 }
 
@@ -925,24 +953,137 @@ def analyze_ma_bias(es_candles, offset):
         return "NEUTRAL", f"MAs crossing (diff {diff_pct:.2f}%)", ema_50, sma_200
 
 # ============================================================================
-# PILLAR 2: DAY STRUCTURE (Simplified for manual input)
+# PILLAR 2: DAY STRUCTURE (Trendline Calculation)
 # ============================================================================
 
-def get_day_structure(inputs, spx_price):
+def calculate_trendline_value(anchor1_price, anchor1_time, anchor2_price, anchor2_time, target_time):
     """
-    Pillar 2: Day Structure
-    For now, uses manual CEILING/FLOOR input since building overnight
-    trendlines requires real-time overnight data feeds.
+    Calculate trendline value at target_time given two anchor points.
     
-    Returns: ceiling, floor, structure_status
+    Args:
+        anchor1_price: Price at first anchor point (ES)
+        anchor1_time: datetime of first anchor
+        anchor2_price: Price at second anchor point (ES)
+        anchor2_time: datetime of second anchor
+        target_time: datetime to project trendline to
+    
+    Returns:
+        Projected price at target_time
     """
+    # Calculate minutes between anchors
+    minutes_between = (anchor2_time - anchor1_time).total_seconds() / 60
+    
+    if minutes_between == 0:
+        return anchor1_price  # Avoid division by zero
+    
+    # Calculate slope (price change per minute)
+    price_change = anchor2_price - anchor1_price
+    slope_per_minute = price_change / minutes_between
+    
+    # Calculate minutes from anchor1 to target
+    minutes_to_target = (target_time - anchor1_time).total_seconds() / 60
+    
+    # Project price at target time
+    projected_price = anchor1_price + (slope_per_minute * minutes_to_target)
+    
+    return projected_price, slope_per_minute * 30  # Also return slope per 30-min block
+
+
+def build_anchor_datetime(base_date, hour, minute, is_overnight=False):
+    """
+    Build datetime for anchor point.
+    
+    For overnight sessions:
+    - Hours 17-23 are on base_date (previous day)
+    - Hours 0-8 are on base_date + 1 day (current day)
+    """
+    if is_overnight and hour >= 17:
+        # Evening hours - use previous day
+        anchor_date = base_date
+    elif is_overnight and hour < 9:
+        # Early morning hours - use current day
+        anchor_date = base_date + timedelta(days=1)
+    else:
+        anchor_date = base_date
+    
+    return CT.localize(datetime.combine(anchor_date, dt_time(hour, minute)))
+
+
+def get_day_structure(inputs, current_time, offset):
+    """
+    Pillar 2: Calculate CEILING and FLOOR from trendline anchors
+    
+    CEILING = Trendline connecting overnight HIGHS (resistance for PUTS)
+    FLOOR = Trendline connecting overnight LOWS (support for CALLS)
+    
+    Returns: ceiling_spx, floor_spx, ceiling_slope, floor_slope, status
+    """
+    # Check for manual override first
     if inputs.get("use_manual_structure") and inputs.get("manual_ceiling", 0) > 0 and inputs.get("manual_floor", 0) > 0:
-        ceiling = inputs["manual_ceiling"]
-        floor = inputs["manual_floor"]
-        return ceiling, floor, "Manual override active"
+        return (
+            inputs["manual_ceiling"],
+            inputs["manual_floor"],
+            0,  # No slope for manual
+            0,
+            "Manual override active"
+        )
     
-    # If no manual structure, return None (user needs to input)
-    return None, None, "Enter CEILING/FLOOR from overnight structure"
+    # Get anchor values
+    c_a1_price = inputs.get("ceiling_anchor1_price", 0)
+    c_a1_hour = inputs.get("ceiling_anchor1_hour", 17)
+    c_a1_min = inputs.get("ceiling_anchor1_minute", 0)
+    c_a2_price = inputs.get("ceiling_anchor2_price", 0)
+    c_a2_hour = inputs.get("ceiling_anchor2_hour", 2)
+    c_a2_min = inputs.get("ceiling_anchor2_minute", 0)
+    
+    f_a1_price = inputs.get("floor_anchor1_price", 0)
+    f_a1_hour = inputs.get("floor_anchor1_hour", 17)
+    f_a1_min = inputs.get("floor_anchor1_minute", 0)
+    f_a2_price = inputs.get("floor_anchor2_price", 0)
+    f_a2_hour = inputs.get("floor_anchor2_hour", 2)
+    f_a2_min = inputs.get("floor_anchor2_minute", 0)
+    
+    # Validate we have all required inputs
+    if c_a1_price <= 0 or c_a2_price <= 0 or f_a1_price <= 0 or f_a2_price <= 0:
+        return None, None, None, None, "Enter anchor points for CEILING and FLOOR"
+    
+    # Build anchor datetimes
+    # For overnight structure, anchor1 is evening of prior day, anchor2 is early morning of current day
+    today = current_time.date()
+    yesterday = today - timedelta(days=1)
+    
+    # Skip weekends for yesterday
+    while yesterday.weekday() >= 5:
+        yesterday -= timedelta(days=1)
+    
+    # CEILING anchors (connecting highs)
+    ceiling_a1_time = build_anchor_datetime(yesterday, c_a1_hour, c_a1_min, is_overnight=True)
+    ceiling_a2_time = build_anchor_datetime(yesterday, c_a2_hour, c_a2_min, is_overnight=True)
+    
+    # FLOOR anchors (connecting lows)
+    floor_a1_time = build_anchor_datetime(yesterday, f_a1_hour, f_a1_min, is_overnight=True)
+    floor_a2_time = build_anchor_datetime(yesterday, f_a2_hour, f_a2_min, is_overnight=True)
+    
+    # Calculate projected values at current time (in ES terms)
+    ceiling_es, ceiling_slope = calculate_trendline_value(
+        c_a1_price, ceiling_a1_time,
+        c_a2_price, ceiling_a2_time,
+        current_time
+    )
+    
+    floor_es, floor_slope = calculate_trendline_value(
+        f_a1_price, floor_a1_time,
+        f_a2_price, floor_a2_time,
+        current_time
+    )
+    
+    # Convert to SPX
+    ceiling_spx = ceiling_es - offset
+    floor_spx = floor_es - offset
+    
+    status = f"Projected from anchors (C: {ceiling_slope:+.2f}/30m, F: {floor_slope:+.2f}/30m)"
+    
+    return ceiling_spx, floor_spx, ceiling_slope, floor_slope, status
 
 # ============================================================================
 # PILLAR 3: VIX ZONE
@@ -1212,26 +1353,112 @@ def main():
             step=0.01, format="%.2f"
         )
         
-        # Day Structure (Manual)
+        # Day Structure - CEILING (Overnight Highs Trendline)
         st.markdown("""<div class="sidebar-section">
             <div class="sidebar-section-header">
-                <span class="sidebar-section-icon">🏗️</span>
-                <span class="sidebar-section-title">Day Structure (SPX)</span>
+                <span class="sidebar-section-icon">🔴</span>
+                <span class="sidebar-section-title">CEILING (Highs → ES)</span>
+            </div></div>""", unsafe_allow_html=True)
+        
+        st.caption("Anchor 1 (First High)")
+        col_c1p, col_c1h, col_c1m = st.columns([2, 1, 1])
+        with col_c1p:
+            inputs["ceiling_anchor1_price"] = st.number_input(
+                "Price", value=float(inputs.get("ceiling_anchor1_price", 0.0)),
+                step=0.25, format="%.2f", key="c_a1_price"
+            )
+        with col_c1h:
+            inputs["ceiling_anchor1_hour"] = st.number_input(
+                "Hr", value=int(inputs.get("ceiling_anchor1_hour", 17)),
+                min_value=0, max_value=23, key="c_a1_hour"
+            )
+        with col_c1m:
+            inputs["ceiling_anchor1_minute"] = st.number_input(
+                "Min", value=int(inputs.get("ceiling_anchor1_minute", 0)),
+                min_value=0, max_value=59, key="c_a1_min"
+            )
+        
+        st.caption("Anchor 2 (Second High)")
+        col_c2p, col_c2h, col_c2m = st.columns([2, 1, 1])
+        with col_c2p:
+            inputs["ceiling_anchor2_price"] = st.number_input(
+                "Price", value=float(inputs.get("ceiling_anchor2_price", 0.0)),
+                step=0.25, format="%.2f", key="c_a2_price"
+            )
+        with col_c2h:
+            inputs["ceiling_anchor2_hour"] = st.number_input(
+                "Hr", value=int(inputs.get("ceiling_anchor2_hour", 2)),
+                min_value=0, max_value=23, key="c_a2_hour"
+            )
+        with col_c2m:
+            inputs["ceiling_anchor2_minute"] = st.number_input(
+                "Min", value=int(inputs.get("ceiling_anchor2_minute", 0)),
+                min_value=0, max_value=59, key="c_a2_min"
+            )
+        
+        # Day Structure - FLOOR (Overnight Lows Trendline)
+        st.markdown("""<div class="sidebar-section">
+            <div class="sidebar-section-header">
+                <span class="sidebar-section-icon">🟢</span>
+                <span class="sidebar-section-title">FLOOR (Lows → ES)</span>
+            </div></div>""", unsafe_allow_html=True)
+        
+        st.caption("Anchor 1 (First Low)")
+        col_f1p, col_f1h, col_f1m = st.columns([2, 1, 1])
+        with col_f1p:
+            inputs["floor_anchor1_price"] = st.number_input(
+                "Price", value=float(inputs.get("floor_anchor1_price", 0.0)),
+                step=0.25, format="%.2f", key="f_a1_price"
+            )
+        with col_f1h:
+            inputs["floor_anchor1_hour"] = st.number_input(
+                "Hr", value=int(inputs.get("floor_anchor1_hour", 17)),
+                min_value=0, max_value=23, key="f_a1_hour"
+            )
+        with col_f1m:
+            inputs["floor_anchor1_minute"] = st.number_input(
+                "Min", value=int(inputs.get("floor_anchor1_minute", 0)),
+                min_value=0, max_value=59, key="f_a1_min"
+            )
+        
+        st.caption("Anchor 2 (Second Low)")
+        col_f2p, col_f2h, col_f2m = st.columns([2, 1, 1])
+        with col_f2p:
+            inputs["floor_anchor2_price"] = st.number_input(
+                "Price", value=float(inputs.get("floor_anchor2_price", 0.0)),
+                step=0.25, format="%.2f", key="f_a2_price"
+            )
+        with col_f2h:
+            inputs["floor_anchor2_hour"] = st.number_input(
+                "Hr", value=int(inputs.get("floor_anchor2_hour", 2)),
+                min_value=0, max_value=23, key="f_a2_hour"
+            )
+        with col_f2m:
+            inputs["floor_anchor2_minute"] = st.number_input(
+                "Min", value=int(inputs.get("floor_anchor2_minute", 0)),
+                min_value=0, max_value=59, key="f_a2_min"
+            )
+        
+        # Manual Override Option
+        st.markdown("""<div class="sidebar-section">
+            <div class="sidebar-section-header">
+                <span class="sidebar-section-icon">🎯</span>
+                <span class="sidebar-section-title">Manual Override (SPX)</span>
             </div></div>""", unsafe_allow_html=True)
         
         inputs["use_manual_structure"] = st.checkbox(
-            "Enable Manual Structure", 
+            "Use Manual Values Instead", 
             value=inputs.get("use_manual_structure", False)
         )
         
         if inputs["use_manual_structure"]:
             inputs["manual_ceiling"] = st.number_input(
-                "CEILING (PUTS entry)", 
+                "CEILING (SPX)", 
                 value=float(inputs.get("manual_ceiling", 0.0)), 
                 step=0.01, format="%.2f"
             )
             inputs["manual_floor"] = st.number_input(
-                "FLOOR (CALLS entry)", 
+                "FLOOR (SPX)", 
                 value=float(inputs.get("manual_floor", 0.0)), 
                 step=0.01, format="%.2f"
             )
@@ -1301,8 +1528,8 @@ def main():
     # Pillar 1: MA Bias
     ma_bias, ma_detail, ema_50, sma_200 = analyze_ma_bias(es_candles, offset)
     
-    # Pillar 2: Day Structure
-    ceiling, floor, structure_status = get_day_structure(inputs, spx_price)
+    # Pillar 2: Day Structure (Trendlines from overnight anchors)
+    ceiling, floor, ceiling_slope, floor_slope, structure_status = get_day_structure(inputs, now_ct, offset)
     
     # Pillar 3: VIX Zone
     vix_zone = analyze_vix_zone(
@@ -1385,11 +1612,13 @@ def main():
             entry_type = "FLOOR" if ma_bias == "LONG" else "CEILING" if ma_bias == "SHORT" else "N/A"
             entry_val = floor if ma_bias == "LONG" else ceiling if ma_bias == "SHORT" else 0
             struct_icon = "🎯"
+            slope_info = f"C: {ceiling_slope:+.2f} | F: {floor_slope:+.2f}" if ceiling_slope is not None else ""
         else:
             struct_class = "neutral"
             entry_type = "PENDING"
             entry_val = 0
             struct_icon = "⏳"
+            slope_info = ""
         
         ceiling_display = f"{ceiling:,.1f}" if ceiling else "---"
         floor_display = f"{floor:,.1f}" if floor else "---"
@@ -1407,6 +1636,7 @@ def main():
             <div class="pillar-answer {struct_class}">{entry_type}</div>
             <div class="pillar-detail">C: {ceiling_display} • F: {floor_display}</div>
             <div style="margin-top:0.5rem; font-size:0.7rem; color:var(--text-muted);">{structure_status}</div>
+            <div style="margin-top:0.25rem; font-size:0.65rem; color:var(--text-muted);">{slope_info}</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -1497,12 +1727,16 @@ def main():
             ceiling_dist = ceiling - spx_price
             floor_dist = spx_price - floor
             
+            # Get slope info
+            c_slope_display = f"{ceiling_slope:+.2f}/30m" if ceiling_slope is not None else "---"
+            f_slope_display = f"{floor_slope:+.2f}/30m" if floor_slope is not None else "---"
+            
             st.markdown(f"""
             <div class="structure-visual">
                 <div class="structure-level">
                     <div class="structure-label">🔴 CEILING</div>
                     <div class="structure-value ceiling">{ceiling:,.1f}</div>
-                    <div class="structure-distance">↑ {ceiling_dist:,.1f}</div>
+                    <div class="structure-distance">↑ {ceiling_dist:,.1f} | {c_slope_display}</div>
                 </div>
                 <div class="structure-level">
                     <div class="structure-label">🟣 CURRENT</div>
@@ -1512,12 +1746,15 @@ def main():
                 <div class="structure-level">
                     <div class="structure-label">🟢 FLOOR</div>
                     <div class="structure-value floor">{floor:,.1f}</div>
-                    <div class="structure-distance">↓ {floor_dist:,.1f}</div>
+                    <div class="structure-distance">↓ {floor_dist:,.1f} | {f_slope_display}</div>
                 </div>
+            </div>
+            <div style="font-size:0.7rem; color:var(--text-muted); text-align:center; margin-top:0.5rem;">
+                Trendlines projected to {now_ct.strftime('%I:%M %p CT')}
             </div>
             """, unsafe_allow_html=True)
         else:
-            st.info("📊 Enter CEILING/FLOOR in sidebar")
+            st.info("📊 Enter anchor points (Price + Time) in sidebar")
     
     with col_mid:
         st.markdown("""<div class="section-header">
