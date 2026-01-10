@@ -356,9 +356,33 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def get_next_trading_day(from_date):
+    """Get next trading day (skip weekends)"""
+    next_day = from_date
+    # If it's Friday after 4pm, Saturday, or Sunday, go to Monday
+    if next_day.weekday() >= 5:  # Saturday or Sunday
+        days_ahead = 7 - next_day.weekday()  # Monday
+        next_day = next_day + timedelta(days=days_ahead)
+    return next_day
+
+def get_prior_trading_day(from_date):
+    """Get prior trading day (skip weekends)"""
+    prior = from_date - timedelta(days=1)
+    while prior.weekday() >= 5:
+        prior -= timedelta(days=1)
+    return prior
+
+# ============================================================================
 # PERSISTENCE
 # ============================================================================
 DEFAULT_INPUTS = {
+    # Trading Date (for next day preview or historical backtest)
+    "use_custom_date": False,
+    "custom_date": None,  # Will be set to date string "YYYY-MM-DD"
+    
     # VIX Zone (from TradingView)
     "vix_overnight_high": 0.0,
     "vix_overnight_low": 0.0,
@@ -499,8 +523,8 @@ def calculate_trendline(a1_price, a1_time, a2_price, a2_time, target_time):
     
     return projected, slope_per_min * 30  # Return slope per 30-min block
 
-def get_day_structure(inputs, current_time):
-    """Calculate CEILING and FLOOR from anchor points (all SPX)"""
+def get_day_structure(inputs, trade_date):
+    """Calculate CEILING and FLOOR from anchor points, projected to 9:00 AM CT entry"""
     c1 = inputs.get("ceiling_anchor1_price", 0)
     c2 = inputs.get("ceiling_anchor2_price", 0)
     f1 = inputs.get("floor_anchor1_price", 0)
@@ -509,24 +533,23 @@ def get_day_structure(inputs, current_time):
     if c1 <= 0 or c2 <= 0 or f1 <= 0 or f2 <= 0:
         return None, None, None, None, "Enter anchor points"
     
-    today = current_time.date()
-    yesterday = today - timedelta(days=1)
-    while yesterday.weekday() >= 5:
-        yesterday -= timedelta(days=1)
+    # trade_date is the date we're trading (entry day)
+    # prior_day is the day before for overnight anchors
+    prior_day = get_prior_trading_day(trade_date)
     
     # Build anchor datetimes
-    c1_time = build_anchor_datetime(yesterday, inputs.get("ceiling_anchor1_hour", 17), inputs.get("ceiling_anchor1_minute", 0))
-    c2_time = build_anchor_datetime(yesterday, inputs.get("ceiling_anchor2_hour", 2), inputs.get("ceiling_anchor2_minute", 0))
-    f1_time = build_anchor_datetime(yesterday, inputs.get("floor_anchor1_hour", 17), inputs.get("floor_anchor1_minute", 0))
-    f2_time = build_anchor_datetime(yesterday, inputs.get("floor_anchor2_hour", 2), inputs.get("floor_anchor2_minute", 0))
+    c1_time = build_anchor_datetime(prior_day, inputs.get("ceiling_anchor1_hour", 17), inputs.get("ceiling_anchor1_minute", 0))
+    c2_time = build_anchor_datetime(prior_day, inputs.get("ceiling_anchor2_hour", 2), inputs.get("ceiling_anchor2_minute", 0))
+    f1_time = build_anchor_datetime(prior_day, inputs.get("floor_anchor1_hour", 17), inputs.get("floor_anchor1_minute", 0))
+    f2_time = build_anchor_datetime(prior_day, inputs.get("floor_anchor2_hour", 2), inputs.get("floor_anchor2_minute", 0))
     
-    if current_time.tzinfo is None:
-        current_time = CT.localize(current_time)
+    # Project to 9:00 AM CT entry time on trade_date
+    entry_time = CT.localize(datetime.combine(trade_date, dt_time(9, 0)))
     
-    ceiling, c_slope = calculate_trendline(c1, c1_time, c2, c2_time, current_time)
-    floor, f_slope = calculate_trendline(f1, f1_time, f2, f2_time, current_time)
+    ceiling, c_slope = calculate_trendline(c1, c1_time, c2, c2_time, entry_time)
+    floor, f_slope = calculate_trendline(f1, f1_time, f2, f2_time, entry_time)
     
-    return ceiling, floor, c_slope, f_slope, f"C: {c_slope:+.2f}/30m | F: {f_slope:+.2f}/30m"
+    return ceiling, floor, c_slope, f_slope, f"@ 9AM | C: {c_slope:+.2f}/30m | F: {f_slope:+.2f}/30m"
 
 # ============================================================================
 # PILLAR 3: VIX ZONE
@@ -574,10 +597,84 @@ def analyze_vix_zone(vix_high, vix_low, vix_current):
     return {'timing_signal': sig, 'zone_position': pos, 'detail': detail, 'zone_size': zone_size, 'range_pct': range_pct, 'puts_springboard': puts_spring, 'calls_springboard': calls_spring}
 
 # ============================================================================
-# CONE RAILS (All SPX inputs)
+# CONE RAILS (All SPX inputs) - with proper trading hours calculation
 # ============================================================================
-def calculate_cone_rails(inputs, current_time):
-    """Calculate cones from prior day SPX levels with individual anchor times"""
+
+def calculate_trading_minutes(from_dt, to_dt):
+    """
+    Calculate trading minutes between two datetimes, excluding maintenance breaks.
+    
+    ES Schedule (CT):
+    - Week: Sunday 5:00 PM → Friday 4:00 PM
+    - Daily maintenance: 4:00 PM → 5:00 PM (Mon-Thu)
+    - Friday 4:00 PM = week close (no 5 PM reopen)
+    - Weekend: Friday 4:00 PM → Sunday 5:00 PM (no trading)
+    """
+    if from_dt.tzinfo is None:
+        from_dt = CT.localize(from_dt)
+    if to_dt.tzinfo is None:
+        to_dt = CT.localize(to_dt)
+    
+    if from_dt >= to_dt:
+        return 0
+    
+    total_minutes = 0
+    current = from_dt
+    
+    # Iterate minute by minute would be slow, so we do it in chunks
+    while current < to_dt:
+        weekday = current.weekday()  # 0=Mon, 4=Fri, 5=Sat, 6=Sun
+        hour = current.hour
+        minute = current.minute
+        
+        # Saturday - skip to Sunday 5 PM
+        if weekday == 5:
+            next_sunday = current.date() + timedelta(days=1)
+            current = CT.localize(datetime.combine(next_sunday, dt_time(17, 0)))
+            continue
+        
+        # Sunday before 5 PM - skip to 5 PM
+        if weekday == 6 and hour < 17:
+            current = CT.localize(datetime.combine(current.date(), dt_time(17, 0)))
+            continue
+        
+        # Friday after 4 PM - skip to Sunday 5 PM
+        if weekday == 4 and hour >= 16:
+            next_sunday = current.date() + timedelta(days=2)
+            current = CT.localize(datetime.combine(next_sunday, dt_time(17, 0)))
+            continue
+        
+        # Mon-Thu maintenance (4 PM - 5 PM) - skip to 5 PM
+        if weekday in [0, 1, 2, 3] and 16 <= hour < 17:
+            current = CT.localize(datetime.combine(current.date(), dt_time(17, 0)))
+            continue
+        
+        # We're in a trading period - find end of this segment
+        if weekday == 6:  # Sunday after 5 PM
+            # Trade until midnight
+            segment_end = CT.localize(datetime.combine(current.date() + timedelta(days=1), dt_time(0, 0)))
+        elif weekday == 4:  # Friday before 4 PM
+            # Trade until 4 PM (week close)
+            segment_end = CT.localize(datetime.combine(current.date(), dt_time(16, 0)))
+        elif hour >= 17:  # Mon-Thu evening (after 5 PM)
+            # Trade until midnight
+            segment_end = CT.localize(datetime.combine(current.date() + timedelta(days=1), dt_time(0, 0)))
+        else:  # Mon-Thu/Fri daytime (before 4 PM)
+            # Trade until 4 PM maintenance
+            segment_end = CT.localize(datetime.combine(current.date(), dt_time(16, 0)))
+        
+        # Calculate trading minutes in this segment
+        actual_end = min(segment_end, to_dt)
+        if actual_end > current:
+            total_minutes += (actual_end - current).total_seconds() / 60
+        
+        current = segment_end
+    
+    return total_minutes
+
+
+def calculate_cone_rails(inputs, trade_date):
+    """Calculate cones from prior day SPX levels, projected to 9:00 AM CT entry"""
     ph = inputs.get("prior_high", 0)
     pl = inputs.get("prior_low", 0)
     pc = inputs.get("prior_close", 0)
@@ -585,21 +682,20 @@ def calculate_cone_rails(inputs, current_time):
     if ph <= 0 or pl <= 0 or pc <= 0:
         return None
     
-    today = current_time.date()
-    prior_day = today - timedelta(days=1)
-    while prior_day.weekday() >= 5:
-        prior_day -= timedelta(days=1)
+    # trade_date is the entry day, prior_day is where the cone anchors come from
+    prior_day = get_prior_trading_day(trade_date)
     
     # Build anchor times
     high_anchor = CT.localize(datetime.combine(prior_day, dt_time(inputs.get("prior_high_hour", 10), inputs.get("prior_high_minute", 0))))
     low_anchor = CT.localize(datetime.combine(prior_day, dt_time(inputs.get("prior_low_hour", 14), inputs.get("prior_low_minute", 0))))
     close_anchor = CT.localize(datetime.combine(prior_day, dt_time(15, 0)))
     
-    if current_time.tzinfo is None:
-        current_time = CT.localize(current_time)
+    # Project to 9:00 AM CT entry time on trade_date
+    entry_time = CT.localize(datetime.combine(trade_date, dt_time(9, 0)))
     
     def calc_expansion(anchor_dt):
-        blocks = (current_time - anchor_dt).total_seconds() / 60 / 30
+        trading_mins = calculate_trading_minutes(anchor_dt, entry_time)
+        blocks = trading_mins / 30
         return blocks, blocks * CONE_SLOPE
     
     h_blocks, h_exp = calc_expansion(high_anchor)
@@ -616,7 +712,7 @@ def calculate_cone_rails(inputs, current_time):
 # TRADE DECISION
 # ============================================================================
 def generate_trade_decision(ma_bias, ceiling, floor, vix_zone, spx_price):
-    """Combine pillars into trade signal"""
+    """Combine pillars into trade signal - always set entry/strike based on MA+Structure"""
     result = {'signal': 'NO TRADE', 'reason': '', 'entry_level': None, 'strike': None, 'direction': None, 'aligned': False}
     
     if ma_bias == "NEUTRAL":
@@ -627,18 +723,35 @@ def generate_trade_decision(ma_bias, ceiling, floor, vix_zone, spx_price):
         result['reason'] = "Structure not set"
         return result
     
+    # Always set entry/strike/direction based on MA Bias (for options display)
+    if ma_bias == "LONG":
+        result['direction'] = "CALLS"
+        result['entry_level'] = floor
+        result['strike'] = round((floor + OTM_DISTANCE) / 5) * 5
+    elif ma_bias == "SHORT":
+        result['direction'] = "PUTS"
+        result['entry_level'] = ceiling
+        result['strike'] = round((ceiling - OTM_DISTANCE) / 5) * 5
+    
+    # Now check VIX timing for final signal
     vix_sig = vix_zone.get('timing_signal', 'WAIT')
     
     if vix_sig == "WAIT":
         result['signal'] = "WAIT"
-        result['reason'] = vix_zone.get('detail', 'VIX timing')
+        result['reason'] = f"VIX: {vix_zone.get('detail', 'waiting')}"
         return result
     
+    # Check full alignment
     if ma_bias == "LONG" and vix_sig == "CALLS":
-        result.update({'signal': "CALLS", 'direction': "CALLS", 'entry_level': floor, 'strike': round((floor + OTM_DISTANCE) / 5) * 5, 'reason': "All pillars BULLISH", 'aligned': True})
+        result['signal'] = "CALLS"
+        result['reason'] = "All pillars BULLISH"
+        result['aligned'] = True
     elif ma_bias == "SHORT" and vix_sig == "PUTS":
-        result.update({'signal': "PUTS", 'direction': "PUTS", 'entry_level': ceiling, 'strike': round((ceiling - OTM_DISTANCE) / 5) * 5, 'reason': "All pillars BEARISH", 'aligned': True})
+        result['signal'] = "PUTS"
+        result['reason'] = "All pillars BEARISH"
+        result['aligned'] = True
     else:
+        result['signal'] = "NO TRADE"
         result['reason'] = f"Conflict: MA={ma_bias}, VIX={vix_sig}"
     
     return result
@@ -656,6 +769,36 @@ def main():
     # ========== SIDEBAR ==========
     with st.sidebar:
         st.markdown('<div class="sidebar-header"><div class="sidebar-logo">🔮</div><div class="sidebar-title">SPX Prophet V2</div></div>', unsafe_allow_html=True)
+        
+        # Trading Date (for next day preview or historical backtest)
+        st.markdown('<div class="sidebar-section"><div class="sidebar-section-header"><span class="sidebar-section-icon">📅</span><span class="sidebar-section-title">Trading Date</span></div></div>', unsafe_allow_html=True)
+        
+        # Default to next trading day
+        default_trade_date = get_next_trading_day(now_ct.date())
+        
+        inputs["use_custom_date"] = st.checkbox("Custom Date", value=inputs.get("use_custom_date", False))
+        if inputs["use_custom_date"]:
+            # Parse saved date or use default
+            saved_date = inputs.get("custom_date")
+            if saved_date:
+                try:
+                    default_val = datetime.strptime(saved_date, "%Y-%m-%d").date()
+                except:
+                    default_val = default_trade_date
+            else:
+                default_val = default_trade_date
+            
+            selected_date = st.date_input("Select Date", value=default_val)
+            inputs["custom_date"] = selected_date.strftime("%Y-%m-%d")
+            trade_date = selected_date
+            is_historical = trade_date < now_ct.date()
+        else:
+            trade_date = default_trade_date
+            is_historical = False
+        
+        # Show what date we're using
+        date_label = "📆 Historical" if is_historical else "📅 Next Trading Day" if trade_date != now_ct.date() else "📅 Today"
+        st.caption(f"{date_label}: {trade_date.strftime('%a %b %d, %Y')}")
         
         # Current SPX
         st.markdown('<div class="sidebar-section"><div class="sidebar-section-header"><span class="sidebar-section-icon">💹</span><span class="sidebar-section-title">Current SPX</span></div></div>', unsafe_allow_html=True)
@@ -735,17 +878,16 @@ def main():
     else:
         spx_price = get_spx_price()
     
-    trade_date = now_ct.date()
-    
     # ========== PILLARS ==========
     ma_bias, ma_detail, ema_50, sma_200 = analyze_ma_bias(es_candles, inputs.get("es_spx_offset", 7.0))
-    ceiling, floor, c_slope, f_slope, struct_status = get_day_structure(inputs, now_ct)
+    ceiling, floor, c_slope, f_slope, struct_status = get_day_structure(inputs, trade_date)
     vix_zone = analyze_vix_zone(inputs.get("vix_overnight_high", 0), inputs.get("vix_overnight_low", 0), inputs.get("vix_current", 0))
-    cones = calculate_cone_rails(inputs, now_ct)
+    cones = calculate_cone_rails(inputs, trade_date)
     trade = generate_trade_decision(ma_bias, ceiling, floor, vix_zone, spx_price)
     
     # ========== HERO ==========
     spx_display = f"{spx_price:,.2f}" if spx_price else "---"
+    mode_badge = "📆 BACKTEST" if is_historical else "🔮 PREVIEW" if trade_date > now_ct.date() else ""
     
     st.markdown(f"""
     <div class="hero-container">
@@ -756,7 +898,7 @@ def main():
             <span class="hero-price-label">SPX</span>
             <span class="hero-price">{spx_display}</span>
         </div>
-        <div class="hero-time"><span class="live-dot"></span>{now_ct.strftime('%I:%M:%S %p CT')} • {trade_date.strftime('%b %d, %Y')}</div>
+        <div class="hero-time"><span class="live-dot"></span>{now_ct.strftime('%I:%M:%S %p CT')} • <strong>{trade_date.strftime('%b %d, %Y')}</strong> {mode_badge}</div>
     </div>
     """, unsafe_allow_html=True)
     
