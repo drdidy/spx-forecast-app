@@ -21,7 +21,7 @@ import os
 # ============================================================================
 CT = pytz.timezone('America/Chicago')
 CONE_SLOPE = 0.475  # Points per 30-min block
-OTM_DISTANCE = 15   # Points from entry level
+OTM_DISTANCE = 20   # Points from entry level
 
 POLYGON_KEY = "jrbBZ2y12cJAOp2Buqtlay0TdprcTDIm"
 INPUTS_FILE = "spx_prophet_inputs.json"
