@@ -351,7 +351,7 @@ st.markdown("""
     
     section[data-testid="stSidebar"] { width: 300px !important; min-width: 300px !important; }
     [data-testid="collapsedControl"] { display: none; }
-    #MainMenu, footer { visibility: hidden; }
+    footer { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
