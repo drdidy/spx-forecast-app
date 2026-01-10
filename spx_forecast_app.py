@@ -18,7 +18,7 @@ import pytz
 # ============================================================
 
 INPUTS_FILE = "spx_prophet_inputs.json"
-POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "")
+POLYGON_API_KEY = "jrbBZ2y12cJAOp2Buqtlay0TdprcTDIm"
 REFRESH_INTERVAL = 900
 
 CT = pytz.timezone("America/Chicago")
@@ -211,7 +211,11 @@ def get_es_candles_yahoo(days: int = 20) -> Optional[list]:
     return None
 
 def get_spx_options_polygon(strike: int, option_type: str = "call", trading_date: str = None) -> Optional[OptionsData]:
-    """Fetch SPXW options data from Polygon for the specified trading date"""
+    """
+    Fetch SPXW options data from Polygon for the specified trading date.
+    
+    Option ticker format: O:SPXW{YYMMDD}{C/P}{strike*1000:08d}
+    """
     api_key = get_polygon_api_key()
     if not api_key:
         return None
@@ -230,8 +234,8 @@ def get_spx_options_polygon(strike: int, option_type: str = "call", trading_date
         strike_padded = str(int(strike * 1000)).zfill(8)
         option_ticker = f"O:SPXW{exp_str}{opt_type}{strike_padded}"
         
-        # Try direct ticker snapshot
-        url = f"https://api.polygon.io/v3/snapshot/options/{option_ticker}?apiKey={api_key}"
+        # Method 1: Direct single contract snapshot
+        url = f"https://api.polygon.io/v3/snapshot/options/SPXW/{option_ticker}?apiKey={api_key}"
         response = requests.get(url, timeout=10)
         
         if response.status_code == 200:
@@ -251,8 +255,8 @@ def get_spx_options_polygon(strike: int, option_type: str = "call", trading_date
                     ticker=option_ticker
                 )
         
-        # Fallback: options chain search
-        url = f"https://api.polygon.io/v3/snapshot/options/SPX?strike_price={strike}&expiration_date={exp_date}&contract_type={option_type.lower()}&apiKey={api_key}"
+        # Method 2: Options chain search
+        url = f"https://api.polygon.io/v3/snapshot/options/SPXW?strike_price={strike}&expiration_date={exp_date}&contract_type={option_type.lower()}&apiKey={api_key}"
         response = requests.get(url, timeout=10)
         
         if response.status_code == 200:
@@ -712,33 +716,76 @@ def main():
         st.markdown('<div class="prophet-card-header" style="margin-top:16px;">Trading Date</div>', unsafe_allow_html=True)
         
         # Default to today, or saved date
-        default_date = datetime.now(CT).date()
+        from datetime import date, timedelta as td
+        today = datetime.now(CT).date()
+        
+        default_date = today
         if st.session_state.inputs.trading_date:
             try:
                 default_date = datetime.strptime(st.session_state.inputs.trading_date, "%Y-%m-%d").date()
             except:
                 pass
         
-        # Allow selecting dates from 1 year ago to 1 year ahead for backtesting
-        from datetime import date
-        min_date = date(2024, 1, 1)  # Can go back to 2024
-        max_date = date(2027, 12, 31)  # Can go forward to 2027
+        # Quick select buttons
+        st.markdown('<p style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Quick Select:</p>', unsafe_allow_html=True)
+        qcol1, qcol2, qcol3, qcol4 = st.columns(4)
+        
+        # Find last Friday
+        days_since_friday = (today.weekday() - 4) % 7
+        if days_since_friday == 0 and datetime.now(CT).hour < 15:
+            last_friday = today  # It's Friday before close
+        else:
+            last_friday = today - td(days=days_since_friday if days_since_friday > 0 else 7)
+        
+        # Find next Monday
+        days_until_monday = (7 - today.weekday()) % 7
+        if days_until_monday == 0:
+            days_until_monday = 7
+        next_monday = today + td(days=days_until_monday)
+        
+        with qcol1:
+            if st.button("Today", use_container_width=True, key="btn_today"):
+                st.session_state.inputs.trading_date = today.strftime("%Y-%m-%d")
+                st.session_state.options_data = None
+                st.rerun()
+        with qcol2:
+            if st.button("Yesterday", use_container_width=True, key="btn_yesterday"):
+                yesterday = today - td(days=1)
+                st.session_state.inputs.trading_date = yesterday.strftime("%Y-%m-%d")
+                st.session_state.options_data = None
+                st.rerun()
+        with qcol3:
+            if st.button("Last Fri", use_container_width=True, key="btn_lastfri"):
+                st.session_state.inputs.trading_date = last_friday.strftime("%Y-%m-%d")
+                st.session_state.options_data = None
+                st.rerun()
+        with qcol4:
+            if st.button("Next Mon", use_container_width=True, key="btn_nextmon"):
+                st.session_state.inputs.trading_date = next_monday.strftime("%Y-%m-%d")
+                st.session_state.options_data = None
+                st.rerun()
+        
+        # Calendar date picker - click to open calendar
+        # Allow selecting dates from 2024 to 2027 for backtesting
+        min_date = date(2024, 1, 1)
+        max_date = date(2027, 12, 31)
         
         trading_date = st.date_input(
-            "Select trading day",
+            "📅 Click to open calendar",
             value=default_date,
             min_value=min_date,
             max_value=max_date,
-            help="Select any date to view/backtest (past or future)"
+            help="Click to open calendar picker - select any date from 2024-2027",
+            key="trading_date_picker"
         )
         
         # Check if it's a weekend
         if trading_date.weekday() >= 5:
             st.warning("⚠️ Weekend selected - no trading")
         
-        # Show day of week
+        # Show day of week prominently
         day_name = trading_date.strftime("%A")
-        st.caption(f"{day_name}, {trading_date.strftime('%B %d, %Y')}")
+        st.markdown(f'<p style="font-size:14px;color:var(--gold);font-weight:600;">📆 {day_name}, {trading_date.strftime("%B %d, %Y")}</p>', unsafe_allow_html=True)
         
         trading_date_str = trading_date.strftime("%Y-%m-%d")
         
