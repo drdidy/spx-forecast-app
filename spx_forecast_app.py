@@ -719,15 +719,26 @@ def main():
             except:
                 pass
         
+        # Allow selecting dates from 1 year ago to 1 year ahead for backtesting
+        from datetime import date
+        min_date = date(2024, 1, 1)  # Can go back to 2024
+        max_date = date(2027, 12, 31)  # Can go forward to 2027
+        
         trading_date = st.date_input(
             "Select trading day",
             value=default_date,
-            help="Select the trading day for 0DTE options"
+            min_value=min_date,
+            max_value=max_date,
+            help="Select any date to view/backtest (past or future)"
         )
         
         # Check if it's a weekend
         if trading_date.weekday() >= 5:
             st.warning("⚠️ Weekend selected - no trading")
+        
+        # Show day of week
+        day_name = trading_date.strftime("%A")
+        st.caption(f"{day_name}, {trading_date.strftime('%B %d, %Y')}")
         
         trading_date_str = trading_date.strftime("%Y-%m-%d")
         
