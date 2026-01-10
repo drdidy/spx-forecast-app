@@ -765,19 +765,46 @@ def main():
                 st.session_state.options_data = None
                 st.rerun()
         
-        # Calendar date picker - click to open calendar
-        # Allow selecting dates from 2024 to 2027 for backtesting
-        min_date = date(2024, 1, 1)
-        max_date = date(2027, 12, 31)
+        # Manual Date Selection - Year, Month, Day dropdowns
+        st.markdown('<p style="font-size:11px;color:var(--text-muted);margin-top:12px;margin-bottom:8px;">Or Select Date:</p>', unsafe_allow_html=True)
         
-        trading_date = st.date_input(
-            "📅 Click to open calendar",
-            value=default_date,
-            min_value=min_date,
-            max_value=max_date,
-            help="Click to open calendar picker - select any date from 2024-2027",
-            key="trading_date_picker"
-        )
+        year_col, month_col, day_col = st.columns(3)
+        
+        with year_col:
+            selected_year = st.selectbox(
+                "Year",
+                options=[2024, 2025, 2026, 2027],
+                index=[2024, 2025, 2026, 2027].index(default_date.year) if default_date.year in [2024, 2025, 2026, 2027] else 2,
+                key="select_year"
+            )
+        
+        with month_col:
+            months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            selected_month = st.selectbox(
+                "Month",
+                options=list(range(1, 13)),
+                format_func=lambda x: months[x-1],
+                index=default_date.month - 1,
+                key="select_month"
+            )
+        
+        with day_col:
+            # Get max days for selected month
+            import calendar
+            max_day = calendar.monthrange(selected_year, selected_month)[1]
+            default_day = min(default_date.day, max_day)
+            selected_day = st.selectbox(
+                "Day",
+                options=list(range(1, max_day + 1)),
+                index=default_day - 1,
+                key="select_day"
+            )
+        
+        # Build the trading date from selections
+        try:
+            trading_date = date(selected_year, selected_month, selected_day)
+        except:
+            trading_date = today
         
         # Check if it's a weekend
         if trading_date.weekday() >= 5:
