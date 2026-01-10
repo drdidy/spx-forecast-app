@@ -360,10 +360,23 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace !important;
     }
     
-    /* Hide Streamlit branding */
+    /* Hide Streamlit branding but keep sidebar functional */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
+    
+    /* Force sidebar to always be visible */
+    section[data-testid="stSidebar"] {
+        width: 320px !important;
+        min-width: 320px !important;
+    }
+    
+    [data-testid="collapsedControl"] {
+        display: none;
+    }
+    
+    section[data-testid="stSidebar"] > div {
+        width: 320px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
