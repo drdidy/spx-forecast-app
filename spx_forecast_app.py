@@ -301,7 +301,7 @@ st.markdown("""
     .structure-distance { font-family: 'JetBrains Mono'; font-size: 0.7rem; color: var(--text-muted); background: rgba(0,0,0,0.04); padding: 0.2rem 0.4rem; border-radius: 4px; }
     
     .vix-zone-visual { background: var(--glass-bg); border-radius: 14px; padding: 1rem; }
-    .vix-zone-bar { height: 10px; background: linear-gradient(to right, var(--accent-green), var(--accent-amber), var(--accent-red)); border-radius: 5px; position: relative; margin: 0.75rem 0; }
+    .vix-zone-bar { height: 10px; background: linear-gradient(to right, var(--accent-red), var(--accent-amber), var(--accent-green)); border-radius: 5px; position: relative; margin: 0.75rem 0; }
     .vix-marker { position: absolute; top: -3px; width: 16px; height: 16px; background: var(--text-primary); border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.2); transform: translateX(-50%); }
     .vix-labels { display: flex; justify-content: space-between; font-family: 'JetBrains Mono'; font-size: 0.7rem; color: var(--text-muted); }
     
@@ -552,49 +552,73 @@ def get_day_structure(inputs, trade_date):
     return ceiling, floor, c_slope, f_slope, f"@ 9AM | C: {c_slope:+.2f}/30m | F: {f_slope:+.2f}/30m"
 
 # ============================================================================
-# PILLAR 3: VIX ZONE
+# PILLAR 3: VIX ZONE (Inverse to SPX)
 # ============================================================================
 def analyze_vix_zone(vix_high, vix_low, vix_current):
-    """VIX Zone with springboard logic"""
+    """
+    VIX Zone with springboard logic - VIX is INVERSE to SPX
+    
+    VIX at CEILING (high fear) → SPX is low → CALLS timing (buy the dip)
+    VIX at FLOOR (low fear) → SPX is high → PUTS timing (sell the top)
+    """
     if vix_high <= 0 or vix_low <= 0 or vix_current <= 0:
         return {'timing_signal': "WAIT", 'zone_position': "Enter VIX", 'detail': "Missing data", 'zone_size': 0, 'range_pct': 0.5, 'puts_springboard': 0, 'calls_springboard': 0}
     
     zone_size = vix_high - vix_low
     if zone_size <= 0:
-        return {'timing_signal': "WAIT", 'zone_position': "Invalid", 'detail': "High > Low required", 'zone_size': 0, 'range_pct': 0.5, 'puts_springboard': vix_high, 'calls_springboard': vix_low}
+        return {'timing_signal': "WAIT", 'zone_position': "Invalid", 'detail': "High > Low required", 'zone_size': 0, 'range_pct': 0.5, 'puts_springboard': vix_low, 'calls_springboard': vix_high}
     
-    puts_spring = vix_high
-    calls_spring = vix_low
+    # Springboards (VIX levels that trigger SPX trades)
+    calls_springboard = vix_high   # VIX at ceiling → buy CALLS on SPX
+    puts_springboard = vix_low     # VIX at floor → buy PUTS on SPX
     
     if vix_current > vix_high:
+        # VIX above range (high fear)
         zones_above = (vix_current - vix_high) / zone_size
         pos = f"ABOVE (+{zones_above:.1f})"
-        calls_spring = vix_high + (int(zones_above) + 1) * zone_size
-        if abs(vix_current - puts_spring) <= zone_size * 0.20:
-            sig, detail = "PUTS", f"Near ceiling ({puts_spring:.2f})"
+        # Extended ceiling springboard
+        calls_springboard = vix_high + (int(zones_above) + 1) * zone_size
+        if abs(vix_current - vix_high) <= zone_size * 0.30:
+            sig, detail = "CALLS", f"VIX elevated → SPX dip"
         else:
-            sig, detail = "WAIT", f"Wait for {puts_spring:.2f}"
+            sig, detail = "WAIT", f"Wait for VIX → {vix_high:.2f}"
         range_pct = 1.0
+        
     elif vix_current < vix_low:
+        # VIX below range (low fear/complacency)
         zones_below = (vix_low - vix_current) / zone_size
         pos = f"BELOW (-{zones_below:.1f})"
-        puts_spring = vix_low - (int(zones_below) + 1) * zone_size
-        if abs(vix_current - calls_spring) <= zone_size * 0.20:
-            sig, detail = "CALLS", f"Near floor ({calls_spring:.2f})"
+        # Extended floor springboard
+        puts_springboard = vix_low - (int(zones_below) + 1) * zone_size
+        if abs(vix_current - vix_low) <= zone_size * 0.30:
+            sig, detail = "PUTS", f"VIX compressed → SPX top"
         else:
-            sig, detail = "WAIT", f"Wait for {calls_spring:.2f}"
+            sig, detail = "WAIT", f"Wait for VIX → {vix_low:.2f}"
         range_pct = 0.0
+        
     else:
+        # VIX inside range
         range_pct = (vix_current - vix_low) / zone_size
         pos = f"INSIDE ({range_pct:.0%})"
-        if range_pct <= 0.30:
-            sig, detail = "CALLS", f"At floor ({range_pct:.0%})"
-        elif range_pct >= 0.70:
-            sig, detail = "PUTS", f"At ceiling ({range_pct:.0%})"
+        
+        if range_pct >= 0.70:
+            # VIX near ceiling (high) → CALLS on SPX
+            sig, detail = "CALLS", f"VIX high ({range_pct:.0%}) → CALLS"
+        elif range_pct <= 0.30:
+            # VIX near floor (low) → PUTS on SPX
+            sig, detail = "PUTS", f"VIX low ({range_pct:.0%}) → PUTS"
         else:
-            sig, detail = "WAIT", f"Middle ({range_pct:.0%})"
+            sig, detail = "WAIT", f"VIX mid-range ({range_pct:.0%})"
     
-    return {'timing_signal': sig, 'zone_position': pos, 'detail': detail, 'zone_size': zone_size, 'range_pct': range_pct, 'puts_springboard': puts_spring, 'calls_springboard': calls_spring}
+    return {
+        'timing_signal': sig, 
+        'zone_position': pos, 
+        'detail': detail, 
+        'zone_size': zone_size, 
+        'range_pct': range_pct, 
+        'puts_springboard': puts_springboard, 
+        'calls_springboard': calls_springboard
+    }
 
 # ============================================================================
 # CONE RAILS (All SPX inputs) - with proper trading hours calculation
@@ -990,7 +1014,7 @@ def main():
             st.info("Enter anchor points")
     
     with col_m:
-        st.markdown('<div class="section-header"><div class="section-icon">📊</div><div class="section-title">VIX Zone</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header"><div class="section-icon">📊</div><div class="section-title">VIX Zone (↔ SPX)</div></div>', unsafe_allow_html=True)
         vh, vl, vc = inputs.get("vix_overnight_high", 0), inputs.get("vix_overnight_low", 0), inputs.get("vix_current", 0)
         if vh > 0 and vl > 0 and vc > 0:
             pct = max(0, min(100, vix_zone.get('range_pct', 0.5) * 100))
@@ -998,7 +1022,7 @@ def main():
             <div class="vix-zone-visual">
                 <div style="text-align:center; font-family:'JetBrains Mono'; font-size:1.3rem; font-weight:600;">VIX {vc:.2f}</div>
                 <div class="vix-zone-bar"><div class="vix-marker" style="left:{pct}%;"></div></div>
-                <div class="vix-labels"><span>🟢 {vl:.2f}</span><span>🔴 {vh:.2f}</span></div>
+                <div class="vix-labels"><span>🔴 {vl:.2f} PUTS</span><span>🟢 {vh:.2f} CALLS</span></div>
                 <div style="text-align:center; font-size:0.7rem; color:var(--text-muted); margin-top:0.5rem;">{vix_zone.get('detail', '')}</div>
             </div>
             """, unsafe_allow_html=True)
