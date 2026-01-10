@@ -579,11 +579,13 @@ def main():
     # ========================================================================
     # HERO HEADER
     # ========================================================================
+    spx_display = f"{spx_price:.2f}" if spx_price else "---"
+    
     st.markdown(f"""
     <div class="hero-header">
         <div class="hero-title">🔮 SPX PROPHET</div>
         <div class="hero-tagline">Where Structure Becomes Foresight</div>
-        <div class="hero-price">SPX {spx_price:.2f if spx_price else '---'}</div>
+        <div class="hero-price">SPX {spx_display}</div>
         <div class="hero-time">{now_ct.strftime('%I:%M:%S %p CT')} • {trade_date.strftime('%B %d, %Y')}</div>
     </div>
     """, unsafe_allow_html=True)
@@ -684,6 +686,9 @@ def main():
         option_ticker = format_option_ticker(strike, signal == "CALLS", trade_date)
         option_data = fetch_option_data(option_ticker)
     
+    entry_display = f"{entry_level:.1f}" if entry_level else "---"
+    strike_display = str(strike) if strike else "---"
+    
     st.markdown(f"""
     <div class="signal-card {signal_class}">
         <div class="signal-action" style="color: {signal_color};">{signal}</div>
@@ -691,11 +696,11 @@ def main():
         <div class="signal-details">
             <div class="signal-detail-item">
                 <div class="signal-detail-label">Entry Level</div>
-                <div class="signal-detail-value">{entry_level:.1f if entry_level else '---'}</div>
+                <div class="signal-detail-value">{entry_display}</div>
             </div>
             <div class="signal-detail-item">
                 <div class="signal-detail-label">Strike</div>
-                <div class="signal-detail-value">{strike if strike else '---'}</div>
+                <div class="signal-detail-value">{strike_display}</div>
             </div>
             <div class="signal-detail-item">
                 <div class="signal-detail-label">Entry Time</div>
