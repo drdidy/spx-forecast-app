@@ -1,35 +1,29 @@
 """
-SPX PROPHET - 0DTE Trading System
-Complete Streamlit Application
-Version 2.1 | January 2026
+SPX Prophet Pro - 0DTE Trading System
+Where Structure Becomes Foresight™
+
+Professional-grade options trading decision support.
 """
 
 import streamlit as st
+import requests
 import json
 import os
-from datetime import datetime, timedelta
-from typing import Optional, Tuple
-import requests
+from datetime import datetime, timedelta, date
 from dataclasses import dataclass
+from typing import Optional, List, Dict, Any
+import calendar
 import pytz
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
 
-INPUTS_FILE = "spx_prophet_inputs.json"
-POLYGON_API_KEY = "jrbBZ2y12cJAOp2Buqtlay0TdprcTDIm"
-REFRESH_INTERVAL = 900
-
 CT = pytz.timezone("America/Chicago")
-ET = pytz.timezone("America/New_York")
-
-RTH_OPEN_HOUR, RTH_OPEN_MIN = 8, 30
-RTH_CLOSE_HOUR, RTH_CLOSE_MIN = 15, 0
-ENTRY_CUTOFF_HOUR, ENTRY_CUTOFF_MIN = 11, 30
-ENTRY_HOUR, ENTRY_MIN = 9, 0  # CRITICAL: 9:00 AM CT entry time
-
+POLYGON_API_KEY = "jrbBZ2y12cJAOp2Buqtlay0TdprcTDIm"
+INPUTS_FILE = "spx_prophet_inputs.json"
 CONE_SLOPE = 0.475
+BLOCKS_3PM_TO_9AM = 36  # 18 hours = 36 half-hour blocks
 
 # ============================================================
 # DATA CLASSES
@@ -40,1064 +34,1366 @@ class ManualInputs:
     vix_overnight_high: float = 0.0
     vix_overnight_low: float = 0.0
     vix_current: float = 0.0
-    es_spx_offset: float = 0.0
+    es_spx_offset: float = 7.0
     prior_high: float = 0.0
     prior_low: float = 0.0
     prior_close: float = 0.0
     manual_ceiling: float = 0.0
     manual_floor: float = 0.0
     use_manual_structure: bool = False
-    trading_date: str = ""  # YYYY-MM-DD format for the trading day
-    date: str = ""
-    last_updated: str = ""
-    
-    def to_dict(self) -> dict:
-        return self.__dict__.copy()
-    
-    @classmethod
-    def from_dict(cls, data: dict) -> "ManualInputs":
-        fields = {k: data.get(k, getattr(cls, k, None) if hasattr(cls, k) else None) 
-                 for k in cls.__dataclass_fields__}
-        # Handle None values
-        for k, v in fields.items():
-            if v is None:
-                if k in ['use_manual_structure']:
-                    fields[k] = False
-                elif k in ['trading_date', 'date', 'last_updated']:
-                    fields[k] = ""
-                else:
-                    fields[k] = 0.0
-        return cls(**fields)
+    trading_date: str = ""
 
 @dataclass
 class MABias:
     ema_50: float
     sma_200: float
-    bias: str
-    instruction: str
-
-@dataclass
-class DayStructure:
-    ceiling_spx: float
-    floor_spx: float
-    ceiling_es: float
-    floor_es: float
-    is_manual: bool = False
+    bias: str  # LONG, SHORT, NEUTRAL
 
 @dataclass
 class VIXZone:
-    zone_size: float
-    zone_position: str
-    puts_springboard: float
-    calls_springboard: float
-    timing_signal: str
-    position_percent: float
+    high: float
+    low: float
+    current: float
+    range_pct: float
+    position: str
+    signal: str  # CALLS, PUTS, WAIT
+
+@dataclass
+class DayStructure:
+    ceiling: float
+    floor: float
+    is_manual: bool
 
 @dataclass
 class ConeRails:
-    c1_ascending: float
-    c1_descending: float
-    c2_ascending: float
-    c2_descending: float
-    c3_ascending: float
-    c3_descending: float
-    blocks_elapsed: float
+    c1_asc: float
+    c1_desc: float
+    c2_asc: float
+    c2_desc: float
+    c3_asc: float
+    c3_desc: float
+    blocks: int
+    expansion: float
 
 @dataclass
 class TradeSignal:
-    direction: str
-    entry_level: float
+    direction: str  # CALLS, PUTS, WAIT, NO TRADE
+    entry: float
     strike: int
-    distance: float
-    all_aligned: bool
     reason: str
+    ready: bool
 
 @dataclass
 class OptionsData:
+    ticker: str
     strike: int
-    option_type: str
+    opt_type: str
     last: float
     bid: float
     ask: float
     volume: int
     open_interest: int
-    ticker: str
 
 # ============================================================
 # PERSISTENCE
 # ============================================================
 
-def save_inputs(inputs: ManualInputs) -> None:
-    now = datetime.now(CT)
-    inputs.last_updated = now.strftime("%Y-%m-%d %H:%M:%S")
-    inputs.date = now.strftime("%Y-%m-%d")
-    with open(INPUTS_FILE, "w") as f:
-        json.dump(inputs.to_dict(), f, indent=2)
-
 def load_inputs() -> ManualInputs:
-    if os.path.exists(INPUTS_FILE):
-        with open(INPUTS_FILE, "r") as f:
-            return ManualInputs.from_dict(json.load(f))
+    try:
+        if os.path.exists(INPUTS_FILE):
+            with open(INPUTS_FILE, 'r') as f:
+                data = json.load(f)
+                fields = {}
+                for k in ManualInputs.__dataclass_fields__:
+                    default = getattr(ManualInputs, k, None)
+                    if hasattr(ManualInputs.__dataclass_fields__[k], 'default'):
+                        default = ManualInputs.__dataclass_fields__[k].default
+                    fields[k] = data.get(k, default)
+                return ManualInputs(**fields)
+    except Exception:
+        pass
     return ManualInputs()
+
+def save_inputs(inputs: ManualInputs) -> None:
+    try:
+        with open(INPUTS_FILE, 'w') as f:
+            json.dump(inputs.__dict__, f, indent=2)
+    except Exception:
+        pass
 
 # ============================================================
 # DATA FETCHING
 # ============================================================
 
-def get_polygon_api_key() -> str:
-    if "polygon_api_key" in st.session_state and st.session_state.polygon_api_key:
-        return st.session_state.polygon_api_key
-    return POLYGON_API_KEY
-
-def get_es_price_polygon() -> Optional[float]:
-    api_key = get_polygon_api_key()
-    if not api_key:
-        return None
-    try:
-        url = f"https://api.polygon.io/v2/aggs/ticker/I:ES1!/prev?apiKey={api_key}"
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            if "results" in data and len(data["results"]) > 0:
-                return float(data["results"][0].get("c", 0))
-    except Exception:
-        pass
-    return None
-
-def get_es_price_yahoo() -> Optional[float]:
+def fetch_es_price() -> Optional[float]:
+    """Fetch current ES futures price"""
     try:
         import yfinance as yf
-        es = yf.Ticker("ES=F")
-        data = es.history(period="1d")
+        ticker = yf.Ticker("ES=F")
+        data = ticker.history(period="1d")
         if not data.empty:
             return float(data['Close'].iloc[-1])
     except Exception:
         pass
     return None
 
-def get_es_candles_polygon(days: int = 20) -> Optional[list]:
-    api_key = get_polygon_api_key()
-    if not api_key:
-        return None
-    try:
-        end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-        url = f"https://api.polygon.io/v2/aggs/ticker/I:ES1!/range/30/minute/{start_date}/{end_date}?adjusted=true&sort=asc&limit=50000&apiKey={api_key}"
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            if "results" in data:
-                return data["results"]
-    except Exception:
-        pass
-    return None
-
-def get_es_candles_yahoo(days: int = 20) -> Optional[list]:
+def fetch_es_candles() -> Optional[List[Dict]]:
+    """Fetch ES daily candles for MA calculation"""
     try:
         import yfinance as yf
-        es = yf.Ticker("ES=F")
-        data = es.history(period=f"{days}d", interval="30m")
+        ticker = yf.Ticker("ES=F")
+        data = ticker.history(period="250d", interval="1d")
         if not data.empty:
             candles = []
-            for idx, row in data.iterrows():
+            for _, row in data.iterrows():
                 candles.append({
-                    "t": int(idx.timestamp() * 1000),
-                    "o": row["Open"], "h": row["High"],
-                    "l": row["Low"], "c": row["Close"]
+                    "o": float(row["Open"]),
+                    "h": float(row["High"]),
+                    "l": float(row["Low"]),
+                    "c": float(row["Close"])
                 })
             return candles
     except Exception:
         pass
     return None
 
-def get_spx_options_polygon(strike: int, option_type: str = "call", trading_date: str = None) -> Optional[OptionsData]:
-    """
-    Fetch SPXW options data from Polygon for the specified trading date.
-    
-    Option ticker format: O:SPXW{YYMMDD}{C/P}{strike*1000:08d}
-    """
-    api_key = get_polygon_api_key()
-    if not api_key:
-        return None
-    
+def fetch_options_data(strike: int, opt_type: str, exp_date: str) -> Optional[OptionsData]:
+    """Fetch SPXW options data from Polygon"""
     try:
-        # Use provided trading date or default to today
-        if trading_date:
-            exp_date = trading_date
-            exp_dt = datetime.strptime(trading_date, "%Y-%m-%d")
-        else:
-            exp_dt = datetime.now()
-            exp_date = exp_dt.strftime("%Y-%m-%d")
-        
+        exp_dt = datetime.strptime(exp_date, "%Y-%m-%d")
         exp_str = exp_dt.strftime("%y%m%d")
-        opt_type = "C" if option_type.lower() == "call" else "P"
+        ot = "C" if opt_type.lower() == "call" else "P"
         strike_padded = str(int(strike * 1000)).zfill(8)
-        option_ticker = f"O:SPXW{exp_str}{opt_type}{strike_padded}"
+        ticker = f"O:SPXW{exp_str}{ot}{strike_padded}"
         
-        # Method 1: Direct single contract snapshot
-        url = f"https://api.polygon.io/v3/snapshot/options/SPXW/{option_ticker}?apiKey={api_key}"
+        url = f"https://api.polygon.io/v3/snapshot/options/SPXW/{ticker}?apiKey={POLYGON_API_KEY}"
         response = requests.get(url, timeout=10)
         
         if response.status_code == 200:
             data = response.json()
             if "results" in data:
-                result = data["results"]
-                day = result.get("day", {})
-                quote = result.get("last_quote", {})
+                res = data["results"]
+                day = res.get("day", {})
+                quote = res.get("last_quote", {})
                 return OptionsData(
+                    ticker=ticker,
                     strike=strike,
-                    option_type=option_type,
-                    last=day.get("close", day.get("last", 0)) or 0,
-                    bid=quote.get("bid", 0) or 0,
-                    ask=quote.get("ask", 0) or 0,
-                    volume=day.get("volume", 0) or 0,
-                    open_interest=result.get("open_interest", 0) or 0,
-                    ticker=option_ticker
+                    opt_type=opt_type,
+                    last=float(day.get("close", day.get("last", 0)) or 0),
+                    bid=float(quote.get("bid", 0) or 0),
+                    ask=float(quote.get("ask", 0) or 0),
+                    volume=int(day.get("volume", 0) or 0),
+                    open_interest=int(res.get("open_interest", 0) or 0)
                 )
-        
-        # Method 2: Options chain search
-        url = f"https://api.polygon.io/v3/snapshot/options/SPXW?strike_price={strike}&expiration_date={exp_date}&contract_type={option_type.lower()}&apiKey={api_key}"
-        response = requests.get(url, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if "results" in data and len(data["results"]) > 0:
-                for result in data["results"]:
-                    ticker = result.get("details", {}).get("ticker", "")
-                    if "SPXW" in ticker:
-                        day = result.get("day", {})
-                        quote = result.get("last_quote", {})
-                        return OptionsData(
-                            strike=strike, option_type=option_type,
-                            last=day.get("close", 0) or 0,
-                            bid=quote.get("bid", 0) or 0,
-                            ask=quote.get("ask", 0) or 0,
-                            volume=day.get("volume", 0) or 0,
-                            open_interest=result.get("open_interest", 0) or 0,
-                            ticker=ticker
-                        )
-    except Exception as e:
+    except Exception:
         pass
     return None
-
-@dataclass
-class EconomicEvent:
-    """Economic calendar event"""
-    time: str
-    name: str
-    impact: str  # HIGH, MEDIUM, LOW
-    actual: str
-    forecast: str
-    previous: str
-
-def get_economic_calendar() -> list:
-    """
-    Fetch today's economic calendar events.
-    Uses free APIs - Trading Economics or Forex Factory style data.
-    """
-    events = []
-    today = datetime.now(CT).strftime("%Y-%m-%d")
-    
-    # Try Polygon economic calendar (if available)
-    api_key = get_polygon_api_key()
-    if api_key:
-        try:
-            # Polygon doesn't have a direct econ calendar, but we can check for known events
-            pass
-        except:
-            pass
-    
-    # Fallback: Use a free economic calendar API
-    try:
-        # Try financialmodelingprep free API
-        url = f"https://financialmodelingprep.com/api/v3/economic_calendar?from={today}&to={today}&apikey=demo"
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            for item in data[:10]:  # Limit to 10 events
-                if item.get("country", "").upper() == "US":
-                    event_time = item.get("date", "")
-                    if "T" in event_time:
-                        # Parse and convert to CT
-                        try:
-                            dt = datetime.fromisoformat(event_time.replace("Z", "+00:00"))
-                            dt_ct = dt.astimezone(CT)
-                            time_str = dt_ct.strftime("%I:%M %p")
-                        except:
-                            time_str = event_time.split("T")[1][:5] if "T" in event_time else ""
-                    else:
-                        time_str = ""
-                    
-                    events.append(EconomicEvent(
-                        time=time_str,
-                        name=item.get("event", "Unknown"),
-                        impact=item.get("impact", "MEDIUM").upper(),
-                        actual=str(item.get("actual", "")),
-                        forecast=str(item.get("estimate", "")),
-                        previous=str(item.get("previous", ""))
-                    ))
-            return events
-    except:
-        pass
-    
-    # If APIs fail, return common high-impact events to watch for
-    # These are typical times for major US economic releases (CT)
-    now = datetime.now(CT)
-    weekday = now.weekday()
-    
-    # Static list of common high-impact events by day
-    common_events = {
-        0: [  # Monday
-            EconomicEvent("", "Check calendar for scheduled releases", "MEDIUM", "", "", ""),
-        ],
-        1: [  # Tuesday
-            EconomicEvent("", "Check calendar for scheduled releases", "MEDIUM", "", "", ""),
-        ],
-        2: [  # Wednesday
-            EconomicEvent("1:00 PM", "FOMC Minutes (if scheduled)", "HIGH", "", "", ""),
-        ],
-        3: [  # Thursday
-            EconomicEvent("7:30 AM", "Jobless Claims", "MEDIUM", "", "", ""),
-        ],
-        4: [  # Friday
-            EconomicEvent("7:30 AM", "NFP/Employment (1st Fri)", "HIGH", "", "", ""),
-        ],
-    }
-    
-    # Always include these high-impact event times to watch
-    key_times = [
-        EconomicEvent("7:30 AM", "Major Economic Data Window", "HIGH", "", "", ""),
-        EconomicEvent("9:00 AM", "Secondary Data Window", "MEDIUM", "", "", ""),
-        EconomicEvent("9:45 AM", "PMI Data Window", "MEDIUM", "", "", ""),
-        EconomicEvent("1:00 PM", "Fed Speakers/FOMC Window", "HIGH", "", "", ""),
-    ]
-    
-    if weekday < 5:
-        return common_events.get(weekday, []) + key_times
-    return [EconomicEvent("", "Market Closed - Weekend", "LOW", "", "", "")]
 
 # ============================================================
 # CALCULATIONS
 # ============================================================
 
-def calculate_ema(prices: list, period: int) -> float:
+def calc_ema(prices: List[float], period: int) -> float:
+    """Calculate Exponential Moving Average"""
+    if not prices:
+        return 0.0
     if len(prices) < period:
-        return prices[-1] if prices else 0
+        return prices[-1]
+    
     multiplier = 2 / (period + 1)
     ema = sum(prices[:period]) / period
+    
     for price in prices[period:]:
         ema = (price - ema) * multiplier + ema
+    
     return ema
 
-def calculate_sma(prices: list, period: int) -> float:
+def calc_sma(prices: List[float], period: int) -> float:
+    """Calculate Simple Moving Average"""
+    if not prices:
+        return 0.0
     if len(prices) < period:
-        return sum(prices) / len(prices) if prices else 0
+        return sum(prices) / len(prices)
     return sum(prices[-period:]) / period
 
-def calculate_ma_bias(candles: list) -> MABias:
-    if not candles or len(candles) < 200:
-        return MABias(0, 0, "NEUTRAL", "Insufficient data")
+def calculate_ma_bias(candles: List[Dict]) -> MABias:
+    """
+    Pillar 1: MA Bias - Determines trade direction
+    50 EMA > 200 SMA = LONG (look for CALLS)
+    50 EMA < 200 SMA = SHORT (look for PUTS)
+    """
+    if not candles or len(candles) < 50:
+        return MABias(0, 0, "NEUTRAL")
     
-    closes = [c.get("c", c.get("close", 0)) for c in candles]
-    ema_50 = calculate_ema(closes, 50)
-    sma_200 = calculate_sma(closes, 200)
+    closes = [c["c"] for c in candles]
+    ema_50 = calc_ema(closes, 50)
+    sma_200 = calc_sma(closes, 200) if len(closes) >= 200 else calc_sma(closes, len(closes))
     
-    diff_pct = (ema_50 - sma_200) / sma_200 * 100 if sma_200 else 0
-    
-    if diff_pct > 0.1:
-        return MABias(round(ema_50, 2), round(sma_200, 2), "LONG", "CALLS Allowed")
-    elif diff_pct < -0.1:
-        return MABias(round(ema_50, 2), round(sma_200, 2), "SHORT", "PUTS Allowed")
-    return MABias(round(ema_50, 2), round(sma_200, 2), "NEUTRAL", "No Trades")
-
-def calculate_day_structure(candles: list, es_spx_offset: float,
-                           manual_ceiling: float = 0, manual_floor: float = 0,
-                           use_manual: bool = False) -> DayStructure:
-    """Calculate CEILING/FLOOR projected to 9:00 AM CT entry"""
-    if use_manual and manual_ceiling > 0 and manual_floor > 0:
-        return DayStructure(
-            manual_ceiling, manual_floor,
-            manual_ceiling + es_spx_offset, manual_floor + es_spx_offset,
-            is_manual=True
-        )
-    
-    if not candles:
-        return DayStructure(0, 0, 0, 0)
-    
-    now = datetime.now(CT)
-    overnight_start = now.replace(hour=17, minute=0) - timedelta(days=1)
-    
-    overnight_candles = []
-    for c in candles:
-        ts = c.get("t", 0)
-        if ts > 1e12:
-            ts = ts / 1000
-        try:
-            ct = datetime.fromtimestamp(ts, tz=CT)
-            if overnight_start <= ct <= now:
-                overnight_candles.append(c)
-        except:
-            pass
-    
-    if not overnight_candles:
-        overnight_candles = candles[-20:] if len(candles) >= 20 else candles
-    
-    highs = [c.get("h", c.get("high", 0)) for c in overnight_candles]
-    lows = [c.get("l", c.get("low", 0)) for c in overnight_candles]
-    
-    ceiling_es = max(highs) if highs else 0
-    floor_es = min(lows) if lows else 0
-    
-    return DayStructure(
-        round(ceiling_es - es_spx_offset, 2),
-        round(floor_es - es_spx_offset, 2),
-        round(ceiling_es, 2),
-        round(floor_es, 2)
-    )
-
-def calculate_vix_zone(vix_high: float, vix_low: float, vix_current: float) -> VIXZone:
-    if vix_high <= 0 or vix_low <= 0:
-        return VIXZone(0, "NO DATA", 0, 0, "WAIT", 50)
-    
-    zone_size = max(vix_high - vix_low, 0.01)
-    puts_spring = vix_high
-    calls_spring = vix_low
-    
-    if vix_current > vix_high:
-        zones_above = (vix_current - vix_high) / zone_size
-        position = f"ABOVE +{zones_above:.1f}"
-        pct = 100 + zones_above * 50
-        calls_spring = vix_high + (int(zones_above) + 1) * zone_size
-        timing = "PUTS" if abs(vix_current - vix_high) <= zone_size * 0.20 else "WAIT"
-    elif vix_current < vix_low:
-        zones_below = (vix_low - vix_current) / zone_size
-        position = f"BELOW -{zones_below:.1f}"
-        pct = -zones_below * 50
-        puts_spring = vix_low - (int(zones_below) + 1) * zone_size
-        timing = "CALLS" if abs(vix_current - vix_low) <= zone_size * 0.20 else "WAIT"
+    if ema_50 > sma_200:
+        bias = "LONG"
+    elif ema_50 < sma_200:
+        bias = "SHORT"
     else:
-        range_pos = (vix_current - vix_low) / zone_size
-        pct = range_pos * 100
-        position = f"INSIDE ({pct:.0f}%)"
-        timing = "CALLS" if range_pos <= 0.30 else ("PUTS" if range_pos >= 0.70 else "WAIT")
+        bias = "NEUTRAL"
     
-    return VIXZone(round(zone_size, 2), position, round(puts_spring, 2),
-                   round(calls_spring, 2), timing, round(pct, 1))
+    return MABias(round(ema_50, 2), round(sma_200, 2), bias)
 
-def calculate_cone_rails(prior_high: float, prior_low: float, prior_close: float,
-                        es_spx_offset: float) -> ConeRails:
+def calculate_vix_zone(high: float, low: float, current: float) -> VIXZone:
     """
-    Calculate cone rails projected to 9:00 AM CT entry time.
-    
-    Anchor: 3:00 PM CT (close of 2:30pm candle - actual RTH close)
-    Target: 9:00 AM CT next trading day (entry time)
-    
-    Market schedule:
-    - 2:30 PM candle closes at 3:00 PM CT (RTH close - THIS IS THE ANCHOR)
-    - 3:00 PM and 3:30 PM candles trade
-    - Maintenance break
-    - Futures reopen at 5:00 PM CT
-    - Overnight session until next day
-    - RTH opens 8:30 AM CT, entry at 9:00 AM CT
-    
-    Blocks from 3pm to 9am = 18 hours = 1080 minutes = 36 thirty-minute blocks
-    This is FIXED regardless of current time - we're projecting to entry.
+    Pillar 3: VIX Zone - Timing signal
+    If overnight range <= 7%:
+        Current in lower half = CALLS
+        Current in upper half = PUTS
+    If range > 7% = WAIT
     """
-    # Fixed calculation: 3pm to 9am is always 18 hours = 36 blocks
-    # The prior day values are from yesterday's close, projected to today's 9am entry
-    BLOCKS_3PM_TO_9AM = 36  # 18 hours * 2 blocks/hour
+    if high <= low or high == 0:
+        return VIXZone(high, low, current, 0, "UNKNOWN", "WAIT")
     
-    exp = BLOCKS_3PM_TO_9AM * CONE_SLOPE  # 36 * 0.475 = 17.1 points
+    range_pct = ((high - low) / high) * 100
+    midpoint = (high + low) / 2
+    
+    if range_pct <= 7:
+        if current <= midpoint:
+            return VIXZone(high, low, current, round(range_pct, 2), "LOWER HALF", "CALLS")
+        else:
+            return VIXZone(high, low, current, round(range_pct, 2), "UPPER HALF", "PUTS")
+    
+    return VIXZone(high, low, current, round(range_pct, 2), "OUTSIDE 7%", "WAIT")
+
+def calculate_structure(candles: List[Dict], offset: float, 
+                        man_ceiling: float, man_floor: float, 
+                        use_manual: bool) -> DayStructure:
+    """
+    Pillar 2: Day Structure - Entry levels
+    CEILING = resistance (entry for PUTS)
+    FLOOR = support (entry for CALLS)
+    """
+    if use_manual and man_ceiling > 0 and man_floor > 0:
+        return DayStructure(man_ceiling, man_floor, True)
+    
+    if not candles or len(candles) < 2:
+        return DayStructure(0, 0, False)
+    
+    # Use recent candles for structure
+    recent = candles[-10:] if len(candles) >= 10 else candles
+    high_es = max(c.get("h", c.get("c", 0)) for c in recent)
+    low_es = min(c.get("l", c.get("c", 0)) for c in recent)
+    
+    # Convert to SPX
+    ceiling_spx = high_es - offset
+    floor_spx = low_es - offset
+    
+    return DayStructure(round(ceiling_spx, 2), round(floor_spx, 2), False)
+
+def calculate_cones(prior_high: float, prior_low: float, 
+                    prior_close: float, offset: float) -> ConeRails:
+    """
+    Calculate cone rails from 3pm close to 9am entry
+    3pm -> 9am = 18 hours = 36 half-hour blocks
+    Expansion = blocks * 0.475 points per block
+    """
+    expansion = BLOCKS_3PM_TO_9AM * CONE_SLOPE
     
     return ConeRails(
-        round((prior_high + exp) - es_spx_offset, 2),
-        round((prior_high - exp) - es_spx_offset, 2),
-        round((prior_low + exp) - es_spx_offset, 2),
-        round((prior_low - exp) - es_spx_offset, 2),
-        round((prior_close + exp) - es_spx_offset, 2),
-        round((prior_close - exp) - es_spx_offset, 2),
-        BLOCKS_3PM_TO_9AM
+        c1_asc=round(prior_high + expansion - offset, 0),
+        c1_desc=round(prior_high - expansion - offset, 0),
+        c2_asc=round(prior_low + expansion - offset, 0),
+        c2_desc=round(prior_low - expansion - offset, 0),
+        c3_asc=round(prior_close + expansion - offset, 0),
+        c3_desc=round(prior_close - expansion - offset, 0),
+        blocks=BLOCKS_3PM_TO_9AM,
+        expansion=round(expansion, 1)
     )
 
-def calculate_trade_signal(ma: MABias, struct: DayStructure, vix: VIXZone,
-                          price: float) -> TradeSignal:
+def calculate_signal(ma: MABias, structure: DayStructure, 
+                     vix: VIXZone, current_price: float) -> TradeSignal:
+    """
+    Combine all 3 pillars to generate trade signal
+    All must align for a valid trade
+    """
     if ma.bias == "NEUTRAL":
-        return TradeSignal("NO_TRADE", 0, 0, 0, False, "MA Bias NEUTRAL")
+        return TradeSignal("NO TRADE", 0, 0, "MA Bias is NEUTRAL - no directional edge", False)
     
     if ma.bias == "LONG":
-        entry = struct.floor_spx
-        dist = abs(price - entry) if price > 0 else 0
-        strike = int(round((entry + 15) / 5) * 5)
+        entry = structure.floor
+        strike = int(round((entry + 15) / 5) * 5)  # 15 points OTM, round to 5
         
-        if vix.timing_signal == "CALLS":
-            return TradeSignal("CALLS", entry, strike, round(dist, 2), True, "All pillars aligned for CALLS")
-        elif vix.timing_signal == "PUTS":
-            return TradeSignal("NO_TRADE", entry, 0, round(dist, 2), False, "MA LONG but VIX says PUTS")
-        return TradeSignal("WAIT", entry, strike, round(dist, 2), False, "Waiting for VIX CALLS springboard")
+        if vix.signal == "CALLS":
+            return TradeSignal("CALLS", entry, strike, 
+                             "✓ All 3 pillars aligned for CALLS", True)
+        elif vix.signal == "PUTS":
+            return TradeSignal("NO TRADE", entry, 0,
+                             "MA says LONG but VIX says PUTS - conflicting signals", False)
+        else:
+            return TradeSignal("WAIT", entry, strike,
+                             "MA LONG - waiting for VIX to enter CALLS zone", False)
     
     else:  # SHORT
-        entry = struct.ceiling_spx
-        dist = abs(entry - price) if price > 0 else 0
-        strike = int(round((entry - 15) / 5) * 5)
+        entry = structure.ceiling
+        strike = int(round((entry - 15) / 5) * 5)  # 15 points OTM, round to 5
         
-        if vix.timing_signal == "PUTS":
-            return TradeSignal("PUTS", entry, strike, round(dist, 2), True, "All pillars aligned for PUTS")
-        elif vix.timing_signal == "CALLS":
-            return TradeSignal("NO_TRADE", entry, 0, round(dist, 2), False, "MA SHORT but VIX says CALLS")
-        return TradeSignal("WAIT", entry, strike, round(dist, 2), False, "Waiting for VIX PUTS springboard")
+        if vix.signal == "PUTS":
+            return TradeSignal("PUTS", entry, strike,
+                             "✓ All 3 pillars aligned for PUTS", True)
+        elif vix.signal == "CALLS":
+            return TradeSignal("NO TRADE", entry, 0,
+                             "MA says SHORT but VIX says CALLS - conflicting signals", False)
+        else:
+            return TradeSignal("WAIT", entry, strike,
+                             "MA SHORT - waiting for VIX to enter PUTS zone", False)
 
 # ============================================================
-# UTILITIES
+# STYLES
 # ============================================================
 
-def is_rth_open() -> bool:
-    now = datetime.now(CT)
-    if now.weekday() >= 5:
-        return False
-    rth_open = now.replace(hour=RTH_OPEN_HOUR, minute=RTH_OPEN_MIN, second=0)
-    rth_close = now.replace(hour=RTH_CLOSE_HOUR, minute=RTH_CLOSE_MIN, second=0)
-    return rth_open <= now <= rth_close
-
-def is_entry_window() -> bool:
-    now = datetime.now(CT)
-    if now.weekday() >= 5:
-        return False
-    entry_open = now.replace(hour=RTH_OPEN_HOUR, minute=RTH_OPEN_MIN, second=0)
-    entry_close = now.replace(hour=ENTRY_CUTOFF_HOUR, minute=ENTRY_CUTOFF_MIN, second=0)
-    return entry_open <= now <= entry_close
-
-def get_time_display() -> Tuple[str, str, str]:
-    now = datetime.now(CT)
-    time_str = now.strftime("%I:%M %p CT").lstrip("0")
-    date_str = now.strftime("%A, %B %d, %Y")
-    if is_entry_window():
-        status = "● Entry Window Open"
-    elif is_rth_open():
-        status = "● RTH Open (Past Cutoff)"
-    else:
-        status = "○ Market Closed"
-    return time_str, date_str, status
-
+CUSTOM_CSS = """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+    
+    :root {
+        --bg-primary: #0a0a0f;
+        --bg-secondary: #0f0f15;
+        --bg-card: #151520;
+        --bg-elevated: #1a1a28;
+        --bg-hover: #202030;
+        --border: #252535;
+        --border-bright: #353545;
+        --text-primary: #ffffff;
+        --text-secondary: #9090a0;
+        --text-muted: #505065;
+        --accent-green: #00e5a0;
+        --accent-green-dim: rgba(0, 229, 160, 0.12);
+        --accent-red: #ff5068;
+        --accent-red-dim: rgba(255, 80, 104, 0.12);
+        --accent-gold: #ffb020;
+        --accent-gold-dim: rgba(255, 176, 32, 0.12);
+        --accent-blue: #4090ff;
+        --accent-purple: #9060ff;
+        --gradient-hero: linear-gradient(135deg, #101018 0%, #151525 50%, #0f1525 100%);
+        --gradient-green: linear-gradient(135deg, #00e5a0 0%, #00c890 100%);
+        --gradient-red: linear-gradient(135deg, #ff5068 0%, #ff7080 100%);
+        --gradient-gold: linear-gradient(135deg, #ffb020 0%, #ffc040 100%);
+    }
+    
+    /* Base App */
+    .stApp {
+        background: var(--bg-primary);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    
+    /* Hide Streamlit Elements */
+    #MainMenu, footer, header, .stDeployButton, 
+    [data-testid="stToolbar"], [data-testid="stDecoration"] {
+        visibility: hidden !important;
+        display: none !important;
+    }
+    
+    /* Main Container */
+    .main .block-container {
+        padding: 1.5rem 2.5rem 3rem 2.5rem;
+        max-width: 100%;
+    }
+    
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background: var(--bg-secondary);
+        border-right: 1px solid var(--border);
+    }
+    
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+        color: var(--text-primary);
+    }
+    
+    /* Input Fields */
+    .stTextInput > div > div > input,
+    .stNumberInput > div > div > input {
+        background: var(--bg-card) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 10px !important;
+        color: var(--text-primary) !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 14px !important;
+        padding: 10px 14px !important;
+    }
+    
+    .stTextInput > div > div > input:focus,
+    .stNumberInput > div > div > input:focus {
+        border-color: var(--accent-green) !important;
+        box-shadow: 0 0 0 2px var(--accent-green-dim) !important;
+    }
+    
+    /* Select Boxes */
+    .stSelectbox > div > div {
+        background: var(--bg-card) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 10px !important;
+    }
+    
+    .stSelectbox > div > div > div {
+        color: var(--text-primary) !important;
+        font-family: 'JetBrains Mono', monospace !important;
+    }
+    
+    /* Buttons */
+    .stButton > button {
+        background: var(--bg-card) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 10px !important;
+        color: var(--text-primary) !important;
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 600 !important;
+        font-size: 13px !important;
+        padding: 10px 20px !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    .stButton > button:hover {
+        background: var(--bg-hover) !important;
+        border-color: var(--border-bright) !important;
+        transform: translateY(-1px);
+    }
+    
+    .stButton > button[kind="primary"] {
+        background: var(--gradient-green) !important;
+        border: none !important;
+        color: #000 !important;
+        font-weight: 700 !important;
+    }
+    
+    .stButton > button[kind="primary"]:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+    }
+    
+    /* Checkbox */
+    .stCheckbox label {
+        color: var(--text-secondary) !important;
+        font-size: 14px !important;
+    }
+    
+    /* Dividers */
+    hr {
+        border-color: var(--border) !important;
+        margin: 1.5rem 0 !important;
+    }
+    
+    /* Captions */
+    .stCaption {
+        color: var(--text-muted) !important;
+    }
+    
+    /* Alerts */
+    .stAlert {
+        background: var(--bg-card) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 10px !important;
+    }
+    
+    /* Custom Components */
+    .hero-banner {
+        background: var(--gradient-hero);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 36px 44px;
+        margin-bottom: 28px;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .hero-banner::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, var(--accent-green), var(--accent-blue), var(--accent-purple), var(--accent-red));
+    }
+    
+    .logo-container {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+    }
+    
+    .logo-icon {
+        font-size: 56px;
+        filter: drop-shadow(0 4px 12px rgba(0, 229, 160, 0.3));
+    }
+    
+    .logo-text {
+        font-family: 'Inter', sans-serif;
+        font-size: 44px;
+        font-weight: 900;
+        background: linear-gradient(135deg, #ffffff 0%, #a0a0b0 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        letter-spacing: -1.5px;
+        line-height: 1.1;
+    }
+    
+    .tagline {
+        font-family: 'Inter', sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--accent-green);
+        letter-spacing: 4px;
+        text-transform: uppercase;
+        margin-top: 6px;
+    }
+    
+    .price-display {
+        text-align: right;
+    }
+    
+    .price-value {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 42px;
+        font-weight: 700;
+        color: var(--text-primary);
+        letter-spacing: -1px;
+    }
+    
+    .price-meta {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-top: 4px;
+    }
+    
+    .section-header {
+        font-family: 'Inter', sans-serif;
+        font-size: 11px;
+        font-weight: 800;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 3px;
+        margin: 32px 0 20px 0;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+    }
+    
+    .pillar-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 24px 28px;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        transition: all 0.25s ease;
+    }
+    
+    .pillar-card.active {
+        border-color: var(--accent-green);
+        background: linear-gradient(135deg, var(--accent-green-dim), transparent);
+    }
+    
+    .pillar-card.inactive {
+        border-color: var(--accent-red);
+        background: linear-gradient(135deg, var(--accent-red-dim), transparent);
+    }
+    
+    .pillar-card.waiting {
+        border-color: var(--accent-gold);
+        background: linear-gradient(135deg, var(--accent-gold-dim), transparent);
+    }
+    
+    .pillar-icon {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        flex-shrink: 0;
+    }
+    
+    .pillar-icon.green { background: var(--accent-green-dim); }
+    .pillar-icon.red { background: var(--accent-red-dim); }
+    .pillar-icon.gold { background: var(--accent-gold-dim); }
+    
+    .pillar-content {
+        flex: 1;
+    }
+    
+    .pillar-title {
+        font-family: 'Inter', sans-serif;
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+    }
+    
+    .pillar-subtitle {
+        font-size: 13px;
+        color: var(--text-muted);
+    }
+    
+    .pillar-value-container {
+        text-align: right;
+    }
+    
+    .pillar-value {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 24px;
+        font-weight: 700;
+    }
+    
+    .pillar-value.green { color: var(--accent-green); }
+    .pillar-value.red { color: var(--accent-red); }
+    .pillar-value.gold { color: var(--accent-gold); }
+    .pillar-value.white { color: var(--text-primary); }
+    
+    .pillar-detail {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 4px;
+    }
+    
+    .signal-card {
+        border-radius: 20px;
+        padding: 40px;
+        text-align: center;
+        margin: 28px 0;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .signal-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+    }
+    
+    .signal-card.calls {
+        background: linear-gradient(180deg, var(--accent-green-dim), var(--bg-card));
+        border: 2px solid var(--accent-green);
+    }
+    .signal-card.calls::before { background: var(--gradient-green); }
+    
+    .signal-card.puts {
+        background: linear-gradient(180deg, var(--accent-red-dim), var(--bg-card));
+        border: 2px solid var(--accent-red);
+    }
+    .signal-card.puts::before { background: var(--gradient-red); }
+    
+    .signal-card.wait {
+        background: linear-gradient(180deg, var(--accent-gold-dim), var(--bg-card));
+        border: 2px solid var(--accent-gold);
+    }
+    .signal-card.wait::before { background: var(--gradient-gold); }
+    
+    .signal-card.notrade {
+        background: var(--bg-card);
+        border: 2px solid var(--border);
+    }
+    
+    .signal-direction {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 56px;
+        font-weight: 800;
+        letter-spacing: -2px;
+    }
+    
+    .signal-direction.green { color: var(--accent-green); }
+    .signal-direction.red { color: var(--accent-red); }
+    .signal-direction.gold { color: var(--accent-gold); }
+    .signal-direction.muted { color: var(--text-muted); }
+    
+    .signal-reason {
+        font-size: 15px;
+        color: var(--text-secondary);
+        margin-top: 8px;
+    }
+    
+    .signal-metrics {
+        display: flex;
+        justify-content: center;
+        gap: 60px;
+        margin-top: 32px;
+    }
+    
+    .signal-metric {
+        text-align: center;
+    }
+    
+    .signal-metric-label {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        margin-bottom: 8px;
+    }
+    
+    .signal-metric-value {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+    
+    .signal-metric-value.red {
+        color: var(--accent-red);
+    }
+    
+    .data-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 24px;
+    }
+    
+    .data-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+    
+    .data-cell {
+        background: var(--bg-elevated);
+        border-radius: 12px;
+        padding: 16px;
+        text-align: center;
+    }
+    
+    .data-label {
+        font-size: 10px;
+        font-weight: 700;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 8px;
+    }
+    
+    .data-value {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    
+    .data-value.green { color: var(--accent-green); }
+    .data-value.red { color: var(--accent-red); }
+    .data-value.muted { color: var(--text-muted); }
+    
+    .cone-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+    
+    .cone-table th {
+        font-size: 10px;
+        font-weight: 700;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        padding: 12px 16px;
+        text-align: center;
+        border-bottom: 1px solid var(--border);
+    }
+    
+    .cone-table td {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text-primary);
+        padding: 14px 16px;
+        text-align: center;
+        border-bottom: 1px solid var(--border);
+    }
+    
+    .cone-table tr:last-child td {
+        border-bottom: none;
+    }
+    
+    .cone-table .asc { color: var(--accent-green); }
+    .cone-table .desc { color: var(--accent-red); }
+    
+    .data-footer {
+        margin-top: 16px;
+        font-size: 11px;
+        color: var(--text-muted);
+        text-align: center;
+    }
+    
+    .sidebar-header {
+        text-align: center;
+        padding: 24px 0;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 24px;
+    }
+    
+    .sidebar-icon {
+        font-size: 48px;
+        margin-bottom: 12px;
+        filter: drop-shadow(0 2px 8px rgba(0, 229, 160, 0.3));
+    }
+    
+    .sidebar-title {
+        font-family: 'Inter', sans-serif;
+        font-size: 24px;
+        font-weight: 800;
+        color: var(--text-primary);
+        letter-spacing: -0.5px;
+    }
+    
+    .sidebar-tagline {
+        font-size: 9px;
+        font-weight: 700;
+        color: var(--accent-green);
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        margin-top: 6px;
+    }
+    
+    .date-badge {
+        background: var(--bg-elevated);
+        border: 1px solid var(--accent-green);
+        border-radius: 12px;
+        padding: 14px 18px;
+        text-align: center;
+        margin: 16px 0;
+    }
+    
+    .date-badge-day {
+        font-family: 'Inter', sans-serif;
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--accent-green);
+    }
+    
+    .date-badge-full {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 4px;
+    }
+    
+    .sidebar-section {
+        margin-bottom: 20px;
+    }
+    
+    .sidebar-section-title {
+        font-family: 'Inter', sans-serif;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+</style>
+"""
 
 # ============================================================
-# STREAMLIT UI
+# MAIN APPLICATION
 # ============================================================
-
-def apply_css():
-    st.markdown("""
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
-        :root {
-            --bg-deep: #05080d; --bg-panel: #0a0f18; --bg-elevated: #101820;
-            --border: #1a2433; --border-active: #2a3a50;
-            --text-primary: #f0f4f8; --text-secondary: #7a8a9a; --text-muted: #4a5a6a;
-            --green: #00e676; --green-bg: rgba(0,230,118,0.08);
-            --red: #ff5252; --red-bg: rgba(255,82,82,0.08);
-            --gold: #ffab00; --gold-bg: rgba(255,171,0,0.08);
-            --blue: #40c4ff;
-        }
-        .stApp { background-color: var(--bg-deep); }
-        .main .block-container { padding-top: 2rem; max-width: 100%; }
-        #MainMenu, footer, header { visibility: hidden; }
-        
-        .prophet-card {
-            background: var(--bg-panel); border: 1px solid var(--border);
-            border-radius: 12px; padding: 20px; margin-bottom: 16px;
-        }
-        .prophet-card-header {
-            font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600;
-            text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted);
-            margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
-        }
-        .prophet-card-header::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-        
-        .pillar {
-            background: var(--bg-panel); border: 1px solid var(--border);
-            padding: 20px 24px; display: flex; align-items: center; gap: 20px; margin-bottom: 2px;
-        }
-        .pillar:first-child { border-radius: 12px 12px 0 0; }
-        .pillar:last-child { border-radius: 0 0 12px 12px; }
-        .pillar.pass { background: var(--bg-elevated); border-color: var(--border-active); }
-        
-        .pillar-number {
-            width: 48px; height: 48px; border-radius: 50%; background: var(--bg-deep);
-            border: 2px solid var(--border); display: flex; align-items: center; justify-content: center;
-            font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 700;
-            color: var(--text-muted); flex-shrink: 0;
-        }
-        .pillar-number.pass { border-color: var(--green); color: var(--green); background: var(--green-bg); }
-        .pillar-number.fail { border-color: var(--red); color: var(--red); background: var(--red-bg); }
-        .pillar-number.wait { border-color: var(--gold); color: var(--gold); background: var(--gold-bg); }
-        
-        .trade-decision {
-            background: var(--bg-panel); border: 2px solid var(--border);
-            border-radius: 16px; padding: 32px; text-align: center; margin: 24px 0;
-        }
-        .trade-decision.ready { border-color: var(--green); background: linear-gradient(180deg, var(--green-bg), var(--bg-panel)); }
-        .trade-decision.no-trade { border-color: var(--red); background: linear-gradient(180deg, var(--red-bg), var(--bg-panel)); }
-        .trade-decision.waiting { border-color: var(--gold); background: linear-gradient(180deg, var(--gold-bg), var(--bg-panel)); }
-        
-        .value-large { font-family: 'IBM Plex Mono', monospace; font-size: 36px; font-weight: 700; letter-spacing: -1px; }
-        .value-medium { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 600; }
-        .value-small { font-family: 'IBM Plex Mono', monospace; font-size: 14px; }
-        
-        .text-green { color: var(--green) !important; }
-        .text-red { color: var(--red) !important; }
-        .text-gold { color: var(--gold) !important; }
-        .text-blue { color: var(--blue) !important; }
-        .text-muted { color: var(--text-muted) !important; }
-        .text-secondary { color: var(--text-secondary) !important; }
-        
-        .stTextInput > div > div > input, .stNumberInput > div > div > input {
-            background-color: var(--bg-deep) !important; border: 1px solid var(--border) !important;
-            border-radius: 6px !important; color: var(--text-primary) !important;
-            font-family: 'IBM Plex Mono', monospace !important;
-        }
-        .stButton > button {
-            background-color: var(--bg-deep) !important; border: 1px solid var(--border) !important;
-            border-radius: 6px !important; color: var(--text-primary) !important;
-            font-family: 'IBM Plex Mono', monospace !important; font-weight: 600 !important;
-            width: 100%; padding: 12px 24px !important;
-        }
-        .stButton > button:hover { background-color: var(--bg-elevated) !important; border-color: var(--border-active) !important; }
-        [data-testid="stSidebar"] { background-color: var(--bg-panel) !important; }
-        
-        .entry-badge {
-            background: var(--gold-bg); border: 1px solid var(--gold); border-radius: 6px;
-            padding: 8px 12px; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
-            color: var(--gold); display: inline-block; margin: 8px 0;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-def render_pillar(num, name, role, question, answer, detail, status):
-    s = "pass" if status == "pass" else ("fail" if status == "fail" else "wait")
-    ac = "text-green" if answer in ["LONG","CALLS","FLOOR"] else ("text-red" if answer in ["SHORT","PUTS","CEILING"] else "text-gold")
-    return f'''<div class="pillar {s}">
-        <div class="pillar-number {s}">{num}</div>
-        <div style="flex:1;min-width:0;">
-            <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px;">
-                <span style="font-weight:600;font-size:15px;color:var(--text-primary);">{name}</span>
-                <span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">{role}</span>
-            </div>
-            <p style="font-size:13px;color:var(--text-secondary);margin:0;">{question}</p>
-        </div>
-        <div style="text-align:right;">
-            <div class="value-medium {ac}">{answer}</div>
-            <div class="value-small text-secondary">{detail}</div>
-        </div>
-    </div>'''
 
 def main():
-    st.set_page_config(page_title="SPX Prophet", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
-    apply_css()
+    st.set_page_config(
+        page_title="SPX Prophet Pro",
+        page_icon="🔮",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
     
+    # Apply custom styles
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+    
+    # Initialize session state
     if "inputs" not in st.session_state:
         st.session_state.inputs = load_inputs()
-    if "last_refresh" not in st.session_state:
-        st.session_state.last_refresh = None
     if "es_price" not in st.session_state:
         st.session_state.es_price = None
     if "es_candles" not in st.session_state:
         st.session_state.es_candles = None
+    if "last_refresh" not in st.session_state:
+        st.session_state.last_refresh = None
     if "options_data" not in st.session_state:
         st.session_state.options_data = None
     
     # ========================================
-    # MAIN AREA - Trading Date & Inputs (in expander)
+    # SIDEBAR
     # ========================================
-    
-    from datetime import date, timedelta as td
-    import calendar
-    today = datetime.now(CT).date()
-    
-    default_date = today
-    if st.session_state.inputs.trading_date:
-        try:
-            default_date = datetime.strptime(st.session_state.inputs.trading_date, "%Y-%m-%d").date()
-        except:
-            pass
-    
-    # Date selection at the TOP of main area
-    st.markdown('''<div style="margin-bottom:16px;">
-        <h1 style="font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:700;margin-bottom:4px;color:#f0f4f8;">SPX Prophet</h1>
-        <p style="font-size:12px;color:#4a5a6a;text-transform:uppercase;letter-spacing:1px;">0DTE Trading System v2.3</p>
-    </div>''', unsafe_allow_html=True)
-    
-    # Trading Date Selection - ALWAYS VISIBLE
-    st.markdown('<div class="prophet-card-header">📅 Trading Date</div>', unsafe_allow_html=True)
-    
-    date_col1, date_col2, date_col3, date_col4, date_col5, date_col6, date_col7 = st.columns([1,1,1,1,1,1,1])
-    
-    with date_col1:
-        if st.button("Today", key="btn_today", use_container_width=True):
-            st.session_state.inputs.trading_date = today.strftime("%Y-%m-%d")
-            st.session_state.options_data = None
-            st.rerun()
-    
-    with date_col2:
-        yesterday = today - td(days=1)
-        if st.button("Yesterday", key="btn_yesterday", use_container_width=True):
-            st.session_state.inputs.trading_date = yesterday.strftime("%Y-%m-%d")
-            st.session_state.options_data = None
-            st.rerun()
-    
-    with date_col3:
-        # Find last Friday
-        days_since_friday = (today.weekday() - 4) % 7
-        if days_since_friday == 0 and datetime.now(CT).hour < 15:
-            last_friday = today
-        else:
-            last_friday = today - td(days=days_since_friday if days_since_friday > 0 else 7)
-        if st.button("Last Fri", key="btn_lastfri", use_container_width=True):
-            st.session_state.inputs.trading_date = last_friday.strftime("%Y-%m-%d")
-            st.session_state.options_data = None
-            st.rerun()
-    
-    with date_col4:
-        selected_year = st.selectbox("Year", options=[2024, 2025, 2026, 2027], 
-                                      index=[2024,2025,2026,2027].index(default_date.year) if default_date.year in [2024,2025,2026,2027] else 2,
-                                      key="select_year", label_visibility="collapsed")
-    
-    with date_col5:
-        months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-        selected_month = st.selectbox("Month", options=list(range(1,13)), format_func=lambda x: months[x-1],
-                                       index=default_date.month - 1, key="select_month", label_visibility="collapsed")
-    
-    with date_col6:
-        max_day = calendar.monthrange(selected_year, selected_month)[1]
-        default_day = min(default_date.day, max_day)
-        selected_day = st.selectbox("Day", options=list(range(1, max_day + 1)),
-                                     index=default_day - 1, key="select_day", label_visibility="collapsed")
-    
-    with date_col7:
-        if st.button("✓ Set Date", key="btn_setdate", use_container_width=True, type="primary"):
-            new_date = date(selected_year, selected_month, selected_day)
-            st.session_state.inputs.trading_date = new_date.strftime("%Y-%m-%d")
-            st.session_state.options_data = None
-            st.rerun()
-    
-    # Build the trading date
-    try:
-        trading_date = date(selected_year, selected_month, selected_day)
-    except:
-        trading_date = today
-    
-    trading_date_str = trading_date.strftime("%Y-%m-%d")
-    day_name = trading_date.strftime("%A")
-    
-    # Show selected date prominently
-    if trading_date.weekday() >= 5:
-        st.warning(f"⚠️ {day_name}, {trading_date.strftime('%B %d, %Y')} - Weekend (No Trading)")
-    else:
-        st.success(f"📆 {day_name}, {trading_date.strftime('%B %d, %Y')}")
-    
-    st.markdown("<hr style='margin:16px 0;border-color:#1a2433;'>", unsafe_allow_html=True)
-    
-    # Inputs in expandable section
-    with st.expander("⚙️ Manual Inputs (VIX, Prior Day, Structure)", expanded=False):
-        col1, col2 = st.columns(2)
+    with st.sidebar:
+        # Header
+        st.markdown("""
+        <div class="sidebar-header">
+            <div class="sidebar-icon">🔮</div>
+            <div class="sidebar-title">SPX Prophet</div>
+            <div class="sidebar-tagline">Structure → Foresight</div>
+        </div>
+        """, unsafe_allow_html=True)
         
-        with col1:
-            st.markdown("**VIX Zone (from TradingView)**")
-            vc1, vc2 = st.columns(2)
-            vix_high = vc1.number_input("ON High", value=st.session_state.inputs.vix_overnight_high, format="%.2f", step=0.01)
-            vix_low = vc2.number_input("ON Low", value=st.session_state.inputs.vix_overnight_low, format="%.2f", step=0.01)
-            vix_current = st.number_input("VIX Current", value=st.session_state.inputs.vix_current, format="%.2f", step=0.01)
-            
-            st.markdown("**ES/SPX Offset**")
-            offset = st.number_input("Offset (ES-SPX)", value=st.session_state.inputs.es_spx_offset, format="%.2f", step=0.5)
+        # Trading Date Section
+        st.markdown('<div class="sidebar-section-title">📅 Trading Date</div>', unsafe_allow_html=True)
         
-        with col2:
-            st.markdown("**Prior Day (ES)**")
-            pc1, pc2, pc3 = st.columns(3)
-            prior_high = pc1.number_input("High", value=st.session_state.inputs.prior_high, format="%.0f", step=1.0)
-            prior_low = pc2.number_input("Low", value=st.session_state.inputs.prior_low, format="%.0f", step=1.0)
-            prior_close = pc3.number_input("Close", value=st.session_state.inputs.prior_close, format="%.0f", step=1.0)
-            
-            st.markdown("**Manual Structure Override**")
-            use_manual = st.checkbox("Use manual CEILING/FLOOR", value=st.session_state.inputs.use_manual_structure)
-            if use_manual:
-                mc1, mc2 = st.columns(2)
-                man_ceil = mc1.number_input("CEILING (SPX)", value=st.session_state.inputs.manual_ceiling, format="%.0f", step=1.0)
-                man_floor = mc2.number_input("FLOOR (SPX)", value=st.session_state.inputs.manual_floor, format="%.0f", step=1.0)
-            else:
-                man_ceil, man_floor = 0.0, 0.0
+        today = datetime.now(CT).date()
+        default_date = today
+        if st.session_state.inputs.trading_date:
+            try:
+                default_date = datetime.strptime(st.session_state.inputs.trading_date, "%Y-%m-%d").date()
+            except:
+                pass
         
-        save_col1, save_col2 = st.columns(2)
-        with save_col1:
-            if st.button("💾 Save All Inputs", use_container_width=True):
-                st.session_state.inputs = ManualInputs(
-                    vix_overnight_high=vix_high, vix_overnight_low=vix_low, vix_current=vix_current,
-                    es_spx_offset=offset, prior_high=prior_high, prior_low=prior_low, prior_close=prior_close,
-                    manual_ceiling=man_ceil, manual_floor=man_floor, use_manual_structure=use_manual,
-                    trading_date=trading_date_str
-                )
-                save_inputs(st.session_state.inputs)
-                st.session_state.options_data = None
-                st.success("Saved!")
-        with save_col2:
-            if st.button("🔄 Refresh Market Data", use_container_width=True):
-                st.session_state.last_refresh = None
+        # Quick date buttons
+        btn_col1, btn_col2, btn_col3 = st.columns(3)
+        with btn_col1:
+            if st.button("Today", use_container_width=True, key="btn_today"):
+                st.session_state.inputs.trading_date = today.strftime("%Y-%m-%d")
                 st.session_state.options_data = None
                 st.rerun()
+        with btn_col2:
+            yesterday = today - timedelta(days=1)
+            if st.button("Yest", use_container_width=True, key="btn_yest"):
+                st.session_state.inputs.trading_date = yesterday.strftime("%Y-%m-%d")
+                st.session_state.options_data = None
+                st.rerun()
+        with btn_col3:
+            # Find last Friday
+            days_back = (today.weekday() - 4) % 7
+            if days_back == 0:
+                days_back = 7
+            last_friday = today - timedelta(days=days_back)
+            if st.button("Fri", use_container_width=True, key="btn_fri"):
+                st.session_state.inputs.trading_date = last_friday.strftime("%Y-%m-%d")
+                st.session_state.options_data = None
+                st.rerun()
+        
+        # Date dropdowns
+        date_col1, date_col2, date_col3 = st.columns(3)
+        with date_col1:
+            years = [2024, 2025, 2026, 2027]
+            default_year_idx = years.index(default_date.year) if default_date.year in years else 2
+            sel_year = st.selectbox("Year", years, index=default_year_idx, 
+                                    key="sel_year", label_visibility="collapsed")
+        with date_col2:
+            months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+            sel_month = st.selectbox("Month", range(1, 13), 
+                                     format_func=lambda x: months[x-1],
+                                     index=default_date.month - 1,
+                                     key="sel_month", label_visibility="collapsed")
+        with date_col3:
+            max_days = calendar.monthrange(sel_year, sel_month)[1]
+            default_day = min(default_date.day, max_days)
+            sel_day = st.selectbox("Day", range(1, max_days + 1),
+                                   index=default_day - 1,
+                                   key="sel_day", label_visibility="collapsed")
+        
+        # Build trading date
+        trading_date = date(sel_year, sel_month, sel_day)
+        trading_date_str = trading_date.strftime("%Y-%m-%d")
+        day_name = trading_date.strftime("%A")
+        is_weekend = trading_date.weekday() >= 5
+        
+        # Display selected date
+        if is_weekend:
+            st.error(f"⚠️ {day_name} - Weekend (No Trading)")
+        else:
+            st.markdown(f"""
+            <div class="date-badge">
+                <div class="date-badge-day">{day_name}</div>
+                <div class="date-badge-full">{trading_date.strftime('%B %d, %Y')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # VIX Zone Inputs
+        st.markdown('<div class="sidebar-section-title">📊 VIX Zone</div>', unsafe_allow_html=True)
+        st.caption("Enter from TradingView overnight session")
+        
+        vix_col1, vix_col2 = st.columns(2)
+        vix_high = vix_col1.number_input("ON High", value=st.session_state.inputs.vix_overnight_high,
+                                          format="%.2f", step=0.01, key="vix_high")
+        vix_low = vix_col2.number_input("ON Low", value=st.session_state.inputs.vix_overnight_low,
+                                         format="%.2f", step=0.01, key="vix_low")
+        vix_current = st.number_input("VIX Current", value=st.session_state.inputs.vix_current,
+                                       format="%.2f", step=0.01, key="vix_current")
+        
+        st.markdown("---")
+        
+        # Prior Day Inputs
+        st.markdown('<div class="sidebar-section-title">📈 Prior Day (ES)</div>', unsafe_allow_html=True)
+        st.caption("From 2:30pm candle close at 3pm CT")
+        
+        prior_col1, prior_col2, prior_col3 = st.columns(3)
+        prior_high = prior_col1.number_input("High", value=st.session_state.inputs.prior_high,
+                                              format="%.0f", step=1.0, key="prior_high")
+        prior_low = prior_col2.number_input("Low", value=st.session_state.inputs.prior_low,
+                                             format="%.0f", step=1.0, key="prior_low")
+        prior_close = prior_col3.number_input("Close", value=st.session_state.inputs.prior_close,
+                                               format="%.0f", step=1.0, key="prior_close")
+        
+        st.markdown("---")
+        
+        # ES/SPX Offset
+        st.markdown('<div class="sidebar-section-title">⚖️ ES/SPX Offset</div>', unsafe_allow_html=True)
+        offset = st.number_input("Offset (ES - SPX)", value=st.session_state.inputs.es_spx_offset,
+                                  format="%.1f", step=0.5, key="offset", label_visibility="collapsed")
+        
+        st.markdown("---")
+        
+        # Manual Structure Override
+        st.markdown('<div class="sidebar-section-title">🎯 Manual Structure</div>', unsafe_allow_html=True)
+        use_manual = st.checkbox("Override auto CEILING/FLOOR", 
+                                  value=st.session_state.inputs.use_manual_structure,
+                                  key="use_manual")
+        
+        if use_manual:
+            man_col1, man_col2 = st.columns(2)
+            man_ceiling = man_col1.number_input("CEILING (SPX)", 
+                                                 value=st.session_state.inputs.manual_ceiling,
+                                                 format="%.0f", step=1.0, key="man_ceiling")
+            man_floor = man_col2.number_input("FLOOR (SPX)",
+                                               value=st.session_state.inputs.manual_floor,
+                                               format="%.0f", step=1.0, key="man_floor")
+        else:
+            man_ceiling = 0.0
+            man_floor = 0.0
+        
+        st.markdown("---")
+        
+        # Action Buttons
+        if st.button("💾 SAVE ALL INPUTS", use_container_width=True, type="primary", key="btn_save"):
+            st.session_state.inputs = ManualInputs(
+                vix_overnight_high=vix_high,
+                vix_overnight_low=vix_low,
+                vix_current=vix_current,
+                es_spx_offset=offset,
+                prior_high=prior_high,
+                prior_low=prior_low,
+                prior_close=prior_close,
+                manual_ceiling=man_ceiling,
+                manual_floor=man_floor,
+                use_manual_structure=use_manual,
+                trading_date=trading_date_str
+            )
+            save_inputs(st.session_state.inputs)
+            st.session_state.options_data = None
+            st.success("✓ All inputs saved!")
+        
+        if st.button("🔄 Refresh Market Data", use_container_width=True, key="btn_refresh"):
+            st.session_state.last_refresh = None
+            st.session_state.es_price = None
+            st.session_state.es_candles = None
+            st.session_state.options_data = None
+            st.rerun()
+
+    # ========================================
+    # MAIN CONTENT AREA
+    # ========================================
     
-    st.markdown("<hr style='margin:16px 0;border-color:#1a2433;'>", unsafe_allow_html=True)
-    
-    # Current inputs
+    # Build current inputs object
     inputs = ManualInputs(
-        vix_overnight_high=vix_high, vix_overnight_low=vix_low, vix_current=vix_current,
-        es_spx_offset=offset, prior_high=prior_high, prior_low=prior_low, prior_close=prior_close,
-        manual_ceiling=man_ceil if use_manual else 0, manual_floor=man_floor if use_manual else 0,
-        use_manual_structure=use_manual, trading_date=trading_date_str
+        vix_overnight_high=vix_high,
+        vix_overnight_low=vix_low,
+        vix_current=vix_current,
+        es_spx_offset=offset,
+        prior_high=prior_high,
+        prior_low=prior_low,
+        prior_close=prior_close,
+        manual_ceiling=man_ceiling if use_manual else 0,
+        manual_floor=man_floor if use_manual else 0,
+        use_manual_structure=use_manual,
+        trading_date=trading_date_str
     )
     
-    # Fetch data
-    should_refresh = st.session_state.last_refresh is None or (datetime.now() - st.session_state.last_refresh).seconds > REFRESH_INTERVAL
+    # Fetch market data if needed
+    should_refresh = (
+        st.session_state.last_refresh is None or 
+        (datetime.now() - st.session_state.last_refresh).seconds > 900
+    )
+    
     if should_refresh:
-        with st.spinner("Fetching data..."):
-            es_price = get_es_price_polygon() or get_es_price_yahoo()
-            es_candles = get_es_candles_polygon() or get_es_candles_yahoo()
-            st.session_state.es_price = es_price
-            st.session_state.es_candles = es_candles
+        with st.spinner("Loading market data..."):
+            st.session_state.es_price = fetch_es_price()
+            st.session_state.es_candles = fetch_es_candles()
             st.session_state.last_refresh = datetime.now()
     
-    es_price = st.session_state.es_price
-    es_candles = st.session_state.es_candles
-    spx_price = (es_price - inputs.es_spx_offset) if es_price and inputs.es_spx_offset else 0
+    # Get data from session state
+    es_price = st.session_state.es_price or 0
+    es_candles = st.session_state.es_candles or []
+    spx_price = (es_price - inputs.es_spx_offset) if es_price else 0
     
-    # Calculations
-    ma = calculate_ma_bias(es_candles) if es_candles else MABias(0, 0, "NEUTRAL", "No data")
-    struct = calculate_day_structure(es_candles, inputs.es_spx_offset, inputs.manual_ceiling, inputs.manual_floor, inputs.use_manual_structure) if es_candles else DayStructure(0,0,0,0)
-    vix = calculate_vix_zone(inputs.vix_overnight_high, inputs.vix_overnight_low, inputs.vix_current)
-    cones = calculate_cone_rails(inputs.prior_high, inputs.prior_low, inputs.prior_close, inputs.es_spx_offset)
-    signal = calculate_trade_signal(ma, struct, vix, spx_price)
+    # Perform calculations
+    ma_bias = calculate_ma_bias(es_candles) if es_candles else MABias(0, 0, "NEUTRAL")
+    vix_zone = calculate_vix_zone(inputs.vix_overnight_high, inputs.vix_overnight_low, inputs.vix_current)
+    structure = calculate_structure(es_candles, inputs.es_spx_offset, 
+                                    inputs.manual_ceiling, inputs.manual_floor, 
+                                    inputs.use_manual_structure)
+    cones = calculate_cones(inputs.prior_high, inputs.prior_low, inputs.prior_close, inputs.es_spx_offset)
+    signal = calculate_signal(ma_bias, structure, vix_zone, spx_price)
     
-    # Fetch options for the CORRECT strike (15 OTM from entry level)
-    # Strike is already calculated in signal as entry ± 15
+    # Fetch options data if we have a strike
     if signal.strike > 0 and st.session_state.options_data is None:
-        opt_type = "call" if ma.bias == "LONG" else "put"
-        st.session_state.options_data = get_spx_options_polygon(signal.strike, opt_type, trading_date_str)
-    opts = st.session_state.options_data
+        opt_type = "call" if ma_bias.bias == "LONG" else "put"
+        st.session_state.options_data = fetch_options_data(signal.strike, opt_type, trading_date_str)
     
-    time_str, date_str, time_status = get_time_display()
+    options = st.session_state.options_data
     
-    # Format trading date for display
-    trading_date_display = trading_date.strftime("%a, %b %d")
-    is_today = trading_date == datetime.now(CT).date()
+    # Current time
+    now = datetime.now(CT)
     
-    # Header
-    c1, c2 = st.columns([2,1])
-    with c1:
-        src = f"ES {es_price:,.2f} − {inputs.es_spx_offset:.2f}" if es_price else "No data"
-        st.markdown(f'''<div style="margin-bottom:24px;">
-            <p style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">SPX</p>
-            <span class="value-large">{spx_price:,.2f}</span>
-            <p style="font-size:11px;color:var(--text-muted);margin-top:4px;">Auto: {src}</p>
-        </div>''', unsafe_allow_html=True)
-    with c2:
-        sc = "text-green" if "Entry" in time_status else ("text-gold" if "RTH" in time_status else "text-muted")
-        trading_label = "Today" if is_today else trading_date_display
-        st.markdown(f'''<div style="text-align:right;margin-bottom:24px;">
-            <p class="value-medium">{time_str}</p>
-            <p style="font-size:13px;color:var(--text-secondary);margin-top:2px;">{date_str}</p>
-            <p class="{sc}" style="font-size:11px;margin-top:8px;">{time_status}</p>
-            <p style="font-size:11px;color:var(--gold);margin-top:4px;">📅 Trading: {trading_label}</p>
-        </div>''', unsafe_allow_html=True)
-    
-    st.markdown("<hr style='margin:0 0 24px 0;border-color:var(--border);'>", unsafe_allow_html=True)
-    
-    # Pillars
-    p1_s = "pass" if ma.bias in ["LONG","SHORT"] else "wait"
-    p1 = render_pillar(1, "MA Bias", "Filter", "Can I trade CALLS or PUTS?", ma.bias,
-                       f"50 EMA {ma.ema_50:,.0f} {'›' if ma.ema_50>ma.sma_200 else '‹'} 200 SMA {ma.sma_200:,.0f}", p1_s)
-    
-    if ma.bias == "LONG":
-        p2_ans, p2_det = "FLOOR", f"{struct.floor_spx:,.0f} ({abs(spx_price-struct.floor_spx):.0f} away)"
-    elif ma.bias == "SHORT":
-        p2_ans, p2_det = "CEILING", f"{struct.ceiling_spx:,.0f} ({abs(struct.ceiling_spx-spx_price):.0f} away)"
-    else:
-        p2_ans, p2_det = "—", "Waiting for MA"
-    if struct.is_manual:
-        p2_det += " [Manual]"
-    p2_s = "pass" if ma.bias != "NEUTRAL" and struct.floor_spx > 0 else "wait"
-    p2 = render_pillar(2, "Day Structure", "Primary", "Entry level @ 9:00 AM CT?", p2_ans, p2_det, p2_s)
-    
-    if vix.timing_signal == "WAIT":
-        p3_s = "wait"
-    elif (ma.bias=="LONG" and vix.timing_signal=="CALLS") or (ma.bias=="SHORT" and vix.timing_signal=="PUTS"):
-        p3_s = "pass"
-    else:
-        p3_s = "fail" if vix.timing_signal in ["CALLS","PUTS"] else "wait"
-    p3 = render_pillar(3, "VIX Zone", "Timing", "Is NOW the right time?", vix.timing_signal, vix.zone_position, p3_s)
-    
-    st.markdown(f'<div style="margin-bottom:24px;">{p1}{p2}{p3}</div>', unsafe_allow_html=True)
-    
-    # Trade Decision
-    if signal.direction == "CALLS":
-        dc, dirc, disp = "ready", "text-green", "CALLS ✓"
-    elif signal.direction == "PUTS":
-        dc, dirc, disp = "ready", "text-red", "PUTS ✓"
-    elif signal.direction == "WAIT":
-        dc, dirc, disp = "waiting", "text-gold", "WAIT"
-    else:
-        dc, dirc, disp = "no-trade", "text-muted", "NO TRADE"
-    
-    suf = "C" if signal.direction in ["CALLS"] or (signal.direction=="WAIT" and ma.bias=="LONG") else ("P" if signal.direction in ["PUTS"] or (signal.direction=="WAIT" and ma.bias=="SHORT") else "")
-    
-    st.markdown(f'''<div class="trade-decision {dc}">
-        <p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;">Trade Decision</p>
-        <p style="font-family:'IBM Plex Mono',monospace;font-size:48px;font-weight:700;letter-spacing:-2px;margin-bottom:8px;" class="{dirc}">{disp}</p>
-        <p style="font-size:13px;color:var(--text-secondary);">{signal.reason}</p>
-        <div style="display:flex;justify-content:center;gap:40px;margin-top:24px;padding-top:24px;border-top:1px solid var(--border);">
-            <div style="text-align:center;"><p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Entry</p><p class="value-medium text-green">{signal.entry_level:,.0f}</p></div>
-            <div style="text-align:center;"><p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Strike</p><p class="value-medium text-green">{signal.strike} {suf}</p></div>
-            <div style="text-align:center;"><p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Distance</p><p class="value-medium">{signal.distance:.0f} pts</p></div>
-            <div style="text-align:center;"><p style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Stop</p><p class="value-medium">50%</p></div>
+    # ========================================
+    # HERO BANNER
+    # ========================================
+    st.markdown(f"""
+    <div class="hero-banner">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div class="logo-container">
+                <span class="logo-icon">🔮</span>
+                <div>
+                    <div class="logo-text">SPX Prophet</div>
+                    <div class="tagline">Where Structure Becomes Foresight</div>
+                </div>
+            </div>
+            <div class="price-display">
+                <div class="price-value">{spx_price:,.2f}</div>
+                <div class="price-meta">SPX • {now.strftime('%I:%M %p CT')} • {trading_date.strftime('%b %d, %Y')}</div>
+            </div>
         </div>
-    </div>''', unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Secondary panels
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(f'''<div class="prophet-card">
-            <div class="prophet-card-header">Cone Rails @ 9:00 AM CT</div>
-            <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
-                <span style="font-size:13px;color:var(--text-secondary);">C1 (High {inputs.prior_high:,.0f})</span>
-                <div style="display:flex;gap:16px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
-                    <span class="text-green">{cones.c1_ascending:,.0f} ↗</span>
-                    <span class="text-red">{cones.c1_descending:,.0f} ↘</span>
-                </div>
-            </div>
-            <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
-                <span style="font-size:13px;color:var(--text-secondary);">C2 (Low {inputs.prior_low:,.0f})</span>
-                <div style="display:flex;gap:16px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
-                    <span class="text-green">{cones.c2_ascending:,.0f} ↗</span>
-                    <span class="text-red">{cones.c2_descending:,.0f} ↘</span>
-                </div>
-            </div>
-            <div style="display:flex;justify-content:space-between;padding:10px 0;">
-                <span style="font-size:13px;color:var(--text-secondary);">C3 (Close {inputs.prior_close:,.0f})</span>
-                <div style="display:flex;gap:16px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
-                    <span class="text-green">{cones.c3_ascending:,.0f} ↗</span>
-                    <span class="text-red">{cones.c3_descending:,.0f} ↘</span>
-                </div>
-            </div>
-            <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-muted);">
-                3pm→9am: {cones.blocks_elapsed:.0f} blocks | ±{cones.blocks_elapsed*CONE_SLOPE:.1f} pts
-            </div>
-        </div>''', unsafe_allow_html=True)
+    # ========================================
+    # THREE PILLARS
+    # ========================================
+    st.markdown('<div class="section-header">The Three Pillars</div>', unsafe_allow_html=True)
     
-    with c2:
-        if opts:
-            st.markdown(f'''<div class="prophet-card">
-                <div class="prophet-card-header">0DTE Options</div>
-                <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">{opts.ticker}</div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-                    <div style="background:var(--bg-deep);border-radius:8px;padding:14px;text-align:center;">
-                        <p style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Strike</p>
-                        <p class="value-medium text-green">{opts.strike} {opts.option_type[0].upper()}</p>
-                    </div>
-                    <div style="background:var(--bg-deep);border-radius:8px;padding:14px;text-align:center;">
-                        <p style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Last</p>
-                        <p class="value-medium">${opts.last:.2f}</p>
-                    </div>
-                    <div style="background:var(--bg-deep);border-radius:8px;padding:14px;text-align:center;">
-                        <p style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Bid</p>
-                        <p class="value-medium">${opts.bid:.2f}</p>
-                    </div>
-                    <div style="background:var(--bg-deep);border-radius:8px;padding:14px;text-align:center;">
-                        <p style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Ask</p>
-                        <p class="value-medium">${opts.ask:.2f}</p>
-                    </div>
-                </div>
-                <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:11px;color:var(--text-muted);">
-                    <div>Vol: {opts.volume:,}</div><div>OI: {opts.open_interest:,}</div>
-                </div>
-            </div>''', unsafe_allow_html=True)
-        else:
-            strike_d = f"{signal.strike} {suf}" if signal.strike > 0 else "—"
-            msg = "Enter Polygon API key" if not get_polygon_api_key() else "No data available"
-            st.markdown(f'''<div class="prophet-card">
-                <div class="prophet-card-header">0DTE Options</div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-                    <div style="background:var(--bg-deep);border-radius:8px;padding:14px;text-align:center;">
-                        <p style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Strike</p>
-                        <p class="value-medium text-green">{strike_d}</p>
-                    </div>
-                    <div style="background:var(--bg-deep);border-radius:8px;padding:14px;text-align:center;">
-                        <p style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Last</p><p class="value-medium">—</p>
-                    </div>
-                    <div style="background:var(--bg-deep);border-radius:8px;padding:14px;text-align:center;">
-                        <p style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Bid</p><p class="value-medium">—</p>
-                    </div>
-                    <div style="background:var(--bg-deep);border-radius:8px;padding:14px;text-align:center;">
-                        <p style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Ask</p><p class="value-medium">—</p>
-                    </div>
-                </div>
-                <div style="margin-top:12px;font-size:11px;color:var(--text-muted);">{msg}</div>
-            </div>''', unsafe_allow_html=True)
+    # Pillar 1: MA Bias
+    p1_status = "active" if ma_bias.bias in ["LONG", "SHORT"] else "waiting"
+    p1_icon_color = "green" if ma_bias.bias == "LONG" else ("red" if ma_bias.bias == "SHORT" else "gold")
+    p1_value_color = "green" if ma_bias.bias == "LONG" else ("red" if ma_bias.bias == "SHORT" else "gold")
+    p1_compare = ">" if ma_bias.ema_50 > ma_bias.sma_200 else "<"
     
-    # Economic Calendar
-    st.markdown('''<div class="prophet-card" style="margin-top:20px;">
-        <div class="prophet-card-header">📅 Economic Calendar (Today)</div>
-    ''', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="pillar-card {p1_status}">
+        <div class="pillar-icon {p1_icon_color}">📊</div>
+        <div class="pillar-content">
+            <div class="pillar-title">Pillar 1: MA Bias</div>
+            <div class="pillar-subtitle">Can I trade CALLS or PUTS today?</div>
+        </div>
+        <div class="pillar-value-container">
+            <div class="pillar-value {p1_value_color}">{ma_bias.bias}</div>
+            <div class="pillar-detail">50 EMA {p1_compare} 200 SMA</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    econ_events = get_economic_calendar()
-    if econ_events:
-        events_html = ""
-        for event in econ_events:
-            # Impact color
-            if event.impact == "HIGH":
-                impact_color = "text-red"
-                impact_icon = "🔴"
-            elif event.impact == "MEDIUM":
-                impact_color = "text-gold"
-                impact_icon = "🟡"
-            else:
-                impact_color = "text-muted"
-                impact_icon = "⚪"
-            
-            events_html += f'''
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
-                <div style="display:flex;align-items:center;gap:12px;">
-                    <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-secondary);min-width:70px;">{event.time}</span>
-                    <span>{impact_icon}</span>
-                    <span style="font-size:13px;color:var(--text-primary);">{event.name}</span>
-                </div>
-                <div style="display:flex;gap:16px;font-family:'IBM Plex Mono',monospace;font-size:11px;">
-                    <span style="color:var(--text-muted);">F: {event.forecast}</span>
-                    <span style="color:var(--text-muted);">P: {event.previous}</span>
-                </div>
-            </div>'''
-        
-        st.markdown(events_html + '</div>', unsafe_allow_html=True)
+    # Pillar 2: Day Structure
+    entry_type = "FLOOR" if ma_bias.bias == "LONG" else ("CEILING" if ma_bias.bias == "SHORT" else "—")
+    entry_level = structure.floor if ma_bias.bias == "LONG" else (structure.ceiling if ma_bias.bias == "SHORT" else 0)
+    p2_status = "active" if entry_level > 0 else "waiting"
+    p2_icon_color = "green" if ma_bias.bias == "LONG" else ("red" if ma_bias.bias == "SHORT" else "gold")
+    manual_tag = " [Manual]" if structure.is_manual else ""
+    
+    st.markdown(f"""
+    <div class="pillar-card {p2_status}">
+        <div class="pillar-icon {p2_icon_color}">🎯</div>
+        <div class="pillar-content">
+            <div class="pillar-title">Pillar 2: Day Structure</div>
+            <div class="pillar-subtitle">Where is my entry level @ 9:00 AM CT?</div>
+        </div>
+        <div class="pillar-value-container">
+            <div class="pillar-value white">{entry_type}</div>
+            <div class="pillar-detail">{entry_level:,.0f} SPX{manual_tag}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Pillar 3: VIX Zone
+    p3_status = "active" if vix_zone.signal in ["CALLS", "PUTS"] else "waiting"
+    p3_icon_color = "green" if vix_zone.signal == "CALLS" else ("red" if vix_zone.signal == "PUTS" else "gold")
+    p3_value_color = "green" if vix_zone.signal == "CALLS" else ("red" if vix_zone.signal == "PUTS" else "gold")
+    
+    st.markdown(f"""
+    <div class="pillar-card {p3_status}">
+        <div class="pillar-icon {p3_icon_color}">⚡</div>
+        <div class="pillar-content">
+            <div class="pillar-title">Pillar 3: VIX Zone</div>
+            <div class="pillar-subtitle">When do I pull the trigger?</div>
+        </div>
+        <div class="pillar-value-container">
+            <div class="pillar-value {p3_value_color}">{vix_zone.signal}</div>
+            <div class="pillar-detail">{vix_zone.position} • Range: {vix_zone.range_pct:.1f}%</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ========================================
+    # TRADE SIGNAL CARD
+    # ========================================
+    st.markdown('<div class="section-header">Trade Decision</div>', unsafe_allow_html=True)
+    
+    # Determine signal styling
+    if signal.direction == "CALLS":
+        sig_card_class = "calls"
+        sig_text_class = "green"
+    elif signal.direction == "PUTS":
+        sig_card_class = "puts"
+        sig_text_class = "red"
+    elif signal.direction == "WAIT":
+        sig_card_class = "wait"
+        sig_text_class = "gold"
     else:
-        st.markdown('''
-            <div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px;">
-                No major economic events scheduled
-            </div>
-        </div>''', unsafe_allow_html=True)
+        sig_card_class = "notrade"
+        sig_text_class = "muted"
     
-    # Footer
-    st.markdown("<hr style='margin:24px 0;border-color:var(--border);'>", unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        last = st.session_state.last_refresh.strftime("%I:%M %p") if st.session_state.last_refresh else "Never"
-        nxt = (st.session_state.last_refresh + timedelta(seconds=REFRESH_INTERVAL)).strftime("%I:%M %p") if st.session_state.last_refresh else "—"
-        api_s = "● Connected" if get_polygon_api_key() else "○ No API Key"
-        api_c = "text-green" if get_polygon_api_key() else "text-muted"
-        st.markdown(f'''<div style="display:flex;align-items:center;gap:16px;">
-            <div style="display:flex;align-items:center;gap:8px;">
-                <span style="width:8px;height:8px;border-radius:50%;background:var(--green);"></span>
-                <span style="font-size:12px;color:var(--text-muted);">Auto-refresh: 15 min</span>
+    # Calculate 50% stop
+    stop_price = "—"
+    if options and options.last > 0:
+        stop_price = f"${options.last * 0.5:.2f}"
+    
+    st.markdown(f"""
+    <div class="signal-card {sig_card_class}">
+        <div class="signal-direction {sig_text_class}">{signal.direction}</div>
+        <div class="signal-reason">{signal.reason}</div>
+        <div class="signal-metrics">
+            <div class="signal-metric">
+                <div class="signal-metric-label">Entry Level</div>
+                <div class="signal-metric-value">{signal.entry:,.0f}</div>
             </div>
-            <div class="{api_c}" style="font-size:12px;">Polygon: {api_s}</div>
-        </div>''', unsafe_allow_html=True)
-    with c2:
-        st.markdown(f'''<div style="text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-muted);">
-            Last: {last} · Next: {nxt}
-        </div>''', unsafe_allow_html=True)
+            <div class="signal-metric">
+                <div class="signal-metric-label">Strike</div>
+                <div class="signal-metric-value">{signal.strike if signal.strike > 0 else '—'}</div>
+            </div>
+            <div class="signal-metric">
+                <div class="signal-metric-label">50% Stop</div>
+                <div class="signal-metric-value red">{stop_price}</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # ========================================
+    # BOTTOM PANELS: CONES & OPTIONS
+    # ========================================
+    col_left, col_right = st.columns(2)
+    
+    # Left Column: Cone Rails
+    with col_left:
+        st.markdown('<div class="section-header">Cone Rails @ 9:00 AM CT</div>', unsafe_allow_html=True)
+        st.markdown(f"""
+        <div class="data-card">
+            <table class="cone-table">
+                <thead>
+                    <tr>
+                        <th>Anchor Point</th>
+                        <th>↗ Ascending</th>
+                        <th>↘ Descending</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>C1 (High {inputs.prior_high:,.0f})</td>
+                        <td class="asc">{cones.c1_asc:,.0f}</td>
+                        <td class="desc">{cones.c1_desc:,.0f}</td>
+                    </tr>
+                    <tr>
+                        <td>C2 (Low {inputs.prior_low:,.0f})</td>
+                        <td class="asc">{cones.c2_asc:,.0f}</td>
+                        <td class="desc">{cones.c2_desc:,.0f}</td>
+                    </tr>
+                    <tr>
+                        <td>C3 (Close {inputs.prior_close:,.0f})</td>
+                        <td class="asc">{cones.c3_asc:,.0f}</td>
+                        <td class="desc">{cones.c3_desc:,.0f}</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="data-footer">
+                3pm → 9am: {cones.blocks} blocks • ±{cones.expansion} pts expansion
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Right Column: Options Data
+    with col_right:
+        st.markdown('<div class="section-header">0DTE Options</div>', unsafe_allow_html=True)
+        
+        if options:
+            opt_type_display = "C" if options.opt_type == "call" else "P"
+            st.markdown(f"""
+            <div class="data-card">
+                <div class="data-footer" style="margin-top: 0; margin-bottom: 16px;">{options.ticker}</div>
+                <div class="data-grid">
+                    <div class="data-cell">
+                        <div class="data-label">Strike</div>
+                        <div class="data-value green">{options.strike} {opt_type_display}</div>
+                    </div>
+                    <div class="data-cell">
+                        <div class="data-label">Last</div>
+                        <div class="data-value">${options.last:.2f}</div>
+                    </div>
+                    <div class="data-cell">
+                        <div class="data-label">Bid</div>
+                        <div class="data-value">${options.bid:.2f}</div>
+                    </div>
+                    <div class="data-cell">
+                        <div class="data-label">Ask</div>
+                        <div class="data-value">${options.ask:.2f}</div>
+                    </div>
+                </div>
+                <div class="data-footer">
+                    Vol: {options.volume:,} • OI: {options.open_interest:,}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            # No options data
+            strike_display = f"{signal.strike} {'C' if ma_bias.bias == 'LONG' else 'P'}" if signal.strike > 0 else "—"
+            st.markdown(f"""
+            <div class="data-card">
+                <div class="data-grid">
+                    <div class="data-cell">
+                        <div class="data-label">Strike</div>
+                        <div class="data-value green">{strike_display}</div>
+                    </div>
+                    <div class="data-cell">
+                        <div class="data-label">Last</div>
+                        <div class="data-value muted">—</div>
+                    </div>
+                    <div class="data-cell">
+                        <div class="data-label">Bid</div>
+                        <div class="data-value muted">—</div>
+                    </div>
+                    <div class="data-cell">
+                        <div class="data-label">Ask</div>
+                        <div class="data-value muted">—</div>
+                    </div>
+                </div>
+                <div class="data-footer">
+                    {'Waiting for market data...' if signal.strike > 0 else 'Enter inputs to calculate strike'}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # ========================================
+    # FOOTER
+    # ========================================
+    st.markdown("---")
+    footer_col1, footer_col2 = st.columns(2)
+    
+    with footer_col1:
+        last_refresh_str = st.session_state.last_refresh.strftime("%I:%M %p") if st.session_state.last_refresh else "Never"
+        st.caption(f"🔄 Last refresh: {last_refresh_str} • Auto-refresh: 15 min")
+    
+    with footer_col2:
+        st.caption(f"📊 ES: {es_price:,.2f} • Offset: {offset:.1f} • Entry Window: 9:00 AM CT")
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
     main()
