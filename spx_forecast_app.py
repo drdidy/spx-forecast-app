@@ -703,163 +703,146 @@ def main():
     if "options_data" not in st.session_state:
         st.session_state.options_data = None
     
-    # Sidebar
-    with st.sidebar:
-        st.markdown('''<div style="margin-bottom:24px;">
-            <h1 style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:700;margin-bottom:4px;color:var(--text-primary);">SPX Prophet</h1>
-            <p style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">0DTE Trading System v2.2</p>
-        </div>''', unsafe_allow_html=True)
-        
-        st.markdown('<div class="entry-badge">⏰ Entry Time: 9:00 AM CT</div>', unsafe_allow_html=True)
-        
-        # Trading Date Picker
-        st.markdown('<div class="prophet-card-header" style="margin-top:16px;">Trading Date</div>', unsafe_allow_html=True)
-        
-        # Default to today, or saved date
-        from datetime import date, timedelta as td
-        today = datetime.now(CT).date()
-        
-        default_date = today
-        if st.session_state.inputs.trading_date:
-            try:
-                default_date = datetime.strptime(st.session_state.inputs.trading_date, "%Y-%m-%d").date()
-            except:
-                pass
-        
-        # Quick select buttons
-        st.markdown('<p style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Quick Select:</p>', unsafe_allow_html=True)
-        qcol1, qcol2, qcol3, qcol4 = st.columns(4)
-        
+    # ========================================
+    # MAIN AREA - Trading Date & Inputs (in expander)
+    # ========================================
+    
+    from datetime import date, timedelta as td
+    import calendar
+    today = datetime.now(CT).date()
+    
+    default_date = today
+    if st.session_state.inputs.trading_date:
+        try:
+            default_date = datetime.strptime(st.session_state.inputs.trading_date, "%Y-%m-%d").date()
+        except:
+            pass
+    
+    # Date selection at the TOP of main area
+    st.markdown('''<div style="margin-bottom:16px;">
+        <h1 style="font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:700;margin-bottom:4px;color:#f0f4f8;">SPX Prophet</h1>
+        <p style="font-size:12px;color:#4a5a6a;text-transform:uppercase;letter-spacing:1px;">0DTE Trading System v2.3</p>
+    </div>''', unsafe_allow_html=True)
+    
+    # Trading Date Selection - ALWAYS VISIBLE
+    st.markdown('<div class="prophet-card-header">📅 Trading Date</div>', unsafe_allow_html=True)
+    
+    date_col1, date_col2, date_col3, date_col4, date_col5, date_col6, date_col7 = st.columns([1,1,1,1,1,1,1])
+    
+    with date_col1:
+        if st.button("Today", key="btn_today", use_container_width=True):
+            st.session_state.inputs.trading_date = today.strftime("%Y-%m-%d")
+            st.session_state.options_data = None
+            st.rerun()
+    
+    with date_col2:
+        yesterday = today - td(days=1)
+        if st.button("Yesterday", key="btn_yesterday", use_container_width=True):
+            st.session_state.inputs.trading_date = yesterday.strftime("%Y-%m-%d")
+            st.session_state.options_data = None
+            st.rerun()
+    
+    with date_col3:
         # Find last Friday
         days_since_friday = (today.weekday() - 4) % 7
         if days_since_friday == 0 and datetime.now(CT).hour < 15:
-            last_friday = today  # It's Friday before close
+            last_friday = today
         else:
             last_friday = today - td(days=days_since_friday if days_since_friday > 0 else 7)
-        
-        # Find next Monday
-        days_until_monday = (7 - today.weekday()) % 7
-        if days_until_monday == 0:
-            days_until_monday = 7
-        next_monday = today + td(days=days_until_monday)
-        
-        with qcol1:
-            if st.button("Today", use_container_width=True, key="btn_today"):
-                st.session_state.inputs.trading_date = today.strftime("%Y-%m-%d")
-                st.session_state.options_data = None
-                st.rerun()
-        with qcol2:
-            if st.button("Yesterday", use_container_width=True, key="btn_yesterday"):
-                yesterday = today - td(days=1)
-                st.session_state.inputs.trading_date = yesterday.strftime("%Y-%m-%d")
-                st.session_state.options_data = None
-                st.rerun()
-        with qcol3:
-            if st.button("Last Fri", use_container_width=True, key="btn_lastfri"):
-                st.session_state.inputs.trading_date = last_friday.strftime("%Y-%m-%d")
-                st.session_state.options_data = None
-                st.rerun()
-        with qcol4:
-            if st.button("Next Mon", use_container_width=True, key="btn_nextmon"):
-                st.session_state.inputs.trading_date = next_monday.strftime("%Y-%m-%d")
-                st.session_state.options_data = None
-                st.rerun()
-        
-        # Manual Date Selection - Year, Month, Day dropdowns
-        st.markdown('<p style="font-size:11px;color:var(--text-muted);margin-top:12px;margin-bottom:8px;">Or Select Date:</p>', unsafe_allow_html=True)
-        
-        year_col, month_col, day_col = st.columns(3)
-        
-        with year_col:
-            selected_year = st.selectbox(
-                "Year",
-                options=[2024, 2025, 2026, 2027],
-                index=[2024, 2025, 2026, 2027].index(default_date.year) if default_date.year in [2024, 2025, 2026, 2027] else 2,
-                key="select_year"
-            )
-        
-        with month_col:
-            months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-            selected_month = st.selectbox(
-                "Month",
-                options=list(range(1, 13)),
-                format_func=lambda x: months[x-1],
-                index=default_date.month - 1,
-                key="select_month"
-            )
-        
-        with day_col:
-            # Get max days for selected month
-            import calendar
-            max_day = calendar.monthrange(selected_year, selected_month)[1]
-            default_day = min(default_date.day, max_day)
-            selected_day = st.selectbox(
-                "Day",
-                options=list(range(1, max_day + 1)),
-                index=default_day - 1,
-                key="select_day"
-            )
-        
-        # Build the trading date from selections
-        try:
-            trading_date = date(selected_year, selected_month, selected_day)
-        except:
-            trading_date = today
-        
-        # Check if it's a weekend
-        if trading_date.weekday() >= 5:
-            st.warning("⚠️ Weekend selected - no trading")
-        
-        # Show day of week prominently
-        day_name = trading_date.strftime("%A")
-        st.markdown(f'<p style="font-size:14px;color:var(--gold);font-weight:600;">📆 {day_name}, {trading_date.strftime("%B %d, %Y")}</p>', unsafe_allow_html=True)
-        
-        trading_date_str = trading_date.strftime("%Y-%m-%d")
-        
-        st.markdown('<div class="prophet-card-header" style="margin-top:16px;">VIX Zone (TradingView)</div>', unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
-        vix_high = c1.number_input("ON High", value=st.session_state.inputs.vix_overnight_high, format="%.2f", step=0.01)
-        vix_low = c2.number_input("ON Low", value=st.session_state.inputs.vix_overnight_low, format="%.2f", step=0.01)
-        vix_current = st.number_input("VIX Current", value=st.session_state.inputs.vix_current, format="%.2f", step=0.01)
-        
-        st.markdown('<div class="prophet-card-header" style="margin-top:20px;">ES/SPX Offset</div>', unsafe_allow_html=True)
-        offset = st.number_input("Offset (ES-SPX)", value=st.session_state.inputs.es_spx_offset, format="%.2f", step=0.5)
-        
-        st.markdown('<div class="prophet-card-header" style="margin-top:20px;">Prior Day</div>', unsafe_allow_html=True)
-        c1, c2, c3 = st.columns(3)
-        prior_high = c1.number_input("High", value=st.session_state.inputs.prior_high, format="%.0f", step=1.0)
-        prior_low = c2.number_input("Low", value=st.session_state.inputs.prior_low, format="%.0f", step=1.0)
-        prior_close = c3.number_input("Close", value=st.session_state.inputs.prior_close, format="%.0f", step=1.0)
-        
-        st.markdown('<div class="prophet-card-header" style="margin-top:20px;">Manual Structure</div>', unsafe_allow_html=True)
-        use_manual = st.checkbox("Use manual CEILING/FLOOR", value=st.session_state.inputs.use_manual_structure)
-        if use_manual:
-            c1, c2 = st.columns(2)
-            man_ceil = c1.number_input("CEILING", value=st.session_state.inputs.manual_ceiling, format="%.0f", step=1.0)
-            man_floor = c2.number_input("FLOOR", value=st.session_state.inputs.manual_floor, format="%.0f", step=1.0)
-        else:
-            man_ceil, man_floor = 0.0, 0.0
-        
-        if st.button("💾 Save Inputs", use_container_width=True):
-            st.session_state.inputs = ManualInputs(
-                vix_overnight_high=vix_high, vix_overnight_low=vix_low, vix_current=vix_current,
-                es_spx_offset=offset, prior_high=prior_high, prior_low=prior_low, prior_close=prior_close,
-                manual_ceiling=man_ceil, manual_floor=man_floor, use_manual_structure=use_manual,
-                trading_date=trading_date_str
-            )
-            save_inputs(st.session_state.inputs)
-            st.session_state.options_data = None  # Reset options to fetch for new date
-            st.success("Saved!")
-        
-        st.markdown("<hr>", unsafe_allow_html=True)
-        api_key = st.text_input("Polygon API Key", value=POLYGON_API_KEY, type="password")
-        if api_key:
-            st.session_state.polygon_api_key = api_key
-        
-        if st.button("🔄 Refresh Data", use_container_width=True):
-            st.session_state.last_refresh = None
+        if st.button("Last Fri", key="btn_lastfri", use_container_width=True):
+            st.session_state.inputs.trading_date = last_friday.strftime("%Y-%m-%d")
             st.session_state.options_data = None
             st.rerun()
+    
+    with date_col4:
+        selected_year = st.selectbox("Year", options=[2024, 2025, 2026, 2027], 
+                                      index=[2024,2025,2026,2027].index(default_date.year) if default_date.year in [2024,2025,2026,2027] else 2,
+                                      key="select_year", label_visibility="collapsed")
+    
+    with date_col5:
+        months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        selected_month = st.selectbox("Month", options=list(range(1,13)), format_func=lambda x: months[x-1],
+                                       index=default_date.month - 1, key="select_month", label_visibility="collapsed")
+    
+    with date_col6:
+        max_day = calendar.monthrange(selected_year, selected_month)[1]
+        default_day = min(default_date.day, max_day)
+        selected_day = st.selectbox("Day", options=list(range(1, max_day + 1)),
+                                     index=default_day - 1, key="select_day", label_visibility="collapsed")
+    
+    with date_col7:
+        if st.button("✓ Set Date", key="btn_setdate", use_container_width=True, type="primary"):
+            new_date = date(selected_year, selected_month, selected_day)
+            st.session_state.inputs.trading_date = new_date.strftime("%Y-%m-%d")
+            st.session_state.options_data = None
+            st.rerun()
+    
+    # Build the trading date
+    try:
+        trading_date = date(selected_year, selected_month, selected_day)
+    except:
+        trading_date = today
+    
+    trading_date_str = trading_date.strftime("%Y-%m-%d")
+    day_name = trading_date.strftime("%A")
+    
+    # Show selected date prominently
+    if trading_date.weekday() >= 5:
+        st.warning(f"⚠️ {day_name}, {trading_date.strftime('%B %d, %Y')} - Weekend (No Trading)")
+    else:
+        st.success(f"📆 {day_name}, {trading_date.strftime('%B %d, %Y')}")
+    
+    st.markdown("<hr style='margin:16px 0;border-color:#1a2433;'>", unsafe_allow_html=True)
+    
+    # Inputs in expandable section
+    with st.expander("⚙️ Manual Inputs (VIX, Prior Day, Structure)", expanded=False):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**VIX Zone (from TradingView)**")
+            vc1, vc2 = st.columns(2)
+            vix_high = vc1.number_input("ON High", value=st.session_state.inputs.vix_overnight_high, format="%.2f", step=0.01)
+            vix_low = vc2.number_input("ON Low", value=st.session_state.inputs.vix_overnight_low, format="%.2f", step=0.01)
+            vix_current = st.number_input("VIX Current", value=st.session_state.inputs.vix_current, format="%.2f", step=0.01)
+            
+            st.markdown("**ES/SPX Offset**")
+            offset = st.number_input("Offset (ES-SPX)", value=st.session_state.inputs.es_spx_offset, format="%.2f", step=0.5)
+        
+        with col2:
+            st.markdown("**Prior Day (ES)**")
+            pc1, pc2, pc3 = st.columns(3)
+            prior_high = pc1.number_input("High", value=st.session_state.inputs.prior_high, format="%.0f", step=1.0)
+            prior_low = pc2.number_input("Low", value=st.session_state.inputs.prior_low, format="%.0f", step=1.0)
+            prior_close = pc3.number_input("Close", value=st.session_state.inputs.prior_close, format="%.0f", step=1.0)
+            
+            st.markdown("**Manual Structure Override**")
+            use_manual = st.checkbox("Use manual CEILING/FLOOR", value=st.session_state.inputs.use_manual_structure)
+            if use_manual:
+                mc1, mc2 = st.columns(2)
+                man_ceil = mc1.number_input("CEILING (SPX)", value=st.session_state.inputs.manual_ceiling, format="%.0f", step=1.0)
+                man_floor = mc2.number_input("FLOOR (SPX)", value=st.session_state.inputs.manual_floor, format="%.0f", step=1.0)
+            else:
+                man_ceil, man_floor = 0.0, 0.0
+        
+        save_col1, save_col2 = st.columns(2)
+        with save_col1:
+            if st.button("💾 Save All Inputs", use_container_width=True):
+                st.session_state.inputs = ManualInputs(
+                    vix_overnight_high=vix_high, vix_overnight_low=vix_low, vix_current=vix_current,
+                    es_spx_offset=offset, prior_high=prior_high, prior_low=prior_low, prior_close=prior_close,
+                    manual_ceiling=man_ceil, manual_floor=man_floor, use_manual_structure=use_manual,
+                    trading_date=trading_date_str
+                )
+                save_inputs(st.session_state.inputs)
+                st.session_state.options_data = None
+                st.success("Saved!")
+        with save_col2:
+            if st.button("🔄 Refresh Market Data", use_container_width=True):
+                st.session_state.last_refresh = None
+                st.session_state.options_data = None
+                st.rerun()
+    
+    st.markdown("<hr style='margin:16px 0;border-color:#1a2433;'>", unsafe_allow_html=True)
     
     # Current inputs
     inputs = ManualInputs(
