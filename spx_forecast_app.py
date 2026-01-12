@@ -139,52 +139,55 @@ def count_30min_blocks(start_dt: datetime, end_dt: datetime) -> int:
 # DATA FETCHING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=300)
-@retry_with_backoff(max_retries=3)
-def fetch_es_30min_candles(days: int = 5) -> Optional[pd.DataFrame]:
-    try:
-        es = yf.Ticker("ES=F")
-        data = es.history(period=f"{days}d", interval="30m")
-        if data is not None and not data.empty:
-            return data
-    except Exception as e:
-        st.warning(f"ES fetch error: {e}")
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_es_30min_candles(days: int = 10) -> Optional[pd.DataFrame]:
+    """Fetch ES 30-min candles - needs 200+ for MA calculation"""
+    for attempt in range(3):
+        try:
+            es = yf.Ticker("ES=F")
+            data = es.history(period=f"{days}d", interval="30m")
+            if data is not None and not data.empty:
+                return data
+        except Exception:
+            time_module.sleep(1 * (2 ** attempt))
     return None
 
-@st.cache_data(ttl=60)
-@retry_with_backoff(max_retries=3)
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_spx_price() -> Optional[float]:
-    try:
-        spx = yf.Ticker("^GSPC")
-        data = spx.history(period="1d", interval="1m")
-        if data is not None and not data.empty:
-            return round(float(data['Close'].iloc[-1]), 2)
-    except Exception as e:
-        st.warning(f"SPX fetch error: {e}")
+    """Fetch current SPX price"""
+    for attempt in range(3):
+        try:
+            spx = yf.Ticker("^GSPC")
+            data = spx.history(period="1d", interval="1m")
+            if data is not None and not data.empty:
+                return round(float(data['Close'].iloc[-1]), 2)
+        except Exception:
+            time_module.sleep(1 * (2 ** attempt))
     return None
 
-@retry_with_backoff(max_retries=3)
 def fetch_spx_5min_candles(periods: int = 20) -> Optional[pd.DataFrame]:
     """NO CACHE - real-time for reversal detection"""
-    try:
-        spx = yf.Ticker("^GSPC")
-        data = spx.history(period="1d", interval="5m")
-        if data is not None and not data.empty:
-            return data.tail(periods)
-    except Exception as e:
-        st.warning(f"SPX 5-min fetch error: {e}")
+    for attempt in range(3):
+        try:
+            spx = yf.Ticker("^GSPC")
+            data = spx.history(period="1d", interval="5m")
+            if data is not None and not data.empty:
+                return data.tail(periods)
+        except Exception:
+            time_module.sleep(1 * (2 ** attempt))
     return None
 
-@st.cache_data(ttl=60)
-@retry_with_backoff(max_retries=3)
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_vix_price() -> Optional[float]:
-    try:
-        vix = yf.Ticker("^VIX")
-        data = vix.history(period="1d", interval="1m")
-        if data is not None and not data.empty:
-            return round(float(data['Close'].iloc[-1]), 2)
-    except Exception as e:
-        st.warning(f"VIX fetch error: {e}")
+    """Fetch current VIX"""
+    for attempt in range(3):
+        try:
+            vix = yf.Ticker("^VIX")
+            data = vix.history(period="1d", interval="1m")
+            if data is not None and not data.empty:
+                return round(float(data['Close'].iloc[-1]), 2)
+        except Exception:
+            time_module.sleep(1 * (2 ** attempt))
     return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -192,13 +195,22 @@ def fetch_vix_price() -> Optional[float]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def calculate_ma_bias(es_candles: Optional[pd.DataFrame]) -> Dict:
-    if es_candles is None or len(es_candles) < 200:
-        return {"signal": "NEUTRAL", "reason": "Insufficient data", "ema_50": None, "sma_200": None, "diff_pct": None, "score": 0, "candle_count": len(es_candles) if es_candles is not None else 0}
+    candle_count = len(es_candles) if es_candles is not None else 0
+    
+    # Need minimum candles for calculation
+    if es_candles is None or candle_count < 50:
+        return {"signal": "NEUTRAL", "reason": "Insufficient data - use manual override", "ema_50": None, "sma_200": None, "diff_pct": None, "score": 0, "candle_count": candle_count, "data_status": "NO_DATA"}
     
     close = es_candles['Close']
     ema_50 = close.ewm(span=50, adjust=False).mean().iloc[-1]
-    sma_200 = close.rolling(window=200).mean().iloc[-1]
+    
+    # Use available data for SMA (200 or less)
+    sma_period = min(200, candle_count)
+    sma_200 = close.rolling(window=sma_period).mean().iloc[-1]
     diff_pct = ((ema_50 - sma_200) / sma_200) * 100
+    
+    # Determine data quality
+    data_status = "FULL" if candle_count >= 200 else "PARTIAL"
     
     if ema_50 > sma_200:
         signal, score, reason = "LONG", min(25, int(abs(diff_pct) * 10)), f"EMA > SMA by {diff_pct:+.2f}%"
@@ -207,7 +219,12 @@ def calculate_ma_bias(es_candles: Optional[pd.DataFrame]) -> Dict:
     else:
         signal, score, reason = "NEUTRAL", 0, "MAs converging"
     
-    return {"signal": signal, "reason": reason, "ema_50": round(ema_50, 2), "sma_200": round(sma_200, 2), "diff_pct": round(diff_pct, 4), "score": score, "candle_count": len(es_candles)}
+    # Reduce score if partial data
+    if data_status == "PARTIAL":
+        score = int(score * 0.7)
+        reason += f" (partial: {candle_count} candles)"
+    
+    return {"signal": signal, "reason": reason, "ema_50": round(ema_50, 2), "sma_200": round(sma_200, 2), "diff_pct": round(diff_pct, 4), "score": score, "candle_count": candle_count, "data_status": data_status}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PILLAR 2: DAY STRUCTURE (DYNAMIC PROJECTION)
@@ -615,6 +632,15 @@ def main():
     # HERO HEADER
     st.markdown(f'<div class="hero-header"><div class="hero-title">🔮 SPX PROPHET V4</div><div class="hero-subtitle">Institutional 0DTE Analytics | 3-Pillar Methodology</div><div class="hero-price">{current_price:,.2f}</div><div class="hero-time">{now_ct.strftime("%I:%M:%S %p CT")} | {inputs["trading_date"].strftime("%A, %B %d, %Y")}</div></div>', unsafe_allow_html=True)
     
+    # DATA STATUS BAR (compact, non-intrusive)
+    spx_status = "🟢" if not inputs["spx_price"] and current_price != 6050.0 else "🟡" if inputs["spx_price"] else "🔴"
+    es_status = "🟢" if es_candles is not None and len(es_candles) >= 200 else "🟡" if es_candles is not None and len(es_candles) >= 50 else "🔴"
+    vix_status = "🟢" if not inputs["vix_current"] and vix_current != 16.0 else "🟡" if inputs["vix_current"] else "🔴"
+    data_msg = f"Data: SPX {spx_status} | ES {es_status} ({len(es_candles) if es_candles is not None else 0}) | VIX {vix_status}"
+    if es_candles is None or len(es_candles) < 50:
+        data_msg += " | ⚠️ Use Manual Override for MA Bias"
+    st.markdown(f'<div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-bottom:16px;padding:8px;background:rgba(255,255,255,0.02);border-radius:8px">{data_msg}</div>', unsafe_allow_html=True)
+    
     # ANALYSIS
     ma_bias = {"signal": inputs["ma_override"], "reason": "Manual override", "score": 25 if inputs["ma_override"] != "NEUTRAL" else 0, "ema_50": None, "sma_200": None, "diff_pct": None} if inputs["ma_override"] != "AUTO" else calculate_ma_bias(es_candles)
     structure = calculate_day_structure(inputs["ceiling_anchors"], inputs["floor_anchors"], target_9am, current_price)
@@ -648,7 +674,9 @@ def main():
     
     with p1:
         ma_class = "calls" if ma_bias["signal"] == "LONG" else "puts" if ma_bias["signal"] == "SHORT" else "neutral"
-        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon blue">📊</div><div><div class="card-title">Pillar 1: MA Bias</div><div class="card-subtitle">ES 30-min</div></div></div><span class="signal-badge {ma_class}">{ma_bias["signal"]}</span><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">50 EMA</span><span class="pillar-value">{ma_bias.get("ema_50") or "N/A"}</span></div><div class="pillar-item"><span class="pillar-name">200 SMA</span><span class="pillar-value">{ma_bias.get("sma_200") or "N/A"}</span></div><div class="pillar-item"><span class="pillar-name">Diff %</span><span class="pillar-value">{ma_bias.get("diff_pct") or "N/A"}%</span></div><div class="pillar-item"><span class="pillar-name">Score</span><span class="pillar-value">{ma_bias["score"]}/25</span></div></div>', unsafe_allow_html=True)
+        data_status = ma_bias.get("data_status", "UNKNOWN")
+        status_color = "var(--green)" if data_status == "FULL" else "var(--amber)" if data_status == "PARTIAL" else "var(--red)"
+        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon blue">📊</div><div><div class="card-title">Pillar 1: MA Bias</div><div class="card-subtitle">ES 30-min | <span style="color:{status_color}">{ma_bias.get("candle_count", 0)} candles</span></div></div></div><span class="signal-badge {ma_class}">{ma_bias["signal"]}</span><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">50 EMA</span><span class="pillar-value">{ma_bias.get("ema_50") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">200 SMA</span><span class="pillar-value">{ma_bias.get("sma_200") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">Diff %</span><span class="pillar-value">{f"{ma_bias.get('diff_pct')}%" if ma_bias.get("diff_pct") else "—"}</span></div><div class="pillar-item"><span class="pillar-name">Score</span><span class="pillar-value">{ma_bias["score"]}/25</span></div></div>', unsafe_allow_html=True)
     
     with p2:
         struct_class = "calls" if "BULLISH" in structure["signal"] else "puts" if "BEARISH" in structure["signal"] else "neutral"
