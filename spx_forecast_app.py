@@ -468,23 +468,39 @@ def calculate_cone_confluence(cones: Dict, current_price: float) -> Dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def select_strike(entry_price: float, target_price: float, direction: str, method: str = "gamma_optimal") -> Dict:
+    """
+    Select OTM strike for 0DTE options.
+    
+    For CALLS (bullish): OTM strike is ABOVE entry price
+    For PUTS (bearish): OTM strike is BELOW entry price
+    
+    Gamma optimal = 35% of expected move OTM (sweet spot for 0DTE)
+    """
     expected_move = abs(target_price - entry_price)
+    
+    # Handle NEUTRAL - no trade
+    if direction == "NEUTRAL":
+        return {"strike": 0, "option_type": "N/A", "otm_distance": 0, "method": method, "expected_move": round(expected_move, 2)}
+    
     if direction == "LONG":
-        if method == "gamma_optimal": raw_strike = entry_price - (expected_move * 0.35)
-        elif method == "conservative": raw_strike = entry_price - 15
-        elif method == "aggressive": raw_strike = entry_price - 5
-        else: raw_strike = entry_price - 10
-        strike = round(raw_strike / 5) * 5
-        option_type = "CALL"
-        otm_distance = entry_price - strike
-    else:
+        # CALLS: OTM strike is ABOVE entry price
         if method == "gamma_optimal": raw_strike = entry_price + (expected_move * 0.35)
         elif method == "conservative": raw_strike = entry_price + 15
         elif method == "aggressive": raw_strike = entry_price + 5
-        else: raw_strike = entry_price + 10
+        else: raw_strike = entry_price + 10  # round_number
+        strike = round(raw_strike / 5) * 5
+        option_type = "CALL"
+        otm_distance = strike - entry_price
+    else:  # SHORT
+        # PUTS: OTM strike is BELOW entry price
+        if method == "gamma_optimal": raw_strike = entry_price - (expected_move * 0.35)
+        elif method == "conservative": raw_strike = entry_price - 15
+        elif method == "aggressive": raw_strike = entry_price - 5
+        else: raw_strike = entry_price - 10  # round_number
         strike = round(raw_strike / 5) * 5
         option_type = "PUT"
-        otm_distance = strike - entry_price
+        otm_distance = entry_price - strike
+    
     return {"strike": int(strike), "option_type": option_type, "otm_distance": round(otm_distance, 2), "method": method, "expected_move": round(expected_move, 2)}
 
 def calculate_dynamic_stop(es_candles: Optional[pd.DataFrame], premium: float, vix_current: float) -> Dict:
@@ -743,52 +759,71 @@ def main():
     in_entry_window = entry_window_start <= now_time <= entry_window_end
     
     # Structure at 9 AM (planned entry) - this is what matters
-    trigger_price_9am = structure["floor_9am"] if confidence["direction"] == "LONG" else structure["ceiling_9am"] if confidence["direction"] == "SHORT" else current_price
-    target_price_9am = structure["ceiling_9am"] if confidence["direction"] == "LONG" else structure["floor_9am"] if confidence["direction"] == "SHORT" else current_price
+    # DIRECTION IS DETERMINED BY MA BIAS (Pillar 1), NOT confidence score
+    # MA Bias = LONG → Only take CALLS → Entry at FLOOR
+    # MA Bias = SHORT → Only take PUTS → Entry at CEILING
+    # MA Bias = NEUTRAL → No trades
+    
+    trade_direction = ma_bias["signal"]  # LONG, SHORT, or NEUTRAL
+    
+    if trade_direction == "LONG":
+        trigger_price_9am = structure["floor_9am"]
+        target_price_9am = structure["ceiling_9am"]
+        option_type = "CALL"
+    elif trade_direction == "SHORT":
+        trigger_price_9am = structure["ceiling_9am"]
+        target_price_9am = structure["floor_9am"]
+        option_type = "PUT"
+    else:
+        trigger_price_9am = structure["floor_9am"]  # Show floor by default for reference
+        target_price_9am = structure["ceiling_9am"]
+        option_type = "N/A"
     
     # Strike based on 9 AM structure
-    strike_info = select_strike(trigger_price_9am, target_price_9am, confidence["direction"], inputs["strike_method"])
+    strike_info = select_strike(trigger_price_9am, target_price_9am, trade_direction, inputs["strike_method"])
     
     # Reversal detection only matters during entry window
-    if in_entry_window:
-        reversal = detect_5min_reversal(spx_5min, confidence["direction"], trigger_price_9am, current_price)
+    if in_entry_window and trade_direction != "NEUTRAL":
+        reversal = detect_5min_reversal(spx_5min, trade_direction, trigger_price_9am, current_price)
     else:
-        reversal = {"status": "OUTSIDE_WINDOW", "signal": "WAIT", "message": "Entry window: 8:30-11:30 AM CT", "ready": False, "rsi": None, "macd_direction": None, "candle_pattern": None}
+        reversal = {"status": "OUTSIDE_WINDOW", "signal": "WAIT", "message": "Entry window: 8:30-11:30 AM CT" if not in_entry_window else "No direction (MA Bias NEUTRAL)", "ready": False, "rsi": None, "macd_direction": None, "candle_pattern": None}
     
     stop_info = calculate_dynamic_stop(es_candles, 5.0, vix_current)
     
     # ENTRY TRIGGER ALERT - Shows 9 AM planned entry
-    if not in_entry_window:
-        # Outside entry window - show countdown/preview
+    if trade_direction == "NEUTRAL":
+        # No direction from MA Bias
         alert_class = "wait"
         action_class = "wait"
-        if confidence["direction"] == "LONG":
-            action_text = f"📅 9 AM PLAN: Buy {strike_info['strike']} CALL at {trigger_price_9am:,.2f}"
-        elif confidence["direction"] == "SHORT":
-            action_text = f"📅 9 AM PLAN: Buy {strike_info['strike']} PUT at {trigger_price_9am:,.2f}"
+        action_text = "⛔ NO TRADE - MA Bias is NEUTRAL"
+        details_text = f"Floor @ 9 AM: {structure['floor_9am']:,.2f} | Ceiling @ 9 AM: {structure['ceiling_9am']:,.2f}"
+    elif not in_entry_window:
+        # Outside entry window - show preview
+        alert_class = "wait"
+        action_class = "wait"
+        if trade_direction == "LONG":
+            action_text = f"📅 9 AM PLAN: Buy {strike_info['strike']} CALL at Floor {trigger_price_9am:,.2f}"
         else:
-            action_text = "⏸️ NO SETUP - Awaiting direction"
-        details_text = f"Entry Window: 8:30-11:30 AM CT | Floor: {structure['floor_9am']:,.2f} | Ceiling: {structure['ceiling_9am']:,.2f}"
+            action_text = f"📅 9 AM PLAN: Buy {strike_info['strike']} PUT at Ceiling {trigger_price_9am:,.2f}"
+        details_text = f"Entry: {trigger_price_9am:,.2f} | Target: {target_price_9am:,.2f} | Range: {abs(target_price_9am - trigger_price_9am):.1f} pts"
     elif reversal["ready"] and confidence["total"] >= 60:
-        alert_class = "" if confidence["direction"] == "LONG" else "puts"
+        alert_class = "" if trade_direction == "LONG" else "puts"
         action_class = "buy"
         action_text = f"🟢 BUY NOW: {strike_info['strike']} {strike_info['option_type']}"
-        details_text = f"Trigger: {trigger_price_9am:,.2f} | Current: {current_price:,.2f} | Distance: {abs(current_price - trigger_price_9am):.2f} pts"
+        details_text = f"Entry: {trigger_price_9am:,.2f} | Current: {current_price:,.2f} | Distance: {abs(current_price - trigger_price_9am):.2f} pts"
     elif reversal["status"] == "AT_LEVEL":
-        alert_class = "" if confidence["direction"] == "LONG" else "puts"
+        alert_class = "" if trade_direction == "LONG" else "puts"
         action_class = "wait"
         action_text = "⏳ AT LEVEL - WATCH FOR 5m REVERSAL"
-        details_text = f"Trigger: {trigger_price_9am:,.2f} | Current: {current_price:,.2f} | {reversal['message']}"
+        details_text = f"Entry: {trigger_price_9am:,.2f} | Current: {current_price:,.2f} | {reversal['message']}"
     else:
         alert_class = "wait"
         action_class = "wait"
-        if confidence["direction"] == "LONG":
-            action_text = f"⏳ WAITING: Need pullback to {trigger_price_9am:,.2f}"
-        elif confidence["direction"] == "SHORT":
-            action_text = f"⏳ WAITING: Need rally to {trigger_price_9am:,.2f}"
+        if trade_direction == "LONG":
+            action_text = f"⏳ WAITING: Need pullback to Floor {trigger_price_9am:,.2f}"
         else:
-            action_text = "⏸️ NO DIRECTIONAL BIAS"
-        details_text = f"Floor: {structure['floor_9am']:,.2f} | Ceiling: {structure['ceiling_9am']:,.2f} | Current: {current_price:,.2f}"
+            action_text = f"⏳ WAITING: Need rally to Ceiling {trigger_price_9am:,.2f}"
+        details_text = f"Entry: {trigger_price_9am:,.2f} | Current: {current_price:,.2f} | Distance: {abs(current_price - trigger_price_9am):.2f} pts"
     
     st.markdown(f'<div class="entry-alert {alert_class}"><div class="alert-title">ENTRY TRIGGER {"🟢 LIVE" if in_entry_window else "📋 PREVIEW"}</div><div class="alert-action {action_class}">{action_text}</div><div class="alert-details">{details_text}</div></div>', unsafe_allow_html=True)
     
@@ -818,12 +853,12 @@ def main():
         st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon purple">📋</div><div><div class="card-title">Confidence Score</div><div class="card-subtitle">{confidence["grade"]} Setup</div></div></div><div class="confidence-container"><div class="confidence-bar"><div class="confidence-fill {fill_class}" style="width:{confidence["total"]}%"></div></div><div class="confidence-label"><span class="confidence-score">{confidence["total"]}/100</span><span style="color:{"var(--green)" if confidence["total"] >= 75 else "var(--amber)" if confidence["total"] >= 60 else "var(--red)"}">{confidence["grade"]}</span></div></div>{breakdown_html}</div>', unsafe_allow_html=True)
     
     with c2:
-        if in_entry_window:
-            rev_class = "bullish" if reversal["signal"] in ["BUY_CALLS", "WATCH"] and confidence["direction"] == "LONG" else "bearish" if reversal["signal"] in ["BUY_PUTS", "WATCH"] and confidence["direction"] == "SHORT" else "neutral"
+        if in_entry_window and trade_direction != "NEUTRAL":
+            rev_class = "bullish" if reversal["signal"] in ["BUY_CALLS", "WATCH"] and trade_direction == "LONG" else "bearish" if reversal["signal"] in ["BUY_PUTS", "WATCH"] and trade_direction == "SHORT" else "neutral"
             window_status = "🟢 ENTRY WINDOW ACTIVE"
         else:
             rev_class = "neutral"
-            window_status = "⏳ Outside Entry Window"
+            window_status = "⏳ Outside Entry Window" if not in_entry_window else "⛔ No Direction"
         st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon cyan">🔄</div><div><div class="card-title">5-Min Reversal</div><div class="card-subtitle">{window_status}</div></div></div><div class="reversal-box"><div class="reversal-status {rev_class}">{reversal["message"]}</div></div><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">5m RSI</span><span class="pillar-value">{reversal.get("rsi") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">5m MACD</span><span class="pillar-value">{reversal.get("macd_direction") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">Last Candle</span><span class="pillar-value">{reversal.get("candle_pattern") or "—"}</span></div></div>', unsafe_allow_html=True)
     
     # STRIKE & MOMENTUM
