@@ -533,15 +533,16 @@ def get_day_structure(inputs, trade_date):
     if c1 <= 0 or c2 <= 0 or f1 <= 0 or f2 <= 0:
         return None, None, None, None, "Enter anchor points"
     
-    # trade_date is the date we're trading (entry day)
-    # prior_day is the day before for overnight anchors
-    prior_day = get_prior_trading_day(trade_date)
+    # For overnight structure, use CALENDAR day before trade_date
+    # (Sunday for Monday, since overnight session is Sun 5pm → Mon morning)
+    # NOT prior trading day (which would be Friday for Monday)
+    overnight_base = trade_date - timedelta(days=1)
     
     # Build anchor datetimes
-    c1_time = build_anchor_datetime(prior_day, inputs.get("ceiling_anchor1_hour", 17), inputs.get("ceiling_anchor1_minute", 0))
-    c2_time = build_anchor_datetime(prior_day, inputs.get("ceiling_anchor2_hour", 2), inputs.get("ceiling_anchor2_minute", 0))
-    f1_time = build_anchor_datetime(prior_day, inputs.get("floor_anchor1_hour", 17), inputs.get("floor_anchor1_minute", 0))
-    f2_time = build_anchor_datetime(prior_day, inputs.get("floor_anchor2_hour", 2), inputs.get("floor_anchor2_minute", 0))
+    c1_time = build_anchor_datetime(overnight_base, inputs.get("ceiling_anchor1_hour", 17), inputs.get("ceiling_anchor1_minute", 0))
+    c2_time = build_anchor_datetime(overnight_base, inputs.get("ceiling_anchor2_hour", 2), inputs.get("ceiling_anchor2_minute", 0))
+    f1_time = build_anchor_datetime(overnight_base, inputs.get("floor_anchor1_hour", 17), inputs.get("floor_anchor1_minute", 0))
+    f2_time = build_anchor_datetime(overnight_base, inputs.get("floor_anchor2_hour", 2), inputs.get("floor_anchor2_minute", 0))
     
     # Project to 9:00 AM CT entry time on trade_date
     entry_time = CT.localize(datetime.combine(trade_date, dt_time(9, 0)))
