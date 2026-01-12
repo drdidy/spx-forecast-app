@@ -109,27 +109,56 @@ def retry_with_backoff(max_retries=3, base_delay=1):
 def get_now_ct() -> datetime:
     return datetime.now(CT)
 
-def is_maintenance_window(dt: datetime) -> bool:
-    if dt.weekday() >= 4:
-        return False
+def is_trading_time(dt: datetime) -> bool:
+    """
+    Check if datetime is during ES futures trading hours.
+    ES trades: Sunday 5:00 PM CT through Friday 4:00 PM CT
+    Daily maintenance: 4:00-5:00 PM CT (Mon-Thu)
+    """
+    weekday = dt.weekday()  # Mon=0, Sun=6
     t = dt.time()
-    return time(16, 0) <= t <= time(17, 0)
+    
+    # Saturday all day - NO trading
+    if weekday == 5:
+        return False
+    
+    # Sunday before 5 PM - NO trading
+    if weekday == 6 and t < time(17, 0):
+        return False
+    
+    # Sunday 5 PM onwards - YES trading
+    if weekday == 6 and t >= time(17, 0):
+        return True
+    
+    # Friday after 4 PM - NO trading
+    if weekday == 4 and t >= time(16, 0):
+        return False
+    
+    # Mon-Thu maintenance window 4:00-5:00 PM - NO trading
+    if weekday in [0, 1, 2, 3] and time(16, 0) <= t < time(17, 0):
+        return False
+    
+    # All other times Mon-Fri - YES trading
+    return True
 
 def count_trading_minutes(start_dt: datetime, end_dt: datetime) -> int:
+    """Count trading minutes between two datetimes (ES futures schedule)"""
     if start_dt >= end_dt:
         return 0
+    
     minutes = 0
     current = start_dt.replace(second=0, microsecond=0)
-    while current < end_dt:
-        if current.weekday() >= 5:
-            current += timedelta(days=1)
-            current = current.replace(hour=17, minute=0)
-            continue
-        if is_maintenance_window(current):
-            current += timedelta(minutes=1)
-            continue
-        minutes += 1
+    
+    # Safety limit (max 7 days)
+    max_iterations = 10080
+    iterations = 0
+    
+    while current < end_dt and iterations < max_iterations:
+        if is_trading_time(current):
+            minutes += 1
         current += timedelta(minutes=1)
+        iterations += 1
+    
     return minutes
 
 def count_30min_blocks(start_dt: datetime, end_dt: datetime) -> int:
