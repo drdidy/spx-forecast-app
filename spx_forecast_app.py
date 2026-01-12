@@ -1813,7 +1813,14 @@ def main():
     """, unsafe_allow_html=True)
     
     # ==================== CONFIDENCE BREAKDOWN ====================
-    st.markdown("""
+    # Build complete HTML in one string to avoid rendering issues
+    breakdown_items = ""
+    for factor, points, max_points in confidence_result.get('breakdown', []):
+        score_class = "positive" if points >= max_points * 0.7 else "partial" if points > 0 else "zero"
+        icon = "+" if points >= max_points * 0.7 else "~" if points > 0 else "-"
+        breakdown_items += f'<div class="breakdown-item"><div class="breakdown-icon">{icon}</div><div class="breakdown-name">{factor}</div><div class="breakdown-score {score_class}">+{points}</div></div>'
+    
+    st.markdown(f"""
     <div class="card">
         <div class="card-header">
             <div class="card-icon purple">📊</div>
@@ -1822,77 +1829,64 @@ def main():
                 <div class="card-subtitle">Weighted scoring by pillar</div>
             </div>
         </div>
-    """, unsafe_allow_html=True)
-    
-    breakdown_html = '<div class="breakdown-container">'
-    for factor, points, max_points in confidence_result.get('breakdown', []):
-        score_class = "positive" if points >= max_points * 0.7 else "partial" if points > 0 else "zero"
-        icon = "✓" if points >= max_points * 0.7 else "◐" if points > 0 else "✗"
-        breakdown_html += f"""
-        <div class="breakdown-item">
-            <div class="breakdown-icon">{icon}</div>
-            <div class="breakdown-name">{factor}</div>
-            <div class="breakdown-score {score_class}">+{points}</div>
+        <div class="breakdown-container">
+            {breakdown_items}
         </div>
-        """
-    breakdown_html += '</div></div>'
-    st.markdown(breakdown_html, unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
     
     # ==================== DETAIL PANELS ====================
     col_left, col_mid, col_right = st.columns(3)
     
     with col_left:
-        st.markdown("""
-        <div class="card">
-            <div class="card-header">
-                <div class="card-icon blue">🏗️</div>
-                <div>
-                    <div class="card-title">Day Structure</div>
-                    <div class="card-subtitle">Projected @ 9:00 AM CT</div>
+        if ceiling and floor and spx_price and spx_price > 0:
+            structure_html = f"""
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon blue">🏗️</div>
+                    <div>
+                        <div class="card-title">Day Structure</div>
+                        <div class="card-subtitle">Projected @ 9:00 AM CT</div>
+                    </div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">🔺 CEILING</div>
+                    <div class="data-value red">{ceiling:,.1f}</div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">↕ Range</div>
+                    <div class="data-value">{ceiling - floor:,.1f} pts</div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">◆ CURRENT</div>
+                    <div class="data-value purple">{spx_price:,.1f}</div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">↕ To Floor</div>
+                    <div class="data-value">{spx_price - floor:,.1f} pts</div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">🔻 FLOOR</div>
+                    <div class="data-value green">{floor:,.1f}</div>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
-        
-        if ceiling and floor and spx_price and spx_price > 0:
-            st.markdown(f"""
-            <div class="data-row">
-                <div class="data-label">🔺 CEILING</div>
-                <div class="data-value red">{ceiling:,.1f}</div>
-            </div>
-            <div class="data-row">
-                <div class="data-label">↕ Range</div>
-                <div class="data-value">{ceiling - floor:,.1f} pts</div>
-            </div>
-            <div class="data-row">
-                <div class="data-label">◆ CURRENT</div>
-                <div class="data-value purple">{spx_price:,.1f}</div>
-            </div>
-            <div class="data-row">
-                <div class="data-label">↕ To Floor</div>
-                <div class="data-value">{spx_price - floor:,.1f} pts</div>
-            </div>
-            <div class="data-row">
-                <div class="data-label">🔻 FLOOR</div>
-                <div class="data-value green">{floor:,.1f}</div>
-            </div>
+            """
+            st.markdown(structure_html, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon blue">🏗️</div>
+                    <div>
+                        <div class="card-title">Day Structure</div>
+                        <div class="card-subtitle">Projected @ 9:00 AM CT</div>
+                    </div>
+                </div>
             </div>
             """, unsafe_allow_html=True)
-        else:
             st.info("Enter anchor points in sidebar")
-            st.markdown("</div>", unsafe_allow_html=True)
     
     with col_mid:
-        st.markdown("""
-        <div class="card">
-            <div class="card-header">
-                <div class="card-icon amber">📈</div>
-                <div>
-                    <div class="card-title">VIX Zone</div>
-                    <div class="card-subtitle">Inverse correlation to SPX</div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        
         vh = inputs.get("vix_overnight_high", 0)
         vl = inputs.get("vix_overnight_low", 0)
         vc = inputs.get("vix_current", 0)
@@ -1901,124 +1895,144 @@ def main():
             pct = max(0, min(100, vix_zone.get('range_pct', 0.5) * 100)) if vix_zone else 50
             v_detail = vix_zone.get('detail', '') if vix_zone else ''
             st.markdown(f"""
-            <div class="vix-visual">
-                <div class="vix-current">
-                    <div class="vix-current-value">{vc:.2f}</div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon amber">📈</div>
+                    <div>
+                        <div class="card-title">VIX Zone</div>
+                        <div class="card-subtitle">Inverse correlation to SPX</div>
+                    </div>
                 </div>
-                <div class="vix-bar-container">
-                    <div class="vix-marker" style="left:{pct}%;"></div>
+                <div class="vix-visual">
+                    <div class="vix-current">
+                        <div class="vix-current-value">{vc:.2f}</div>
+                    </div>
+                    <div class="vix-bar-container">
+                        <div class="vix-marker" style="left:{pct}%;"></div>
+                    </div>
+                    <div class="vix-labels">
+                        <span class="vix-label">🟢 {vl:.2f}</span>
+                        <span class="vix-label">🔴 {vh:.2f}</span>
+                    </div>
                 </div>
-                <div class="vix-labels">
-                    <span class="vix-label">🟢 {vl:.2f}</span>
-                    <span class="vix-label">🔴 {vh:.2f}</span>
-                </div>
-            </div>
-            <div style="text-align:center; margin-top:0.75rem; font-size:0.75rem; color:var(--text-muted);">{v_detail}</div>
+                <div style="text-align:center; margin-top:0.75rem; font-size:0.75rem; color:var(--text-muted);">{v_detail}</div>
             </div>
             """, unsafe_allow_html=True)
         else:
-            st.info("Enter VIX values in sidebar")
-            st.markdown("</div>", unsafe_allow_html=True)
-    
-    with col_right:
-        st.markdown("""
-        <div class="card">
-            <div class="card-header">
-                <div class="card-icon cyan">⚡</div>
-                <div>
-                    <div class="card-title">30-Min Momentum</div>
-                    <div class="card-subtitle">ES1! intraday indicators</div>
+            st.markdown("""
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon amber">📈</div>
+                    <div>
+                        <div class="card-title">VIX Zone</div>
+                        <div class="card-subtitle">Inverse correlation to SPX</div>
+                    </div>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
-        
+            """, unsafe_allow_html=True)
+            st.info("Enter VIX values in sidebar")
+    
+    with col_right:
         if momentum:
             mom_bias = momentum.get('momentum_bias', 'NEUTRAL')
             macd_dir = momentum.get('macd_direction', 'NEUTRAL')
             macd_class = "green" if macd_dir == "BULLISH" else "red"
             rsi_val = momentum.get('rsi', 50)
             structure = momentum.get('price_structure', 'NEUTRAL')
+            badge_class = 'ok' if mom_bias=='BULLISH' else 'no' if mom_bias=='BEARISH' else 'wait'
             
             st.markdown(f"""
-            <div class="momentum-grid">
-                <div class="momentum-item">
-                    <div class="momentum-label">RSI</div>
-                    <div class="momentum-value" style="color:var(--text-primary);">{rsi_val:.1f}</div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon cyan">⚡</div>
+                    <div>
+                        <div class="card-title">30-Min Momentum</div>
+                        <div class="card-subtitle">ES1! intraday indicators</div>
+                    </div>
                 </div>
-                <div class="momentum-item">
-                    <div class="momentum-label">MACD</div>
-                    <div class="momentum-value {macd_class}">{macd_dir[:4]}</div>
+                <div class="momentum-grid">
+                    <div class="momentum-item">
+                        <div class="momentum-label">RSI</div>
+                        <div class="momentum-value" style="color:var(--text-primary);">{rsi_val:.1f}</div>
+                    </div>
+                    <div class="momentum-item">
+                        <div class="momentum-label">MACD</div>
+                        <div class="momentum-value {macd_class}">{macd_dir[:4]}</div>
+                    </div>
+                    <div class="momentum-item">
+                        <div class="momentum-label">Structure</div>
+                        <div class="momentum-value" style="color:var(--text-secondary);">{structure[:4]}</div>
+                    </div>
                 </div>
-                <div class="momentum-item">
-                    <div class="momentum-label">Structure</div>
-                    <div class="momentum-value" style="color:var(--text-secondary);">{structure[:4]}</div>
+                <div style="text-align:center; margin-top:1rem;">
+                    <span class="status-badge {badge_class}">{mom_bias}</span>
                 </div>
-            </div>
-            <div style="text-align:center; margin-top:1rem;">
-                <span class="status-badge {'ok' if mom_bias=='BULLISH' else 'no' if mom_bias=='BEARISH' else 'wait'}">
-                    {mom_bias}
-                </span>
-            </div>
             </div>
             """, unsafe_allow_html=True)
         else:
+            st.markdown("""
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon cyan">⚡</div>
+                    <div>
+                        <div class="card-title">30-Min Momentum</div>
+                        <div class="card-subtitle">ES1! intraday indicators</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
             st.info("Awaiting momentum data")
-            st.markdown("</div>", unsafe_allow_html=True)
     
     # ==================== STRIKE SELECTION & OPTIONS ====================
     col_strikes, col_options = st.columns(2)
     
     with col_strikes:
-        st.markdown("""
-        <div class="card">
-            <div class="card-header">
-                <div class="card-icon green">🎯</div>
-                <div>
-                    <div class="card-title">Gamma-Optimized Strikes</div>
-                    <div class="card-subtitle">Based on structure entry & target</div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        
         if strikes:
             st.markdown(f"""
-            <div class="strike-grid">
-                <div class="strike-option recommended">
-                    <div class="strike-option-label">⭐ Recommended</div>
-                    <div class="strike-option-value">{int(strikes['recommended'])}</div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon green">🎯</div>
+                    <div>
+                        <div class="card-title">Gamma-Optimized Strikes</div>
+                        <div class="card-subtitle">Based on structure entry and target</div>
+                    </div>
                 </div>
-                <div class="strike-option">
-                    <div class="strike-option-label">Conservative</div>
-                    <div class="strike-option-value">{int(strikes['conservative'])}</div>
+                <div class="strike-grid">
+                    <div class="strike-option recommended">
+                        <div class="strike-option-label">⭐ Recommended</div>
+                        <div class="strike-option-value">{int(strikes['recommended'])}</div>
+                    </div>
+                    <div class="strike-option">
+                        <div class="strike-option-label">Conservative</div>
+                        <div class="strike-option-value">{int(strikes['conservative'])}</div>
+                    </div>
+                    <div class="strike-option">
+                        <div class="strike-option-label">Aggressive</div>
+                        <div class="strike-option-value">{int(strikes['aggressive'])}</div>
+                    </div>
+                    <div class="strike-option">
+                        <div class="strike-option-label">Round Number</div>
+                        <div class="strike-option-value">{int(strikes['round_number'])}</div>
+                    </div>
                 </div>
-                <div class="strike-option">
-                    <div class="strike-option-label">Aggressive</div>
-                    <div class="strike-option-value">{int(strikes['aggressive'])}</div>
-                </div>
-                <div class="strike-option">
-                    <div class="strike-option-label">Round Number</div>
-                    <div class="strike-option-value">{int(strikes['round_number'])}</div>
-                </div>
-            </div>
-            <div style="text-align:center; margin-top:0.75rem; font-size:0.7rem; color:var(--text-muted);">{strikes['rationale']}</div>
+                <div style="text-align:center; margin-top:0.75rem; font-size:0.7rem; color:var(--text-muted);">{strikes['rationale']}</div>
             </div>
             """, unsafe_allow_html=True)
         else:
-            st.info("Generate signal to see strike recommendations")
-            st.markdown("</div>", unsafe_allow_html=True)
-    
-    with col_options:
-        st.markdown("""
-        <div class="card">
-            <div class="card-header">
-                <div class="card-icon purple">💹</div>
-                <div>
-                    <div class="card-title">0DTE Options Data</div>
-                    <div class="card-subtitle">Live from Polygon.io</div>
+            st.markdown("""
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon green">🎯</div>
+                    <div>
+                        <div class="card-title">Gamma-Optimized Strikes</div>
+                        <div class="card-subtitle">Based on structure entry and target</div>
+                    </div>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
-        
+            """, unsafe_allow_html=True)
+            st.info("Generate signal to see strike recommendations")
+    
+    with col_options:
         if strikes and confidence_result.get('direction'):
             opt_data, ticker = fetch_option_data(
                 strikes.get('recommended'),
@@ -2040,100 +2054,131 @@ def main():
                 stop_pct = stop_info.get('stop_pct', 0.5)
                 
                 st.markdown(f"""
-                <div style="text-align:center; margin-bottom:1rem;">
-                    <span style="font-family:'IBM Plex Mono'; font-size:0.75rem; background:var(--accent-purple-dim); color:var(--accent-purple); padding:0.35rem 0.75rem; border-radius:6px;">{ticker}</span>
-                </div>
-                <div class="data-row">
-                    <div class="data-label">Last Price</div>
-                    <div class="data-value">${last:.2f}</div>
-                </div>
-                <div class="data-row">
-                    <div class="data-label">Bid / Ask</div>
-                    <div class="data-value">${bid:.2f} / ${ask:.2f}</div>
-                </div>
-                <div class="data-row">
-                    <div class="data-label">Volume</div>
-                    <div class="data-value">{vol:,}</div>
-                </div>
-                <div class="data-row">
-                    <div class="data-label">Open Interest</div>
-                    <div class="data-value">{oi:,}</div>
-                </div>
-                <div class="data-row">
-                    <div class="data-label">ATR Stop ({stop_pct:.0%})</div>
-                    <div class="data-value red">${stop_price:.2f}</div>
-                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-icon purple">💹</div>
+                        <div>
+                            <div class="card-title">0DTE Options Data</div>
+                            <div class="card-subtitle">Live from Polygon.io</div>
+                        </div>
+                    </div>
+                    <div style="text-align:center; margin-bottom:1rem;">
+                        <span style="font-family:IBM Plex Mono,monospace; font-size:0.75rem; background:var(--accent-purple-dim); color:var(--accent-purple); padding:0.35rem 0.75rem; border-radius:6px;">{ticker}</span>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-label">Last Price</div>
+                        <div class="data-value">${last:.2f}</div>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-label">Bid / Ask</div>
+                        <div class="data-value">${bid:.2f} / ${ask:.2f}</div>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-label">Volume</div>
+                        <div class="data-value">{vol:,}</div>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-label">Open Interest</div>
+                        <div class="data-value">{oi:,}</div>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-label">ATR Stop ({stop_pct:.0%})</div>
+                        <div class="data-value red">${stop_price:.2f}</div>
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                st.info(f"Awaiting options data" + (f" for {ticker}" if ticker else ""))
-                st.markdown("</div>", unsafe_allow_html=True)
+                ticker_display = f" for {ticker}" if ticker else ""
+                st.markdown("""
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-icon purple">💹</div>
+                        <div>
+                            <div class="card-title">0DTE Options Data</div>
+                            <div class="card-subtitle">Live from Polygon.io</div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                st.info(f"Awaiting options data{ticker_display}")
         else:
+            st.markdown("""
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon purple">💹</div>
+                    <div>
+                        <div class="card-title">0DTE Options Data</div>
+                        <div class="card-subtitle">Live from Polygon.io</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
             st.info("Generate signal to view options")
-            st.markdown("</div>", unsafe_allow_html=True)
     
     # ==================== CONE RAILS ====================
-    st.markdown("""
-    <div class="card">
-        <div class="card-header">
-            <div class="card-icon amber">📐</div>
-            <div>
-                <div class="card-title">Cone Rails</div>
-                <div class="card-subtitle">Prior day anchors projected to 9:00 AM entry</div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
     if cones:
         st.markdown(f"""
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Cone</th>
-                    <th>Anchor</th>
-                    <th>▲ Ascending</th>
-                    <th>▼ Descending</th>
-                    <th>Expansion</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td style="font-weight:600;">C1 {cones['C1']['name']}</td>
-                    <td>{cones['C1']['anchor']:,.1f}</td>
-                    <td class="table-up">{cones['C1']['asc']:,.1f}</td>
-                    <td class="table-down">{cones['C1']['desc']:,.1f}</td>
-                    <td>±{cones['C1']['exp']:.1f}</td>
-                </tr>
-                <tr>
-                    <td style="font-weight:600;">C2 {cones['C2']['name']}</td>
-                    <td>{cones['C2']['anchor']:,.1f}</td>
-                    <td class="table-up">{cones['C2']['asc']:,.1f}</td>
-                    <td class="table-down">{cones['C2']['desc']:,.1f}</td>
-                    <td>±{cones['C2']['exp']:.1f}</td>
-                </tr>
-                <tr>
-                    <td style="font-weight:600;">C3 {cones['C3']['name']}</td>
-                    <td>{cones['C3']['anchor']:,.1f}</td>
-                    <td class="table-up">{cones['C3']['asc']:,.1f}</td>
-                    <td class="table-down">{cones['C3']['desc']:,.1f}</td>
-                    <td>±{cones['C3']['exp']:.1f}</td>
-                </tr>
-            </tbody>
-        </table>
-        <div style="text-align:center; margin-top:0.75rem; font-size:0.7rem; color:var(--text-muted);">Slope: ±{CONE_SLOPE} pts per 30-min block</div>
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon amber">📐</div>
+                <div>
+                    <div class="card-title">Cone Rails</div>
+                    <div class="card-subtitle">Prior day anchors projected to 9:00 AM entry</div>
+                </div>
+            </div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Cone</th>
+                        <th>Anchor</th>
+                        <th>Ascending</th>
+                        <th>Descending</th>
+                        <th>Expansion</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="font-weight:600;">C1 {cones['C1']['name']}</td>
+                        <td>{cones['C1']['anchor']:,.1f}</td>
+                        <td class="table-up">{cones['C1']['asc']:,.1f}</td>
+                        <td class="table-down">{cones['C1']['desc']:,.1f}</td>
+                        <td>+/-{cones['C1']['exp']:.1f}</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight:600;">C2 {cones['C2']['name']}</td>
+                        <td>{cones['C2']['anchor']:,.1f}</td>
+                        <td class="table-up">{cones['C2']['asc']:,.1f}</td>
+                        <td class="table-down">{cones['C2']['desc']:,.1f}</td>
+                        <td>+/-{cones['C2']['exp']:.1f}</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight:600;">C3 {cones['C3']['name']}</td>
+                        <td>{cones['C3']['anchor']:,.1f}</td>
+                        <td class="table-up">{cones['C3']['asc']:,.1f}</td>
+                        <td class="table-down">{cones['C3']['desc']:,.1f}</td>
+                        <td>+/-{cones['C3']['exp']:.1f}</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div style="text-align:center; margin-top:0.75rem; font-size:0.7rem; color:var(--text-muted);">Slope: +/-{CONE_SLOPE} pts per 30-min block</div>
         </div>
         """, unsafe_allow_html=True)
     else:
+        st.markdown("""
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon amber">📐</div>
+                <div>
+                    <div class="card-title">Cone Rails</div>
+                    <div class="card-subtitle">Prior day anchors projected to 9:00 AM entry</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         st.info("Enter prior day values in sidebar")
-        st.markdown("</div>", unsafe_allow_html=True)
     
     # ==================== DEBUG PANEL ====================
     if inputs.get("show_debug"):
-        st.markdown("""
-        <div class="debug-panel">
-            <div class="debug-header">🔧 MA Debug Panel - Compare with TradingView ES1! 30-min</div>
-        """, unsafe_allow_html=True)
-        
         if ma_debug:
             debug_text = f"""Candle Count: {ma_debug.get('candle_count', 'N/A')}
 First Candle: {ma_debug.get('first_candle', 'N/A')}
@@ -2144,13 +2189,19 @@ Last Close:   {ma_debug.get('last_close', 0):.2f}
 200 SMA: {ma_debug.get('sma_200', 0):.2f}
 Diff %:  {ma_debug.get('diff_pct', 0):.4f}%
 
-If values don't match TradingView:
+If values dont match TradingView:
 1. Check TradingView session: Extended Hours
 2. Verify indicator settings: 50 EMA, 200 SMA (close)
 3. Ensure chart is ES1! continuous contract"""
-            st.markdown(f'<div class="debug-content">{debug_text}</div></div>', unsafe_allow_html=True)
         else:
-            st.markdown('<div class="debug-content">No MA debug data (using manual override or no ES data)</div></div>', unsafe_allow_html=True)
+            debug_text = "No MA debug data (using manual override or no ES data)"
+        
+        st.markdown(f"""
+        <div class="debug-panel">
+            <div class="debug-header">MA Debug Panel - Compare with TradingView ES1! 30-min</div>
+            <div class="debug-content">{debug_text}</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     # ==================== FOOTER ====================
     st.markdown(f"""
