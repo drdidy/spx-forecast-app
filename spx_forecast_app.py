@@ -268,6 +268,12 @@ def project_trendline(anchor1_price: float, anchor1_time: datetime, anchor2_pric
     return round(anchor1_price + (slope_per_min * minutes_to_target), 2)
 
 def calculate_day_structure(ceiling_anchors: List[Tuple[float, datetime]], floor_anchors: List[Tuple[float, datetime]], target_time: datetime, current_price: float) -> Dict:
+    """
+    Day Structure provides ENTRY LEVELS only.
+    - MA Bias determines direction (LONG/SHORT)
+    - VIX confirms timing
+    - Structure tells you WHERE to enter (floor for calls, ceiling for puts)
+    """
     now = get_now_ct()
     
     if len(ceiling_anchors) >= 2:
@@ -282,23 +288,30 @@ def calculate_day_structure(ceiling_anchors: List[Tuple[float, datetime]], floor
     else:
         floor_9am = floor_now = current_price - 20
     
+    # Distances from current price
     dist_to_ceiling = ceiling_now - current_price
     dist_to_floor = current_price - floor_now
-    range_size = ceiling_now - floor_now
-    position_pct = ((current_price - floor_now) / range_size * 100) if range_size > 0 else 50
+    range_size = ceiling_9am - floor_9am
     
-    if current_price > ceiling_now:
-        signal, score, reason = "BULLISH_BREAKOUT", 30, f"Above ceiling by {current_price - ceiling_now:.2f}"
-    elif current_price < floor_now:
-        signal, score, reason = "BEARISH_BREAKDOWN", 30, f"Below floor by {floor_now - current_price:.2f}"
-    elif position_pct > 70:
-        signal, score, reason = "BULLISH_LEAN", 20, f"Upper 30% ({position_pct:.0f}%)"
-    elif position_pct < 30:
-        signal, score, reason = "BEARISH_LEAN", 20, f"Lower 30% ({position_pct:.0f}%)"
+    # No signal - Structure just provides levels
+    # Score based on range quality (tighter range = cleaner setup)
+    if range_size > 0 and range_size <= 50:
+        score = 30  # Tight range - excellent
+    elif range_size <= 75:
+        score = 20  # Normal range
     else:
-        signal, score, reason = "NEUTRAL", 10, f"Mid-range ({position_pct:.0f}%)"
+        score = 10  # Wide range - harder to trade
     
-    return {"signal": signal, "reason": reason, "score": score, "ceiling_9am": ceiling_9am, "floor_9am": floor_9am, "ceiling_now": ceiling_now, "floor_now": floor_now, "dist_to_ceiling": round(dist_to_ceiling, 2), "dist_to_floor": round(dist_to_floor, 2), "range": round(range_size, 2), "position_pct": round(position_pct, 1)}
+    return {
+        "ceiling_9am": ceiling_9am,
+        "floor_9am": floor_9am,
+        "ceiling_now": ceiling_now,
+        "floor_now": floor_now,
+        "dist_to_ceiling": round(dist_to_ceiling, 2),
+        "dist_to_floor": round(dist_to_floor, 2),
+        "range": round(range_size, 2),
+        "score": score
+    }
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PILLAR 3: VIX ZONE
@@ -519,7 +532,23 @@ def calculate_dynamic_stop(es_candles: Optional[pd.DataFrame], premium: float, v
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def calculate_confidence(ma_bias: Dict, structure: Dict, vix_zone: Dict, momentum: Dict, cone_confluence: Dict) -> Dict:
-    scores = {"MA Bias": ma_bias.get("score", 0), "Structure": structure.get("score", 0), "VIX Zone": vix_zone.get("score", 0), "Momentum": momentum.get("score", 0), "Cone Confluence": cone_confluence.get("score", 0)}
+    """
+    Confidence score based on alignment of pillars.
+    - MA Bias: Direction filter (25 pts)
+    - Structure: Entry levels - score based on range quality (30 pts)
+    - VIX Zone: Timing confirmation (20 pts)
+    - Momentum: Additional confirmation (15 pts)
+    - Cone Confluence: Bonus for hitting cone rails (10 pts)
+    
+    Structure does NOT vote on direction - it just provides entry levels.
+    """
+    scores = {
+        "MA Bias": ma_bias.get("score", 0),
+        "Structure": structure.get("score", 0),
+        "VIX Zone": vix_zone.get("score", 0),
+        "Momentum": momentum.get("score", 0),
+        "Cone Confluence": cone_confluence.get("score", 0)
+    }
     total = sum(scores.values())
     
     if total >= 85: grade, action = "A+", "STRONG_ENTRY"
@@ -528,17 +557,33 @@ def calculate_confidence(ma_bias: Dict, structure: Dict, vix_zone: Dict, momentu
     elif total >= 45: grade, action = "LOW", "WAIT"
     else: grade, action = "NO_TRADE", "AVOID"
     
-    calls_signals = puts_signals = 0
-    for result in [ma_bias, structure, vix_zone, momentum]:
-        sig = result.get("signal", "").upper()
-        if sig in ["LONG", "BULLISH", "BULLISH_LEAN", "BULLISH_BREAKOUT", "CALLS"]: calls_signals += 1
-        elif sig in ["SHORT", "BEARISH", "BEARISH_LEAN", "BEARISH_BREAKDOWN", "PUTS"]: puts_signals += 1
+    # Check alignment between MA Bias and VIX (structure doesn't vote)
+    ma_signal = ma_bias.get("signal", "").upper()
+    vix_signal = vix_zone.get("signal", "").upper()
+    momentum_signal = momentum.get("signal", "").upper()
     
-    if calls_signals > puts_signals and total >= 60: final_signal, direction = "CALLS", "LONG"
-    elif puts_signals > calls_signals and total >= 60: final_signal, direction = "PUTS", "SHORT"
-    else: final_signal, direction = "WAIT", "NONE"
+    # Count confirmations for the MA Bias direction
+    if ma_signal == "LONG":
+        confirmations = 0
+        if vix_signal == "CALLS": confirmations += 1
+        if momentum_signal == "BULLISH": confirmations += 1
+    elif ma_signal == "SHORT":
+        confirmations = 0
+        if vix_signal == "PUTS": confirmations += 1
+        if momentum_signal == "BEARISH": confirmations += 1
+    else:
+        confirmations = 0
     
-    return {"total": total, "grade": grade, "action": action, "breakdown": scores, "final_signal": final_signal, "direction": direction, "calls_signals": calls_signals, "puts_signals": puts_signals}
+    return {
+        "total": total,
+        "grade": grade,
+        "action": action,
+        "breakdown": scores,
+        "confirmations": confirmations,
+        "ma_signal": ma_signal,
+        "vix_confirms": (ma_signal == "LONG" and vix_signal == "CALLS") or (ma_signal == "SHORT" and vix_signal == "PUTS"),
+        "momentum_confirms": (ma_signal == "LONG" and momentum_signal == "BULLISH") or (ma_signal == "SHORT" and momentum_signal == "BEARISH")
+    }
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PERSISTENCE
@@ -641,10 +686,8 @@ def render_sidebar() -> Dict:
         prior_low_hour = c2.selectbox("Hr", HOUR_OPTIONS, index=int(saved.get("prior_low_hour", 14)), key="plh")
         prior_low_min = c3.selectbox("Min", MINUTE_OPTIONS, index=MINUTE_OPTIONS.index(int(saved.get("prior_low_min", 0))), key="plm")
         
-        c1, c2, c3 = st.columns([2, 1, 1])
-        prior_close = c1.number_input("Prior Close", value=float(saved.get("prior_close", 6050.0)), step=0.5)
-        prior_close_hour = c2.selectbox("Hr", HOUR_OPTIONS, index=int(saved.get("prior_close_hour", 15)), key="pch")
-        prior_close_min = c3.selectbox("Min", MINUTE_OPTIONS, index=MINUTE_OPTIONS.index(int(saved.get("prior_close_min", 0))), key="pcm")
+        # Close is always 3:00 PM CT (RTH close)
+        prior_close = st.number_input("Prior Close (3 PM CT)", value=float(saved.get("prior_close", 6050.0)), step=0.5)
         
         st.markdown("---")
         st.markdown("### 🎯 Strike Selection")
@@ -659,7 +702,7 @@ def render_sidebar() -> Dict:
         show_debug = st.checkbox("Show Debug Panel", value=False)
         
         if st.button("💾 Save Inputs", use_container_width=True):
-            save_inputs({"spx_price": spx_price, "ceil1_price": ceil1_price, "ceil1_hour": ceil1_hour, "ceil1_min": ceil1_min, "ceil2_price": ceil2_price, "ceil2_hour": ceil2_hour, "ceil2_min": ceil2_min, "floor1_price": floor1_price, "floor1_hour": floor1_hour, "floor1_min": floor1_min, "floor2_price": floor2_price, "floor2_hour": floor2_hour, "floor2_min": floor2_min, "vix_overnight_high": vix_overnight_high, "vix_overnight_low": vix_overnight_low, "vix_current": vix_current, "prior_high": prior_high, "prior_high_hour": prior_high_hour, "prior_high_min": prior_high_min, "prior_low": prior_low, "prior_low_hour": prior_low_hour, "prior_low_min": prior_low_min, "prior_close": prior_close, "prior_close_hour": prior_close_hour, "prior_close_min": prior_close_min})
+            save_inputs({"spx_price": spx_price, "ceil1_price": ceil1_price, "ceil1_hour": ceil1_hour, "ceil1_min": ceil1_min, "ceil2_price": ceil2_price, "ceil2_hour": ceil2_hour, "ceil2_min": ceil2_min, "floor1_price": floor1_price, "floor1_hour": floor1_hour, "floor1_min": floor1_min, "floor2_price": floor2_price, "floor2_hour": floor2_hour, "floor2_min": floor2_min, "vix_overnight_high": vix_overnight_high, "vix_overnight_low": vix_overnight_low, "vix_current": vix_current, "prior_high": prior_high, "prior_high_hour": prior_high_hour, "prior_high_min": prior_high_min, "prior_low": prior_low, "prior_low_hour": prior_low_hour, "prior_low_min": prior_low_min, "prior_close": prior_close})
             st.success("✅ Saved!")
     
     prev_day = trading_date - timedelta(days=1)
@@ -671,7 +714,7 @@ def render_sidebar() -> Dict:
     floor_anchors = [(floor1_price, make_anchor_time(floor1_hour, floor1_min, prev_day)), (floor2_price, make_anchor_time(floor2_hour, floor2_min, prev_day))]
     prior_high_time = CT.localize(datetime.combine(prev_day, time(prior_high_hour, prior_high_min)))
     prior_low_time = CT.localize(datetime.combine(prev_day, time(prior_low_hour, prior_low_min)))
-    prior_close_time = CT.localize(datetime.combine(prev_day, time(prior_close_hour, prior_close_min)))
+    prior_close_time = CT.localize(datetime.combine(prev_day, time(15, 0)))  # Always 3:00 PM CT
     
     return {"trading_date": trading_date, "spx_price": spx_price, "ma_override": ma_override, "ceiling_anchors": ceiling_anchors, "floor_anchors": floor_anchors, "vix_overnight_high": vix_overnight_high, "vix_overnight_low": vix_overnight_low, "vix_current": vix_current, "prior_high": prior_high, "prior_high_time": prior_high_time, "prior_low": prior_low, "prior_low_time": prior_low_time, "prior_close": prior_close, "prior_close_time": prior_close_time, "strike_method": strike_method, "auto_refresh": auto_refresh, "refresh_interval": refresh_interval, "show_debug": show_debug}
 
@@ -838,8 +881,20 @@ def main():
         st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon blue">📊</div><div><div class="card-title">Pillar 1: MA Bias</div><div class="card-subtitle">ES 30-min | <span style="color:{status_color}">{ma_bias.get("candle_count", 0)} candles</span></div></div></div><span class="signal-badge {ma_class}">{ma_bias["signal"]}</span><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">50 EMA</span><span class="pillar-value">{ma_bias.get("ema_50") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">200 SMA</span><span class="pillar-value">{ma_bias.get("sma_200") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">Diff %</span><span class="pillar-value">{f"{ma_bias.get('diff_pct')}%" if ma_bias.get("diff_pct") else "—"}</span></div><div class="pillar-item"><span class="pillar-name">Score</span><span class="pillar-value">{ma_bias["score"]}/25</span></div></div>', unsafe_allow_html=True)
     
     with p2:
-        struct_class = "calls" if "BULLISH" in structure["signal"] else "puts" if "BEARISH" in structure["signal"] else "neutral"
-        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon amber">📐</div><div><div class="card-title">Pillar 2: Structure</div><div class="card-subtitle">9 AM CT Entry Levels</div></div></div><span class="signal-badge {struct_class}">{structure["signal"]}</span><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">Ceiling @ 9 AM</span><span class="pillar-value table-down">{structure["ceiling_9am"]:,.2f}</span></div><div class="pillar-item"><span class="pillar-name">Floor @ 9 AM</span><span class="pillar-value table-up">{structure["floor_9am"]:,.2f}</span></div><div class="pillar-item"><span class="pillar-name">Range</span><span class="pillar-value">{structure["ceiling_9am"] - structure["floor_9am"]:.1f} pts</span></div><div class="pillar-item"><span class="pillar-name">Current Price</span><span class="pillar-value">{current_price:,.2f}</span></div><div class="pillar-item"><span class="pillar-name">Score</span><span class="pillar-value">{structure["score"]}/30</span></div></div>', unsafe_allow_html=True)
+        # Show distance to entry based on MA Bias direction
+        if trade_direction == "LONG":
+            entry_label = "Floor (Entry)"
+            entry_dist = structure["dist_to_floor"]
+            dist_display = f"{entry_dist:.1f} pts {'above' if entry_dist > 0 else 'below'}" if entry_dist != 0 else "AT LEVEL"
+        elif trade_direction == "SHORT":
+            entry_label = "Ceiling (Entry)"
+            entry_dist = structure["dist_to_ceiling"]
+            dist_display = f"{entry_dist:.1f} pts {'below' if entry_dist > 0 else 'above'}" if entry_dist != 0 else "AT LEVEL"
+        else:
+            entry_label = "No Entry"
+            dist_display = "Set MA Bias"
+        
+        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon amber">📐</div><div><div class="card-title">Pillar 2: Structure</div><div class="card-subtitle">9 AM Entry Levels</div></div></div><div class="pillar-item"><span class="pillar-name">Ceiling @ 9 AM</span><span class="pillar-value table-down">{structure["ceiling_9am"]:,.2f}</span></div><div class="pillar-item"><span class="pillar-name">Floor @ 9 AM</span><span class="pillar-value table-up">{structure["floor_9am"]:,.2f}</span></div><div class="pillar-item"><span class="pillar-name">Range</span><span class="pillar-value">{structure["range"]:.1f} pts</span></div><div class="pillar-item"><span class="pillar-name">Current Price</span><span class="pillar-value">{current_price:,.2f}</span></div><div class="pillar-item"><span class="pillar-name">Dist to {entry_label}</span><span class="pillar-value">{dist_display}</span></div><div class="pillar-item"><span class="pillar-name">Score</span><span class="pillar-value">{structure["score"]}/30</span></div></div>', unsafe_allow_html=True)
     
     with p3:
         vix_class = "calls" if vix_zone["signal"] == "CALLS" else "puts" if vix_zone["signal"] == "PUTS" else "neutral"
@@ -850,7 +905,12 @@ def main():
     with c1:
         fill_class = "a-plus" if confidence["grade"] == "A+" else "high" if confidence["grade"] == "HIGH" else "medium" if confidence["grade"] == "MEDIUM" else "low"
         breakdown_html = "".join([f'<div class="pillar-item"><span class="pillar-name">{name}</span><span class="pillar-value">+{score}</span></div>' for name, score in confidence["breakdown"].items()])
-        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon purple">📋</div><div><div class="card-title">Confidence Score</div><div class="card-subtitle">{confidence["grade"]} Setup</div></div></div><div class="confidence-container"><div class="confidence-bar"><div class="confidence-fill {fill_class}" style="width:{confidence["total"]}%"></div></div><div class="confidence-label"><span class="confidence-score">{confidence["total"]}/100</span><span style="color:{"var(--green)" if confidence["total"] >= 75 else "var(--amber)" if confidence["total"] >= 60 else "var(--red)"}">{confidence["grade"]}</span></div></div>{breakdown_html}</div>', unsafe_allow_html=True)
+        
+        # Show confirmation status
+        vix_check = "✅" if confidence.get("vix_confirms") else "❌"
+        mom_check = "✅" if confidence.get("momentum_confirms") else "❌"
+        
+        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon purple">📋</div><div><div class="card-title">Confidence Score</div><div class="card-subtitle">{confidence["grade"]} Setup</div></div></div><div class="confidence-container"><div class="confidence-bar"><div class="confidence-fill {fill_class}" style="width:{confidence["total"]}%"></div></div><div class="confidence-label"><span class="confidence-score">{confidence["total"]}/100</span><span style="color:{"var(--green)" if confidence["total"] >= 75 else "var(--amber)" if confidence["total"] >= 60 else "var(--red)"}">{confidence["grade"]}</span></div></div><div class="pillar-item"><span class="pillar-name">VIX Confirms</span><span class="pillar-value">{vix_check}</span></div><div class="pillar-item"><span class="pillar-name">Momentum Confirms</span><span class="pillar-value">{mom_check}</span></div>{breakdown_html}</div>', unsafe_allow_html=True)
     
     with c2:
         if in_entry_window and trade_direction != "NEUTRAL":
