@@ -391,6 +391,10 @@ DEFAULT_INPUTS = {
     # ES/SPX Offset (for MA calculation only)
     "es_spx_offset": 7.0,
     
+    # MA Bias Override (if auto-fetch fails or for backtest)
+    "use_manual_ma": False,
+    "manual_ma_bias": "LONG",  # LONG, SHORT, or NEUTRAL
+    
     # Current SPX (manual input option)
     "spx_manual": 0.0,
     "use_manual_spx": False,
@@ -440,13 +444,16 @@ def load_inputs():
 # ============================================================================
 # DATA FETCHING (ES only for MAs)
 # ============================================================================
-def get_es_30min_candles(days=15):
+def get_es_30min_candles(days=30):
     """Fetch ES 30-min candles for MA calculation only"""
     try:
         es = yf.Ticker("ES=F")
-        return es.history(period=f"{days}d", interval="30m")
-    except:
-        return None
+        data = es.history(period=f"{days}d", interval="30m")
+        if data is not None and not data.empty:
+            return data
+    except Exception as e:
+        print(f"ES fetch error: {e}")
+    return None
 
 def get_spx_price():
     """Try to fetch current SPX price during RTH"""
@@ -482,23 +489,29 @@ def fetch_option_data(strike, is_call, trade_date):
 # ============================================================================
 def analyze_ma_bias(es_candles, offset):
     """Calculate 50 EMA vs 200 SMA from ES 30-min candles, convert to SPX"""
-    if es_candles is None or len(es_candles) < 200:
-        return "NEUTRAL", "Insufficient data", None, None
+    if es_candles is None:
+        return "NEUTRAL", "No ES data (use Manual MA)", None, None
     
-    # Convert ES to SPX using user-provided offset
-    spx_close = es_candles['Close'] - offset
+    if len(es_candles) < 200:
+        return "NEUTRAL", f"Need 200 candles, got {len(es_candles)}", None, None
     
-    ema_50 = spx_close.ewm(span=50, adjust=False).mean().iloc[-1]
-    sma_200 = spx_close.rolling(window=200).mean().iloc[-1]
-    
-    diff_pct = (ema_50 - sma_200) / sma_200 * 100
-    
-    if diff_pct > 0.1:
-        return "LONG", f"50 EMA ({ema_50:,.1f}) > 200 SMA ({sma_200:,.1f})", ema_50, sma_200
-    elif diff_pct < -0.1:
-        return "SHORT", f"50 EMA ({ema_50:,.1f}) < 200 SMA ({sma_200:,.1f})", ema_50, sma_200
-    else:
-        return "NEUTRAL", f"MAs crossing ({diff_pct:+.2f}%)", ema_50, sma_200
+    try:
+        # Convert ES to SPX using user-provided offset
+        spx_close = es_candles['Close'] - offset
+        
+        ema_50 = spx_close.ewm(span=50, adjust=False).mean().iloc[-1]
+        sma_200 = spx_close.rolling(window=200).mean().iloc[-1]
+        
+        diff_pct = (ema_50 - sma_200) / sma_200 * 100
+        
+        if diff_pct > 0.1:
+            return "LONG", f"50 EMA ({ema_50:,.1f}) > 200 SMA ({sma_200:,.1f})", ema_50, sma_200
+        elif diff_pct < -0.1:
+            return "SHORT", f"50 EMA ({ema_50:,.1f}) < 200 SMA ({sma_200:,.1f})", ema_50, sma_200
+        else:
+            return "NEUTRAL", f"MAs crossing ({diff_pct:+.2f}%)", ema_50, sma_200
+    except Exception as e:
+        return "NEUTRAL", f"Calc error: {str(e)[:30]}", None, None
 
 # ============================================================================
 # PILLAR 2: DAY STRUCTURE (All SPX inputs)
@@ -835,6 +848,15 @@ def main():
         st.markdown('<div class="sidebar-section"><div class="sidebar-section-header"><span class="sidebar-section-icon">🔢</span><span class="sidebar-section-title">ES−SPX Offset (MAs)</span></div></div>', unsafe_allow_html=True)
         inputs["es_spx_offset"] = st.number_input("Offset (ES minus SPX)", value=float(inputs.get("es_spx_offset", 7.0)), step=0.1, format="%.1f")
         
+        # MA Bias Override
+        inputs["use_manual_ma"] = st.checkbox("Manual MA Bias", value=inputs.get("use_manual_ma", False))
+        if inputs["use_manual_ma"]:
+            ma_options = ["LONG", "SHORT", "NEUTRAL"]
+            current_ma = inputs.get("manual_ma_bias", "LONG")
+            if current_ma not in ma_options:
+                current_ma = "LONG"
+            inputs["manual_ma_bias"] = st.selectbox("MA Bias", ma_options, index=ma_options.index(current_ma))
+        
         # VIX Zone
         st.markdown('<div class="sidebar-section"><div class="sidebar-section-header"><span class="sidebar-section-icon">📊</span><span class="sidebar-section-title">VIX Zone (TradingView)</span></div></div>', unsafe_allow_html=True)
         inputs["vix_overnight_high"] = st.number_input("Overnight High", value=float(inputs.get("vix_overnight_high", 0)), step=0.01, format="%.2f")
@@ -904,7 +926,14 @@ def main():
         spx_price = get_spx_price()
     
     # ========== PILLARS ==========
-    ma_bias, ma_detail, ema_50, sma_200 = analyze_ma_bias(es_candles, inputs.get("es_spx_offset", 7.0))
+    # MA Bias - check for manual override first
+    if inputs.get("use_manual_ma"):
+        ma_bias = inputs.get("manual_ma_bias", "LONG")
+        ma_detail = "Manual override"
+        ema_50, sma_200 = None, None
+    else:
+        ma_bias, ma_detail, ema_50, sma_200 = analyze_ma_bias(es_candles, inputs.get("es_spx_offset", 7.0))
+    
     ceiling, floor, c_slope, f_slope, struct_status = get_day_structure(inputs, trade_date)
     vix_zone = analyze_vix_zone(inputs.get("vix_overnight_high", 0), inputs.get("vix_overnight_low", 0), inputs.get("vix_current", 0))
     cones = calculate_cone_rails(inputs, trade_date)
@@ -936,12 +965,18 @@ def main():
         bias_class = "bullish" if ma_bias == "LONG" else "bearish" if ma_bias == "SHORT" else "neutral"
         bias_icon = "📈" if ma_bias == "LONG" else "📉" if ma_bias == "SHORT" else "⏸️"
         allowed = "CALLS only" if ma_bias == "LONG" else "PUTS only" if ma_bias == "SHORT" else "No trades"
+        # Show MA values or source
+        if ema_50 is not None and sma_200 is not None:
+            ma_info = f"EMA:{ema_50:,.0f} | SMA:{sma_200:,.0f}"
+        else:
+            ma_info = ma_detail
         st.markdown(f"""
         <div class="pillar-card {bias_class}">
             <div class="pillar-header"><div class="pillar-icon {bias_class}">{bias_icon}</div><div><div class="pillar-number">Pillar 1 • Filter</div><div class="pillar-name">MA Bias</div></div></div>
             <div class="pillar-question">Can I trade CALLS or PUTS?</div>
             <div class="pillar-answer {bias_class}">{ma_bias}</div>
             <div class="pillar-detail">{allowed}</div>
+            <div style="margin-top:0.3rem; font-size:0.6rem; color:var(--text-muted);">{ma_info}</div>
         </div>
         """, unsafe_allow_html=True)
     
