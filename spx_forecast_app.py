@@ -532,11 +532,13 @@ def calculate_all_trades(
             else:
                 trade["status"] = "WATCHING"
         
-        # Calculate strike based on CURRENT PRICE (20 pts OTM from current)
+        # Calculate strike based on ENTRY LEVEL (20 pts OTM from entry)
         if trade["entry_type"] == "CALLS":
-            trade["strike"] = int(round((current_price + 20) / 5) * 5)
+            # For CALLS, strike should be above entry level (OTM)
+            trade["strike"] = int(round((trade["level"] + 20) / 5) * 5)
         else:
-            trade["strike"] = int(round((current_price - 20) / 5) * 5)
+            # For PUTS, strike should be below entry level (OTM)
+            trade["strike"] = int(round((trade["level"] - 20) / 5) * 5)
     
     # Sort by level (highest to lowest)
     sorted_keys = sorted(trades.keys(), key=lambda k: trades[k]["level"], reverse=True)
