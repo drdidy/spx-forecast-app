@@ -47,7 +47,7 @@ CONFLUENCE_THRESHOLD = 5.0
 SAVE_FILE = "spx_prophet_v5_inputs.json"
 
 # Polygon API
-POLYGON_KEY = "jrbBZ2y12cJAOp2Buqtlay0TdprcTDIm"
+POLYGON_KEY = "DCWuTS1R_fukpfjgf7QnXrLTEOS_giq6"
 POLYGON_BASE = "https://api.polygon.io"
 
 VIX_ZONES = {
@@ -238,82 +238,108 @@ def estimate_option_price_at_level(
 def build_option_ticker(expiry_date: date, strike: float, option_type: str) -> str:
     """
     Build SPXW option ticker for Polygon
-    Format: O:SPXW{YYMMDD}{C/P}{strike*1000}
-    Example: O:SPXW240115C06000000
+    Format: O:SPXW{YYMMDD}{C/P}{strike*1000 as 8 digits}
+    Example: O:SPXW260113C06000000
     """
     date_str = expiry_date.strftime("%y%m%d")
     type_char = "C" if option_type == "CALL" else "P"
-    strike_str = f"{int(strike * 1000):08d}"
+    strike_int = int(strike * 1000)
+    strike_str = f"{strike_int:08d}"
     return f"O:SPXW{date_str}{type_char}{strike_str}"
 
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_option_quote(ticker: str) -> Optional[Dict]:
     """Fetch last quote for option from Polygon"""
     try:
-        # Try snapshot endpoint first (real-time)
-        url = f"{POLYGON_BASE}/v3/snapshot/options/{ticker}?apiKey={POLYGON_KEY}"
-        resp = requests.get(url, timeout=5)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            if "results" in data:
-                result = data["results"]
-                return {
-                    "last_price": result.get("day", {}).get("close") or result.get("last_quote", {}).get("midpoint"),
-                    "bid": result.get("last_quote", {}).get("bid"),
-                    "ask": result.get("last_quote", {}).get("ask"),
-                    "iv": result.get("implied_volatility"),
-                    "delta": result.get("greeks", {}).get("delta"),
-                    "gamma": result.get("greeks", {}).get("gamma"),
-                    "theta": result.get("greeks", {}).get("theta"),
-                    "vega": result.get("greeks", {}).get("vega"),
-                    "open_interest": result.get("open_interest"),
-                    "volume": result.get("day", {}).get("volume"),
-                    "underlying_price": result.get("underlying_asset", {}).get("price")
-                }
-        
-        # Fallback to previous day close
-        url = f"{POLYGON_BASE}/v2/aggs/ticker/{ticker}/prev?apiKey={POLYGON_KEY}"
-        resp = requests.get(url, timeout=5)
+        # Use the quotes endpoint
+        url = f"{POLYGON_BASE}/v3/quotes/{ticker}?limit=1&apiKey={POLYGON_KEY}"
+        resp = requests.get(url, timeout=10)
         
         if resp.status_code == 200:
             data = resp.json()
             if "results" in data and len(data["results"]) > 0:
                 result = data["results"][0]
+                # Calculate midpoint from bid/ask
+                bid = result.get("bid_price", 0)
+                ask = result.get("ask_price", 0)
+                midpoint = (bid + ask) / 2 if bid and ask else None
+                
                 return {
-                    "last_price": result.get("c"),  # close
-                    "bid": None,
-                    "ask": None,
-                    "iv": None,
-                    "delta": None,
-                    "gamma": None,
-                    "theta": None,
-                    "vega": None,
-                    "open_interest": None,
-                    "volume": result.get("v")
+                    "last_price": midpoint,
+                    "bid": bid,
+                    "ask": ask,
+                    "bid_size": result.get("bid_size"),
+                    "ask_size": result.get("ask_size"),
+                    "ticker": ticker
                 }
+        
+        # Try snapshot as fallback
+        url = f"{POLYGON_BASE}/v3/snapshot/options/{ticker}?apiKey={POLYGON_KEY}"
+        resp = requests.get(url, timeout=10)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            if "results" in data:
+                result = data["results"]
+                day_data = result.get("day", {})
+                last_quote = result.get("last_quote", {})
+                
+                return {
+                    "last_price": day_data.get("close") or day_data.get("last_trade", {}).get("price"),
+                    "bid": last_quote.get("bid"),
+                    "ask": last_quote.get("ask"),
+                    "iv": result.get("implied_volatility"),
+                    "delta": result.get("greeks", {}).get("delta"),
+                    "volume": day_data.get("volume"),
+                    "ticker": ticker
+                }
+                
     except Exception as e:
-        st.warning(f"Polygon API error: {e}")
+        pass  # Silent fail, will use estimation
     
     return None
 
-def fetch_options_chain_snapshot(expiry_date: date, strikes: List[float]) -> Dict[str, Dict]:
-    """Fetch multiple option quotes at once"""
-    results = {}
-    
-    for strike in strikes:
-        for opt_type in ["CALL", "PUT"]:
-            ticker = build_option_ticker(expiry_date, strike, opt_type)
-            quote = fetch_option_quote(ticker)
-            if quote:
-                results[f"{strike}_{opt_type}"] = {
-                    "ticker": ticker,
-                    "strike": strike,
-                    "type": opt_type,
-                    **quote
-                }
-    
-    return results
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_spx_from_polygon() -> Optional[float]:
+    """Fetch SPX price from Polygon"""
+    try:
+        url = f"{POLYGON_BASE}/v3/snapshot?ticker.any_of=I:SPX&apiKey={POLYGON_KEY}"
+        resp = requests.get(url, timeout=10)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            if "results" in data and len(data["results"]) > 0:
+                result = data["results"][0]
+                # Try different price fields
+                price = (result.get("value") or 
+                        result.get("session", {}).get("close") or
+                        result.get("session", {}).get("previous_close"))
+                if price:
+                    return round(float(price), 2)
+    except Exception as e:
+        pass
+    return None
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_vix_from_polygon() -> Optional[float]:
+    """Fetch VIX price from Polygon"""
+    try:
+        url = f"{POLYGON_BASE}/v3/snapshot?ticker.any_of=I:VIX&apiKey={POLYGON_KEY}"
+        resp = requests.get(url, timeout=10)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            if "results" in data and len(data["results"]) > 0:
+                result = data["results"][0]
+                price = (result.get("value") or 
+                        result.get("session", {}).get("close") or
+                        result.get("session", {}).get("previous_close"))
+                if price:
+                    return round(float(price), 2)
+    except Exception as e:
+        pass
+    return None
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATA FETCHING
@@ -332,28 +358,60 @@ def fetch_es_30min_candles(days: int = 10) -> Optional[pd.DataFrame]:
     return None
 
 @st.cache_data(ttl=60, show_spinner=False)
-def fetch_spx_price() -> Optional[float]:
-    for attempt in range(3):
+def fetch_spx_price() -> Tuple[Optional[float], str]:
+    """Fetch SPX price - try Polygon first, then Yahoo"""
+    # Try Polygon first
+    polygon_price = fetch_spx_from_polygon()
+    if polygon_price:
+        return polygon_price, "POLYGON"
+    
+    # Fallback to Yahoo
+    for attempt in range(2):
         try:
             spx = yf.Ticker("^GSPC")
             data = spx.history(period="1d", interval="1m")
             if data is not None and not data.empty:
-                return round(float(data['Close'].iloc[-1]), 2)
+                return round(float(data['Close'].iloc[-1]), 2), "YAHOO"
         except:
-            time_module.sleep(1)
-    return None
+            time_module.sleep(0.5)
+    return None, "FAILED"
 
 @st.cache_data(ttl=60, show_spinner=False)
-def fetch_vix_price() -> Optional[float]:
-    for attempt in range(3):
+def fetch_vix_price() -> Tuple[Optional[float], str]:
+    """Fetch VIX price - try Polygon first, then Yahoo"""
+    # Try Polygon first
+    polygon_price = fetch_vix_from_polygon()
+    if polygon_price:
+        return polygon_price, "POLYGON"
+    
+    # Fallback to Yahoo
+    for attempt in range(2):
         try:
             vix = yf.Ticker("^VIX")
             data = vix.history(period="1d", interval="1m")
             if data is not None and not data.empty:
-                return round(float(data['Close'].iloc[-1]), 2)
+                return round(float(data['Close'].iloc[-1]), 2), "YAHOO"
         except:
-            time_module.sleep(1)
-    return None
+            time_module.sleep(0.5)
+    return None, "FAILED"
+
+def fetch_options_for_strikes(expiry_date: date, strikes: List[int]) -> Dict[str, Dict]:
+    """Fetch option quotes for multiple strikes"""
+    results = {}
+    
+    for strike in strikes:
+        for opt_type in ["CALL", "PUT"]:
+            ticker = build_option_ticker(expiry_date, float(strike), opt_type)
+            quote = fetch_option_quote(ticker)
+            key = f"{strike}_{opt_type}"
+            
+            if quote and quote.get("last_price"):
+                results[key] = quote
+            else:
+                # Store ticker even if no quote (for display)
+                results[key] = {"ticker": ticker, "last_price": None}
+    
+    return results
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PILLAR 1: MA BIAS
@@ -821,14 +879,14 @@ def main():
         if inputs["spx_price"]:
             current_price, spx_source = inputs["spx_price"], "MANUAL"
         else:
-            fetched = fetch_spx_price()
-            current_price, spx_source = (fetched, "LIVE") if fetched else (None, "FAILED")
+            current_price, spx_source = fetch_spx_price()
         
         if inputs["vix_manual"]:
             vix_current, vix_source = inputs["vix_manual"], "MANUAL"
         else:
-            fetched = fetch_vix_price()
-            vix_current, vix_source = (fetched, "LIVE") if fetched else (16.0, "DEFAULT")
+            vix_current, vix_source = fetch_vix_price()
+            if vix_current is None:
+                vix_current, vix_source = 16.0, "DEFAULT"
         
         es_candles = fetch_es_30min_candles()
     
@@ -873,7 +931,7 @@ def main():
     
     # Fetch option prices from Polygon
     strikes_needed = list(set([t["strike"] for t in all_trades["trades"].values()]))
-    option_chain = fetch_options_chain_snapshot(inputs["trading_date"], strikes_needed)
+    option_data = fetch_options_for_strikes(inputs["trading_date"], strikes_needed)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # HERO HEADER
@@ -950,11 +1008,11 @@ def main():
         
         # Get option data from Polygon
         opt_key = f"{trade['strike']}_{trade['entry_type'][:-1]}"  # Remove 'S' from CALLS/PUTS
-        option_data = option_chain.get(opt_key)
+        opt_quote = option_data.get(opt_key, {})
         
         # Calculate projections
         projections = calculate_trade_projections(
-            trade, current_price, option_data,
+            trade, current_price, opt_quote,
             vix_current, expiry_time, now_ct
         )
         
@@ -1063,9 +1121,9 @@ def main():
     if inputs["show_debug"]:
         st.markdown("### 🔧 Debug")
         
-        st.markdown("**Option Chain from Polygon:**")
-        if option_chain:
-            st.json(option_chain)
+        st.markdown("**Option Data from Polygon:**")
+        if option_data:
+            st.json(option_data)
         else:
             st.warning("No option data received from Polygon")
         
