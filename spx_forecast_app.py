@@ -532,11 +532,11 @@ def calculate_all_trades(
             else:
                 trade["status"] = "WATCHING"
         
-        # Calculate strike (20 pts OTM)
+        # Calculate strike based on CURRENT PRICE (20 pts OTM from current)
         if trade["entry_type"] == "CALLS":
-            trade["strike"] = int(round((trade["level"] + 20) / 5) * 5)
+            trade["strike"] = int(round((current_price + 20) / 5) * 5)
         else:
-            trade["strike"] = int(round((trade["level"] - 20) / 5) * 5)
+            trade["strike"] = int(round((current_price - 20) / 5) * 5)
     
     # Sort by level (highest to lowest)
     sorted_keys = sorted(trades.keys(), key=lambda k: trades[k]["level"], reverse=True)
@@ -701,7 +701,7 @@ def calculate_trade_projections(
             target_spx = entry_level + move
             exit_est = estimate_option_price_at_level(
                 entry_level, target_spx, strike, option_type,
-                entry_price, iv, hours_to_expiry - 1  # Assume 1 hour to reach target
+                entry_price, iv, max(0.5, hours_to_expiry - 1)  # Ensure at least 0.5 hours
             )
             exit_prices.append({
                 "spx_target": target_spx,
@@ -717,7 +717,7 @@ def calculate_trade_projections(
             target_spx = entry_level - move
             exit_est = estimate_option_price_at_level(
                 entry_level, target_spx, strike, option_type,
-                entry_price, iv, hours_to_expiry - 1
+                entry_price, iv, max(0.5, hours_to_expiry - 1)  # Ensure at least 0.5 hours
             )
             exit_prices.append({
                 "spx_target": target_spx,
@@ -783,6 +783,12 @@ def render_sidebar() -> Dict:
         st.markdown("---")
         st.markdown("### 📐 Overnight Structure")
         
+        # Reference time selection
+        ref_time_options = ["9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM"]
+        ref_time_selection = st.selectbox("Reference Time (CT)", ref_time_options, index=0)
+        ref_time_map = {"9:00 AM": (9, 0), "9:30 AM": (9, 30), "10:00 AM": (10, 0), "10:30 AM": (10, 30)}
+        ref_hour, ref_min = ref_time_map[ref_time_selection]
+        
         HOURS, MINS = list(range(24)), [0, 15, 30, 45]
         
         st.markdown("**O/N HIGH**")
@@ -842,6 +848,8 @@ def render_sidebar() -> Dict:
         "trading_date": trading_date,
         "spx_price": spx_price,
         "ma_override": ma_override,
+        "ref_hour": ref_hour,
+        "ref_min": ref_min,
         "on_high_price": on_high_price,
         "on_high_time": make_time(on_high_hour, on_high_min),
         "on_low_price": on_low_price,
@@ -904,11 +912,14 @@ def main():
     else:
         ma_bias = calculate_ma_bias(es_candles)
     
-    # All 4 Trades
+    # Reference time for structure calculation
+    reference_time = CT.localize(datetime.combine(inputs["trading_date"], time(inputs["ref_hour"], inputs["ref_min"])))
+    
+    # All 4 Trades - calculated to REFERENCE TIME (not current time)
     all_trades = calculate_all_trades(
         inputs["on_high_price"], inputs["on_high_time"],
         inputs["on_low_price"], inputs["on_low_time"],
-        expiry_time, current_price, now_ct,
+        reference_time, current_price, reference_time,
         inputs["pm_high"], inputs["pm_low"]
     )
     
@@ -918,12 +929,12 @@ def main():
     # VIX
     vix = analyze_vix(vix_current, inputs["vix_on_high"], inputs["vix_on_low"])
     
-    # Cones
+    # Cones - also use reference time for consistency
     cones = calculate_cones(
         inputs["prior_high"], inputs["prior_high_time"],
         inputs["prior_low"], inputs["prior_low_time"],
         inputs["prior_close"], inputs["prior_close_time"],
-        now_ct
+        reference_time
     )
     
     # Confluence
@@ -937,10 +948,12 @@ def main():
     # HERO HEADER
     # ═══════════════════════════════════════════════════════════════════════════
     
+    ref_time_str = f"{inputs['ref_hour']}:{inputs['ref_min']:02d} AM CT"
+    
     st.markdown(f'''
     <div class="hero-header">
         <div class="hero-title">🔮 SPX PROPHET V5.2</div>
-        <div class="hero-subtitle">All Trades | Options Pricing | Entry/Exit Targets</div>
+        <div class="hero-subtitle">Structure Levels @ {ref_time_str} | 0.48 Slope</div>
         <div class="hero-price">{current_price:,.2f}</div>
         <div class="hero-time">{now_ct.strftime("%I:%M:%S %p CT")} | {inputs["trading_date"].strftime("%A, %B %d, %Y")}</div>
     </div>
@@ -1106,15 +1119,20 @@ def main():
     if inputs["show_debug"]:
         st.markdown("### 🔧 Debug")
         
+        st.markdown(f"**Reference Time:** {reference_time.strftime('%Y-%m-%d %I:%M %p %Z')}")
+        st.markdown(f"**Current Time:** {now_ct.strftime('%Y-%m-%d %I:%M %p %Z')}")
+        st.markdown(f"**O/N High Time:** {inputs['on_high_time'].strftime('%Y-%m-%d %I:%M %p %Z')}")
+        st.markdown(f"**O/N Low Time:** {inputs['on_low_time'].strftime('%Y-%m-%d %I:%M %p %Z')}")
+        
+        st.markdown("**Block Calculations:**")
+        for key, trade in all_trades["trades"].items():
+            st.markdown(f"**{trade['name']}**: Anchor {trade['anchor']:.2f} | Blocks: {trade['blocks']} | Exp: ±{trade['expansion']:.2f} | Level: {trade['level']:.2f}")
+        
         st.markdown("**Option Data from Polygon:**")
         if option_data:
             st.json(option_data)
         else:
             st.warning("No option data received from Polygon")
-        
-        st.markdown("**Block Calculations:**")
-        for key, trade in all_trades["trades"].items():
-            st.markdown(f"**{trade['name']}**: Anchor {trade['anchor']:.2f} | Blocks: {trade['blocks']} | Exp: ±{trade['expansion']:.2f} | Level: {trade['level']:.2f}")
     
     # ═══════════════════════════════════════════════════════════════════════════
     # FOOTER
