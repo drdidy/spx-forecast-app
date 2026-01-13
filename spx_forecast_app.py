@@ -15,7 +15,24 @@ import math
 import time as time_module
 from datetime import datetime, date, time, timedelta
 from typing import Dict, List, Optional, Tuple
-from scipy.stats import norm
+# ═══════════════════════════════════════════════════════════════════════════════
+# NORMAL DISTRIBUTION FUNCTIONS (replacing scipy.stats.norm)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def norm_cdf(x):
+    """Cumulative distribution function for standard normal distribution"""
+    # Approximation using error function
+    a1, a2, a3, a4, a5 = 0.254829592, -0.284496736, 1.421413741, -1.453152027, 1.061405429
+    p = 0.3275911
+    sign = 1 if x >= 0 else -1
+    x = abs(x) / math.sqrt(2)
+    t = 1.0 / (1.0 + p * x)
+    y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * math.exp(-x * x)
+    return 0.5 * (1.0 + sign * y)
+
+def norm_pdf(x):
+    """Probability density function for standard normal distribution"""
+    return math.exp(-0.5 * x * x) / math.sqrt(2 * math.pi)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -140,9 +157,9 @@ def black_scholes_price(S: float, K: float, T: float, r: float, sigma: float, op
     d2 = d1 - sigma * math.sqrt(T)
     
     if option_type == "CALL":
-        price = S * norm.cdf(d1) - K * math.exp(-r * T) * norm.cdf(d2)
+        price = S * norm_cdf(d1) - K * math.exp(-r * T) * norm_cdf(d2)
     else:
-        price = K * math.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
+        price = K * math.exp(-r * T) * norm_cdf(-d2) - S * norm_cdf(-d1)
     
     return max(0, price)
 
@@ -156,22 +173,22 @@ def calculate_greeks(S: float, K: float, T: float, r: float, sigma: float, optio
     
     # Delta
     if option_type == "CALL":
-        delta = norm.cdf(d1)
+        delta = norm_cdf(d1)
     else:
-        delta = norm.cdf(d1) - 1
+        delta = norm_cdf(d1) - 1
     
     # Gamma
-    gamma = norm.pdf(d1) / (S * sigma * math.sqrt(T))
+    gamma = norm_pdf(d1) / (S * sigma * math.sqrt(T))
     
     # Theta (per day)
-    theta_part1 = -(S * norm.pdf(d1) * sigma) / (2 * math.sqrt(T))
+    theta_part1 = -(S * norm_pdf(d1) * sigma) / (2 * math.sqrt(T))
     if option_type == "CALL":
-        theta = (theta_part1 - r * K * math.exp(-r * T) * norm.cdf(d2)) / 365
+        theta = (theta_part1 - r * K * math.exp(-r * T) * norm_cdf(d2)) / 365
     else:
-        theta = (theta_part1 + r * K * math.exp(-r * T) * norm.cdf(-d2)) / 365
+        theta = (theta_part1 + r * K * math.exp(-r * T) * norm_cdf(-d2)) / 365
     
     # Vega (per 1% move in IV)
-    vega = S * math.sqrt(T) * norm.pdf(d1) / 100
+    vega = S * math.sqrt(T) * norm_pdf(d1) / 100
     
     return {"delta": round(delta, 4), "gamma": round(gamma, 6), "theta": round(theta, 4), "vega": round(vega, 4)}
 
