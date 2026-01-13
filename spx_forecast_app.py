@@ -1030,62 +1030,47 @@ def main():
             card_class = ""
         
         status_class = trade["status"].lower().replace("_", "-")
-        entry_color = "var(--green)" if trade["entry_type"] == "CALLS" else "var(--red)"
+        entry_color = "#00d4aa" if trade["entry_type"] == "CALLS" else "#ff4757"
         
         # Build exit targets HTML
-        exit_html = ""
+        exit_rows = ""
         for et in projections["exit_targets"]:
-            profit_class = "profit" if et["profit_pct"] > 0 else "loss"
-            exit_html += f'<div class="profit-row"><span>SPX {et["spx_target"]:.0f} ({et["move"]})</span><span class="option-value {profit_class}">${et["option_price"]:.2f} ({et["profit_pct"]:+.0f}%)</span></div>'
+            profit_color = "#00d4aa" if et["profit_pct"] > 0 else "#ff4757"
+            exit_rows += f'<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px"><span>SPX {et["spx_target"]:.0f} ({et["move"]})</span><span style="color:{profit_color};font-weight:600">${et["option_price"]:.2f} ({et["profit_pct"]:+.0f}%)</span></div>'
         
-        trade_html = f'''
-        <div class="trade-card {card_class}">
-            <div class="trade-header">
-                <div>
-                    <span class="trade-name" style="color:{entry_color}">{trade["name"]}</span>
-                    {"<span class='confluence-badge' style='margin-left:8px;background:var(--purple);color:white;padding:2px 8px;border-radius:4px;font-size:10px'>CONFLUENCE</span>" if has_confluence else ""}
-                </div>
-                <span class="trade-status {status_class}">{trade["status"].replace("_", " ")}</span>
-            </div>
-            
-            <div class="trade-grid">
-                <div class="trade-item"><span class="trade-label">Entry Level</span><span class="trade-value">{trade["level"]:.2f}</span></div>
-                <div class="trade-item"><span class="trade-label">Distance</span><span class="trade-value">{trade["distance"]:+.1f} pts</span></div>
-                <div class="trade-item"><span class="trade-label">Strike</span><span class="trade-value" style="color:{entry_color}">{trade["strike"]} {trade["entry_type"][:-1]}</span></div>
-                <div class="trade-item"><span class="trade-label">Anchor</span><span class="trade-value">{trade["anchor"]:.2f}</span></div>
-            </div>
-            
-            <div class="option-pricing">
-                <div class="option-header">💰 Option Pricing (IV: {projections["iv_used"]:.0f}%)</div>
-                <div class="option-grid">
-                    <div class="option-item">
-                        <div class="option-label">Current</div>
-                        <div class="option-value">${projections["current_option_price"]:.2f}</div>
-                    </div>
-                    <div class="option-item">
-                        <div class="option-label">@ Entry</div>
-                        <div class="option-value" style="color:var(--cyan)">${projections["entry_price_est"]:.2f}</div>
-                    </div>
-                    <div class="option-item">
-                        <div class="option-label">Expires</div>
-                        <div class="option-value">{projections["hours_to_expiry"]:.1f}h</div>
-                    </div>
-                </div>
-                
-                <div class="profit-target">
-                    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">📈 Exit Targets</div>
-                    {exit_html}
-                </div>
-            </div>
-        </div>
-        '''
+        # Confluence badge
+        conf_badge = '<span style="margin-left:8px;background:#a855f7;color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">CONFLUENCE</span>' if has_confluence else ""
+        
+        # Build the complete trade card HTML
+        html = f'''<div class="trade-card {card_class}">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+<div><span style="font-family:Space Grotesk,sans-serif;font-size:18px;font-weight:600;color:{entry_color}">{trade["name"]}</span>{conf_badge}</div>
+<span class="trade-status {status_class}">{trade["status"].replace("_", " ")}</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px"><span style="color:rgba(255,255,255,0.6)">Entry Level</span><span style="font-family:IBM Plex Mono,monospace;font-weight:500">{trade["level"]:.2f}</span></div>
+<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px"><span style="color:rgba(255,255,255,0.6)">Distance</span><span style="font-family:IBM Plex Mono,monospace;font-weight:500">{trade["distance"]:+.1f} pts</span></div>
+<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px"><span style="color:rgba(255,255,255,0.6)">Strike</span><span style="font-family:IBM Plex Mono,monospace;font-weight:500;color:{entry_color}">{trade["strike"]} {trade["entry_type"][:-1]}</span></div>
+<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px"><span style="color:rgba(255,255,255,0.6)">Anchor</span><span style="font-family:IBM Plex Mono,monospace;font-weight:500">{trade["anchor"]:.2f}</span></div>
+</div>
+<div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.3);border-radius:12px;padding:12px;margin-top:12px">
+<div style="font-size:12px;color:#a855f7;font-weight:600;margin-bottom:8px">💰 Option Pricing (IV: {projections["iv_used"]:.0f}%)</div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;text-align:center">
+<div><div style="color:rgba(255,255,255,0.6);font-size:10px">Current</div><div style="font-family:IBM Plex Mono,monospace;font-weight:600">${projections["current_option_price"]:.2f}</div></div>
+<div><div style="color:rgba(255,255,255,0.6);font-size:10px">@ Entry</div><div style="font-family:IBM Plex Mono,monospace;font-weight:600;color:#22d3ee">${projections["entry_price_est"]:.2f}</div></div>
+<div><div style="color:rgba(255,255,255,0.6);font-size:10px">Expires</div><div style="font-family:IBM Plex Mono,monospace;font-weight:600">{projections["hours_to_expiry"]:.1f}h</div></div>
+</div>
+<div style="background:rgba(0,212,170,0.1);border:1px solid rgba(0,212,170,0.3);border-radius:8px;padding:8px;margin-top:8px">
+<div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:6px">📈 Exit Targets</div>
+{exit_rows}
+</div>
+</div>
+</div>'''
         
         if idx % 2 == 0:
-            with col1:
-                st.markdown(trade_html, unsafe_allow_html=True)
+            col1.markdown(html, unsafe_allow_html=True)
         else:
-            with col2:
-                st.markdown(trade_html, unsafe_allow_html=True)
+            col2.markdown(html, unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # CONFLUENCE ZONES
