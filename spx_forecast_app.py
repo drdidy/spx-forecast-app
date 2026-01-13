@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SPX PROPHET V4 - Institutional 0DTE Trading Analytics
-# 3-Pillar Methodology | Dynamic Structure | 5-Min Reversal Detection
+# SPX PROPHET V5 - Institutional 0DTE Trading Analytics
+# 3-Pillar Methodology | 4-Line Day Structure | Confluence Detection
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import streamlit as st
@@ -11,7 +11,6 @@ import pytz
 import json
 import os
 import time as time_module
-import requests
 from datetime import datetime, date, time, timedelta
 from typing import Dict, List, Optional, Tuple
 from functools import wraps
@@ -20,14 +19,23 @@ from functools import wraps
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-st.set_page_config(page_title="SPX Prophet V4", page_icon="🔮", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="SPX Prophet V5", page_icon="🔮", layout="wide", initial_sidebar_state="expanded")
 
 CT = pytz.timezone("America/Chicago")
-CONE_SLOPE = 0.475
-POLYGON_API_KEY = "jrbBZ2y12cJAOp2Buqtlay0TdprcTDIm"
-SAVE_FILE = "spx_prophet_v4_inputs.json"
+STRUCTURE_SLOPE = 0.475  # Points per 30-min block for day structure
+CONE_SLOPE = 0.475       # Points per 30-min block for cone rails
+GAP_THRESHOLD = 6.0      # Points beyond structure line to trigger gap logic
+CONFLUENCE_THRESHOLD = 5.0  # Points for structure/cone confluence
+SAVE_FILE = "spx_prophet_v5_inputs.json"
 
-VIX_ZONES = {"EXTREME_LOW": (0, 12), "LOW": (12, 16), "NORMAL": (16, 20), "ELEVATED": (20, 25), "HIGH": (25, 35), "EXTREME": (35, 100)}
+VIX_ZONES = {
+    "EXTREME_LOW": (0, 12), 
+    "LOW": (12, 16), 
+    "NORMAL": (16, 20), 
+    "ELEVATED": (20, 25), 
+    "HIGH": (25, 35), 
+    "EXTREME": (35, 100)
+}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CSS STYLES
@@ -57,16 +65,23 @@ STYLES = """
 .signal-badge.puts{background:rgba(255,71,87,0.2);color:var(--red);border:1px solid var(--red)}
 .signal-badge.neutral{background:rgba(255,165,2,0.2);color:var(--amber);border:1px solid var(--amber)}
 .signal-badge.wait{background:rgba(255,255,255,0.1);color:var(--text-secondary);border:1px solid var(--border)}
+.signal-badge.confluence{background:rgba(168,85,247,0.2);color:var(--purple);border:1px solid var(--purple)}
 .metric-value{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600}
 .metric-value.green{color:var(--green)}.metric-value.red{color:var(--red)}.metric-value.amber{color:var(--amber)}.metric-value.cyan{color:var(--cyan)}.metric-value.purple{color:var(--purple)}
 .entry-alert{background:linear-gradient(135deg,rgba(0,212,170,0.2),rgba(34,211,238,0.2));border:2px solid var(--green);border-radius:16px;padding:24px;text-align:center;margin:16px 0;animation:pulse 2s infinite}
 .entry-alert.puts{background:linear-gradient(135deg,rgba(255,71,87,0.2),rgba(168,85,247,0.2));border-color:var(--red)}
 .entry-alert.wait{background:rgba(255,255,255,0.05);border-color:var(--border);animation:none}
+.entry-alert.gap{background:linear-gradient(135deg,rgba(255,165,2,0.2),rgba(255,107,53,0.2));border-color:var(--amber)}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(0,212,170,0.4)}50%{box-shadow:0 0 20px 10px rgba(0,212,170,0.1)}}
 .alert-title{font-size:14px;color:var(--text-secondary);margin-bottom:8px}
 .alert-action{font-family:'Space Grotesk',sans-serif;font-size:28px;font-weight:700}
-.alert-action.buy{color:var(--green)}.alert-action.sell{color:var(--red)}.alert-action.wait{color:var(--text-secondary)}
+.alert-action.buy{color:var(--green)}.alert-action.sell{color:var(--red)}.alert-action.wait{color:var(--text-secondary)}.alert-action.gap{color:var(--amber)}
 .alert-details{font-family:'IBM Plex Mono',monospace;font-size:16px;margin-top:8px;color:var(--text-primary)}
+.structure-line{padding:8px 12px;border-radius:8px;margin:4px 0;font-family:'IBM Plex Mono',monospace;font-size:13px}
+.structure-line.rising{background:rgba(0,212,170,0.1);border-left:3px solid var(--green)}
+.structure-line.falling{background:rgba(255,71,87,0.1);border-left:3px solid var(--red)}
+.structure-line.active{box-shadow:0 0 10px rgba(34,211,238,0.3);border:1px solid var(--cyan)}
+.confluence-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:var(--purple);color:white;margin-left:8px}
 .data-table{width:100%;border-collapse:collapse;font-size:13px}
 .data-table th{text-align:left;padding:10px 12px;color:var(--text-secondary);font-weight:500;border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
 .data-table td{padding:10px 12px;color:var(--text-primary);border-bottom:1px solid rgba(255,255,255,0.03);font-family:'IBM Plex Mono',monospace}
@@ -80,7 +95,6 @@ STYLES = """
 .pillar-item{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.03)}
 .pillar-name{font-size:13px;color:var(--text-secondary)}.pillar-value{font-size:13px;font-weight:500}
 .reversal-box{background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:12px}
-.reversal-title{font-size:12px;color:var(--text-secondary);margin-bottom:8px}
 .reversal-status{font-size:14px;font-weight:600}
 .reversal-status.bullish{color:var(--green)}.reversal-status.bearish{color:var(--red)}.reversal-status.neutral{color:var(--amber)}
 .app-footer{text-align:center;padding:20px;color:var(--text-secondary);font-size:12px;border-top:1px solid var(--border);margin-top:24px}
@@ -91,74 +105,36 @@ STYLES = """
 # UTILITIES
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def retry_with_backoff(max_retries=3, base_delay=1):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise e
-                    time_module.sleep(base_delay * (2 ** attempt))
-            return None
-        return wrapper
-    return decorator
-
 def get_now_ct() -> datetime:
     return datetime.now(CT)
 
 def is_trading_time(dt: datetime) -> bool:
-    """
-    Check if datetime is during ES futures trading hours.
-    ES trades: Sunday 5:00 PM CT through Friday 4:00 PM CT
-    Daily maintenance: 4:00-5:00 PM CT (Mon-Thu)
-    """
-    weekday = dt.weekday()  # Mon=0, Sun=6
+    weekday = dt.weekday()
     t = dt.time()
-    
-    # Saturday all day - NO trading
     if weekday == 5:
         return False
-    
-    # Sunday before 5 PM - NO trading
     if weekday == 6 and t < time(17, 0):
         return False
-    
-    # Sunday 5 PM onwards - YES trading
     if weekday == 6 and t >= time(17, 0):
         return True
-    
-    # Friday after 4 PM - NO trading
     if weekday == 4 and t >= time(16, 0):
         return False
-    
-    # Mon-Thu maintenance window 4:00-5:00 PM - NO trading
     if weekday in [0, 1, 2, 3] and time(16, 0) <= t < time(17, 0):
         return False
-    
-    # All other times Mon-Fri - YES trading
     return True
 
 def count_trading_minutes(start_dt: datetime, end_dt: datetime) -> int:
-    """Count trading minutes between two datetimes (ES futures schedule)"""
     if start_dt >= end_dt:
         return 0
-    
     minutes = 0
     current = start_dt.replace(second=0, microsecond=0)
-    
-    # Safety limit (max 7 days)
     max_iterations = 10080
     iterations = 0
-    
     while current < end_dt and iterations < max_iterations:
         if is_trading_time(current):
             minutes += 1
         current += timedelta(minutes=1)
         iterations += 1
-    
     return minutes
 
 def count_30min_blocks(start_dt: datetime, end_dt: datetime) -> int:
@@ -170,7 +146,6 @@ def count_30min_blocks(start_dt: datetime, end_dt: datetime) -> int:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_es_30min_candles(days: int = 10) -> Optional[pd.DataFrame]:
-    """Fetch ES 30-min candles - needs 200+ for MA calculation"""
     for attempt in range(3):
         try:
             es = yf.Ticker("ES=F")
@@ -183,7 +158,6 @@ def fetch_es_30min_candles(days: int = 10) -> Optional[pd.DataFrame]:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_spx_price() -> Optional[float]:
-    """Fetch current SPX price"""
     for attempt in range(3):
         try:
             spx = yf.Ticker("^GSPC")
@@ -195,7 +169,6 @@ def fetch_spx_price() -> Optional[float]:
     return None
 
 def fetch_spx_5min_candles(periods: int = 20) -> Optional[pd.DataFrame]:
-    """NO CACHE - real-time for reversal detection"""
     for attempt in range(3):
         try:
             spx = yf.Ticker("^GSPC")
@@ -208,7 +181,6 @@ def fetch_spx_5min_candles(periods: int = 20) -> Optional[pd.DataFrame]:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_vix_price() -> Optional[float]:
-    """Fetch current VIX"""
     for attempt in range(3):
         try:
             vix = yf.Ticker("^VIX")
@@ -225,123 +197,87 @@ def fetch_vix_price() -> Optional[float]:
 
 def calculate_ma_bias(es_candles: Optional[pd.DataFrame]) -> Dict:
     candle_count = len(es_candles) if es_candles is not None else 0
-    
-    # Need minimum candles for calculation
     if es_candles is None or candle_count < 50:
-        return {"signal": "NEUTRAL", "reason": "Insufficient data - use manual override", "ema_50": None, "sma_200": None, "diff_pct": None, "score": 0, "candle_count": candle_count, "data_status": "NO_DATA"}
+        return {"signal": "NEUTRAL", "reason": "Insufficient data", "ema_50": None, "sma_200": None, "diff_pct": None, "score": 0, "candle_count": candle_count, "data_status": "NO_DATA"}
     
     close = es_candles['Close']
     ema_50 = close.ewm(span=50, adjust=False).mean().iloc[-1]
-    
-    # Use available data for SMA (200 or less)
     sma_period = min(200, candle_count)
     sma_200 = close.rolling(window=sma_period).mean().iloc[-1]
     diff_pct = ((ema_50 - sma_200) / sma_200) * 100
-    
-    # Determine data quality
     data_status = "FULL" if candle_count >= 200 else "PARTIAL"
     
     if ema_50 > sma_200:
-        signal, score, reason = "LONG", min(25, int(abs(diff_pct) * 10)), f"EMA > SMA by {diff_pct:+.2f}%"
+        signal, score, reason = "LONG", min(30, int(abs(diff_pct) * 12)), f"EMA > SMA by {diff_pct:+.2f}%"
     elif ema_50 < sma_200:
-        signal, score, reason = "SHORT", min(25, int(abs(diff_pct) * 10)), f"EMA < SMA by {diff_pct:+.2f}%"
+        signal, score, reason = "SHORT", min(30, int(abs(diff_pct) * 12)), f"EMA < SMA by {diff_pct:+.2f}%"
     else:
         signal, score, reason = "NEUTRAL", 0, "MAs converging"
     
-    # Reduce score if partial data
     if data_status == "PARTIAL":
         score = int(score * 0.7)
-        reason += f" (partial: {candle_count} candles)"
     
     return {"signal": signal, "reason": reason, "ema_50": round(ema_50, 2), "sma_200": round(sma_200, 2), "diff_pct": round(diff_pct, 4), "score": score, "candle_count": candle_count, "data_status": data_status}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PILLAR 2: DAY STRUCTURE (DYNAMIC PROJECTION)
+# PILLAR 2: DAY STRUCTURE (4-Line Projection)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def project_trendline(anchor1_price: float, anchor1_time: datetime, anchor2_price: float, anchor2_time: datetime, target_time: datetime) -> float:
-    minutes_between = count_trading_minutes(anchor1_time, anchor2_time)
-    if minutes_between == 0:
-        return anchor2_price
-    slope_per_min = (anchor2_price - anchor1_price) / minutes_between
-    minutes_to_target = count_trading_minutes(anchor1_time, target_time)
-    return round(anchor1_price + (slope_per_min * minutes_to_target), 2)
-
-def calculate_day_structure(ceiling_anchors: List[Tuple[float, datetime]], floor_anchors: List[Tuple[float, datetime]], target_time: datetime, current_price: float) -> Dict:
-    """
-    Day Structure provides ENTRY LEVELS only.
-    - MA Bias determines direction (LONG/SHORT)
-    - VIX confirms timing
-    - Structure tells you WHERE to enter (floor for calls, ceiling for puts)
-    """
+def calculate_day_structure(overnight_high: float, overnight_high_time: datetime, overnight_low: float, overnight_low_time: datetime, target_time: datetime, current_price: float, premarket_high: Optional[float] = None, premarket_low: Optional[float] = None) -> Dict:
+    effective_high = premarket_high if premarket_high and premarket_high > overnight_high else overnight_high
+    effective_low = premarket_low if premarket_low and premarket_low < overnight_low else overnight_low
+    
+    blocks_from_high = count_30min_blocks(overnight_high_time, target_time)
+    blocks_from_low = count_30min_blocks(overnight_low_time, target_time)
+    
+    high_expansion = STRUCTURE_SLOPE * blocks_from_high
+    low_expansion = STRUCTURE_SLOPE * blocks_from_low
+    
+    ceiling_rising = round(effective_high + high_expansion, 2)
+    ceiling_falling = round(effective_high - high_expansion, 2)
+    floor_rising = round(effective_low + low_expansion, 2)
+    floor_falling = round(effective_low - low_expansion, 2)
+    
     now = get_now_ct()
+    blocks_from_high_now = count_30min_blocks(overnight_high_time, now)
+    blocks_from_low_now = count_30min_blocks(overnight_low_time, now)
     
-    if len(ceiling_anchors) >= 2:
-        ceiling_9am = project_trendline(ceiling_anchors[0][0], ceiling_anchors[0][1], ceiling_anchors[1][0], ceiling_anchors[1][1], target_time)
-        ceiling_now = project_trendline(ceiling_anchors[0][0], ceiling_anchors[0][1], ceiling_anchors[1][0], ceiling_anchors[1][1], now)
-    else:
-        ceiling_9am = ceiling_now = current_price + 20
+    high_expansion_now = STRUCTURE_SLOPE * blocks_from_high_now
+    low_expansion_now = STRUCTURE_SLOPE * blocks_from_low_now
     
-    if len(floor_anchors) >= 2:
-        floor_9am = project_trendline(floor_anchors[0][0], floor_anchors[0][1], floor_anchors[1][0], floor_anchors[1][1], target_time)
-        floor_now = project_trendline(floor_anchors[0][0], floor_anchors[0][1], floor_anchors[1][0], floor_anchors[1][1], now)
-    else:
-        floor_9am = floor_now = current_price - 20
+    ceiling_rising_now = round(effective_high + high_expansion_now, 2)
+    ceiling_falling_now = round(effective_high - high_expansion_now, 2)
+    floor_rising_now = round(effective_low + low_expansion_now, 2)
+    floor_falling_now = round(effective_low - low_expansion_now, 2)
     
-    # Distances from current price
-    dist_to_ceiling = ceiling_now - current_price
-    dist_to_floor = current_price - floor_now
-    range_size = ceiling_9am - floor_9am
-    
-    # No signal - Structure just provides levels
-    # Score based on range quality (tighter range = cleaner setup)
-    if range_size > 0 and range_size <= 50:
-        score = 30  # Tight range - excellent
-    elif range_size <= 75:
-        score = 20  # Normal range
-    else:
-        score = 10  # Wide range - harder to trade
-    
-    return {
-        "ceiling_9am": ceiling_9am,
-        "floor_9am": floor_9am,
-        "ceiling_now": ceiling_now,
-        "floor_now": floor_now,
-        "dist_to_ceiling": round(dist_to_ceiling, 2),
-        "dist_to_floor": round(dist_to_floor, 2),
-        "range": round(range_size, 2),
-        "score": score
+    lines = {
+        "ceiling_rising": {"name": "Ceiling Rising", "short": "C↑", "anchor": effective_high, "at_9am": ceiling_rising, "current": ceiling_rising_now, "direction": "rising", "blocks": blocks_from_high, "expansion": high_expansion, "entry_type": "PUTS", "gap_entry_type": "CALLS"},
+        "ceiling_falling": {"name": "Ceiling Falling", "short": "C↓", "anchor": effective_high, "at_9am": ceiling_falling, "current": ceiling_falling_now, "direction": "falling", "blocks": blocks_from_high, "expansion": high_expansion, "entry_type": "CALLS", "gap_entry_type": "PUTS"},
+        "floor_rising": {"name": "Floor Rising", "short": "F↑", "anchor": effective_low, "at_9am": floor_rising, "current": floor_rising_now, "direction": "rising", "blocks": blocks_from_low, "expansion": low_expansion, "entry_type": "PUTS", "gap_entry_type": "CALLS"},
+        "floor_falling": {"name": "Floor Falling", "short": "F↓", "anchor": effective_low, "at_9am": floor_falling, "current": floor_falling_now, "direction": "falling", "blocks": blocks_from_low, "expansion": low_expansion, "entry_type": "CALLS", "gap_entry_type": "PUTS"}
     }
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# PILLAR 3: VIX ZONE
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def calculate_vix_zone(vix_current: float, vix_overnight_high: float, vix_overnight_low: float) -> Dict:
-    zone_name = "NORMAL"
-    for name, (low, high) in VIX_ZONES.items():
-        if low <= vix_current < high:
-            zone_name = name
-            break
     
-    vix_range = vix_overnight_high - vix_overnight_low
-    vix_position = (vix_current - vix_overnight_low) / vix_range * 100 if vix_range > 0 else 50
+    distances = {}
+    for key, line in lines.items():
+        dist = current_price - line["current"]
+        distances[key] = {"distance": round(dist, 2), "abs_distance": round(abs(dist), 2), "above": dist > 0}
     
-    if vix_current > vix_overnight_high:
-        springboard, signal, score, reason = "ABOVE_CEILING", "CALLS", 20, "VIX above overnight high"
-    elif vix_current < vix_overnight_low:
-        springboard, signal, score, reason = "BELOW_FLOOR", "PUTS", 20, "VIX below overnight low"
-    elif vix_position > 75:
-        springboard, signal, score, reason = "NEAR_CEILING", "CALLS", 15, f"VIX near ceiling ({vix_position:.0f}%)"
-    elif vix_position < 25:
-        springboard, signal, score, reason = "NEAR_FLOOR", "PUTS", 15, f"VIX near floor ({vix_position:.0f}%)"
+    nearest_line = min(distances.keys(), key=lambda k: distances[k]["abs_distance"])
+    nearest_distance = distances[nearest_line]["abs_distance"]
+    
+    if nearest_distance <= 3:
+        proximity_score = 35
+    elif nearest_distance <= 8:
+        proximity_score = 28
+    elif nearest_distance <= 15:
+        proximity_score = 20
     else:
-        springboard, signal, score, reason = "MID_RANGE", "WAIT", 5, f"VIX mid-range ({vix_position:.0f}%)"
+        proximity_score = 10
     
-    return {"signal": signal, "reason": reason, "score": score, "zone": zone_name, "springboard": springboard, "current": vix_current, "overnight_high": vix_overnight_high, "overnight_low": vix_overnight_low, "position_pct": round(vix_position, 1)}
+    return {"lines": lines, "distances": distances, "nearest_line": nearest_line, "nearest_distance": nearest_distance, "effective_high": effective_high, "effective_low": effective_low, "premarket_override_high": premarket_high is not None and premarket_high > overnight_high, "premarket_override_low": premarket_low is not None and premarket_low < overnight_low, "score": proximity_score}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 30-MIN MOMENTUM SUITE
+# PILLAR 3: MOMENTUM
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def calculate_rsi(prices: pd.Series, period: int = 14) -> float:
@@ -384,7 +320,7 @@ def analyze_price_structure(candles: pd.DataFrame) -> str:
         return "BEARISH"
     return "NEUTRAL"
 
-def calculate_30min_momentum(es_candles: Optional[pd.DataFrame]) -> Dict:
+def calculate_momentum(es_candles: Optional[pd.DataFrame]) -> Dict:
     if es_candles is None or len(es_candles) < 26:
         return {"signal": "NEUTRAL", "reason": "Insufficient data", "score": 0, "rsi": 50, "macd": {}, "structure": "NEUTRAL"}
     
@@ -402,188 +338,214 @@ def calculate_30min_momentum(es_candles: Optional[pd.DataFrame]) -> Dict:
     elif structure == "BEARISH": bearish_count += 1
     
     if bullish_count >= 2:
-        signal, score, reason = "BULLISH", 15, f"RSI {rsi}, MACD {macd['direction']}, {structure}"
+        signal, score, reason = "BULLISH", 20 + (bullish_count * 5), f"RSI {rsi}, MACD {macd['direction']}, {structure}"
     elif bearish_count >= 2:
-        signal, score, reason = "BEARISH", 15, f"RSI {rsi}, MACD {macd['direction']}, {structure}"
+        signal, score, reason = "BEARISH", 20 + (bearish_count * 5), f"RSI {rsi}, MACD {macd['direction']}, {structure}"
     else:
-        signal, score, reason = "NEUTRAL", 5, "Mixed signals"
+        signal, score, reason = "NEUTRAL", 10, "Mixed signals"
     
-    return {"signal": signal, "reason": reason, "score": score, "rsi": rsi, "macd": macd, "structure": structure}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 5-MIN REVERSAL DETECTOR (NEW IN V4)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def detect_5min_reversal(candles_5m: Optional[pd.DataFrame], direction: str, trigger_price: float, current_price: float) -> Dict:
-    if candles_5m is None or len(candles_5m) < 5:
-        return {"status": "NO_DATA", "signal": "WAIT", "message": "Insufficient 5-min data", "ready": False, "rsi": None, "macd_direction": None, "candle_pattern": None}
-    
-    close = candles_5m['Close']
-    rsi_5m = calculate_rsi(close, period=14)
-    macd_5m = calculate_macd(close)
-    last_candle = candles_5m.iloc[-1]
-    is_green = last_candle['Close'] > last_candle['Open']
-    is_red = last_candle['Close'] < last_candle['Open']
-    
-    if direction == "LONG":
-        at_level = current_price <= trigger_price * 1.002
-        rsi_oversold = rsi_5m < 35
-        if at_level and is_green and rsi_oversold:
-            status, signal, ready, message = "REVERSAL_CONFIRMED", "BUY_CALLS", True, "✅ Bullish reversal at floor - ENTER CALLS"
-        elif at_level:
-            status, signal, ready, message = "AT_LEVEL", "WATCH", False, "At floor - waiting for green candle"
-        elif current_price < trigger_price:
-            status, signal, ready, message = "BELOW_LEVEL", "CAUTION", False, f"Below floor by {trigger_price - current_price:.2f} pts"
-        else:
-            dist = current_price - trigger_price
-            status, signal, ready, message = "APPROACHING", "WAIT", False, f"Waiting for pullback ({dist:.2f} pts to floor)"
-    elif direction == "SHORT":
-        at_level = current_price >= trigger_price * 0.998
-        rsi_overbought = rsi_5m > 65
-        if at_level and is_red and rsi_overbought:
-            status, signal, ready, message = "REVERSAL_CONFIRMED", "BUY_PUTS", True, "✅ Bearish reversal at ceiling - ENTER PUTS"
-        elif at_level:
-            status, signal, ready, message = "AT_LEVEL", "WATCH", False, "At ceiling - waiting for red candle"
-        elif current_price > trigger_price:
-            status, signal, ready, message = "ABOVE_LEVEL", "CAUTION", False, f"Above ceiling by {current_price - trigger_price:.2f} pts"
-        else:
-            dist = trigger_price - current_price
-            status, signal, ready, message = "APPROACHING", "WAIT", False, f"Waiting for rally ({dist:.2f} pts to ceiling)"
-    else:
-        status, signal, ready, message = "NO_DIRECTION", "WAIT", False, "No directional bias"
-    
-    return {"status": status, "signal": signal, "message": message, "ready": ready, "rsi": rsi_5m, "macd_direction": macd_5m["direction"], "candle_pattern": "GREEN" if is_green else "RED" if is_red else "DOJI"}
+    return {"signal": signal, "reason": reason, "score": min(35, score), "rsi": rsi, "macd": macd, "structure": structure}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONE RAILS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def calculate_cone_rails(prior_high: float, high_time: datetime, prior_low: float, low_time: datetime, prior_close: float, close_time: datetime, target_time: datetime) -> Dict:
+def calculate_cone_rails(prior_high: float, prior_high_time: datetime, prior_low: float, prior_low_time: datetime, prior_close: float, prior_close_time: datetime, target_time: datetime) -> Dict:
     cones = {}
-    for name, price, anchor_time in [("HIGH", prior_high, high_time), ("LOW", prior_low, low_time), ("CLOSE", prior_close, close_time)]:
+    for name, price, anchor_time in [("HIGH", prior_high, prior_high_time), ("LOW", prior_low, prior_low_time), ("CLOSE", prior_close, prior_close_time)]:
         blocks = count_30min_blocks(anchor_time, target_time)
         expansion = CONE_SLOPE * blocks
         cones[name] = {"anchor": price, "anchor_time": anchor_time.strftime("%I:%M %p") if anchor_time else "N/A", "asc": round(price + expansion, 2), "desc": round(price - expansion, 2), "blocks": blocks, "expansion": round(expansion, 2)}
     return cones
 
-def calculate_cone_confluence(cones: Dict, current_price: float) -> Dict:
-    confluence_points = []
-    threshold = 5
-    for name, cone in cones.items():
-        for rail_type, rail_price in [("ASC", cone["asc"]), ("DESC", cone["desc"])]:
-            distance = abs(current_price - rail_price)
-            if distance <= threshold:
-                confluence_points.append({"cone": name, "rail": rail_type, "price": rail_price, "distance": round(distance, 2)})
-    return {"confluences": confluence_points, "count": len(confluence_points), "score": min(10, len(confluence_points) * 5)}
+def detect_confluence(structure: Dict, cones: Dict, current_price: float) -> Dict:
+    confluences = []
+    structure_values = [{"type": "structure", "name": line["name"], "key": key, "price": line["current"], "direction": line["direction"]} for key, line in structure["lines"].items()]
+    cone_values = []
+    for cone_name, cone in cones.items():
+        cone_values.append({"type": "cone", "name": f"{cone_name} Asc", "price": cone["asc"], "direction": "rising"})
+        cone_values.append({"type": "cone", "name": f"{cone_name} Desc", "price": cone["desc"], "direction": "falling"})
+    
+    for sv in structure_values:
+        for cv in cone_values:
+            distance = abs(sv["price"] - cv["price"])
+            if distance <= CONFLUENCE_THRESHOLD:
+                avg_price = (sv["price"] + cv["price"]) / 2
+                dist_from_current = abs(current_price - avg_price)
+                confluences.append({"structure_line": sv["name"], "structure_key": sv["key"], "cone_rail": cv["name"], "structure_price": sv["price"], "cone_price": cv["price"], "avg_price": round(avg_price, 2), "distance_between": round(distance, 2), "dist_from_current": round(dist_from_current, 2), "strength": "HEAVY" if distance <= 2 else "MODERATE"})
+    
+    confluences.sort(key=lambda x: x["dist_from_current"])
+    score = 0 if len(confluences) == 0 else (15 + len(confluences) * 3) if confluences[0]["dist_from_current"] <= 5 else (5 + len(confluences) * 2)
+    
+    return {"confluences": confluences, "count": len(confluences), "score": min(20, score), "nearest": confluences[0] if confluences else None}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# STRIKE SELECTION & STOPS
+# ENTRY LOGIC
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def select_strike(entry_price: float, target_price: float, direction: str, method: str = "gamma_optimal") -> Dict:
-    """
-    Select OTM strike for 0DTE options.
+def determine_entry(structure: Dict, ma_bias: str, current_price: float, confluence: Dict) -> Dict:
+    lines = structure["lines"]
+    distances = structure["distances"]
+    nearest = structure["nearest_line"]
+    nearest_line = lines[nearest]
+    nearest_dist = distances[nearest]
     
-    For CALLS (bullish): OTM strike is ABOVE entry price
-    For PUTS (bearish): OTM strike is BELOW entry price
+    gap_detected = False
+    gap_type = None
+    gap_line = None
     
-    Gamma optimal = 35% of expected move OTM (sweet spot for 0DTE)
-    """
-    expected_move = abs(target_price - entry_price)
+    for key, line in lines.items():
+        dist = distances[key]
+        if line["direction"] == "rising" and dist["above"] and dist["abs_distance"] >= GAP_THRESHOLD:
+            gap_detected, gap_type, gap_line = True, "GAP_UP", key
+            break
+        if line["direction"] == "falling" and not dist["above"] and dist["abs_distance"] >= GAP_THRESHOLD:
+            gap_detected, gap_type, gap_line = True, "GAP_DOWN", key
+            break
     
-    # Handle NEUTRAL - no trade
-    if direction == "NEUTRAL":
-        return {"strike": 0, "option_type": "N/A", "otm_distance": 0, "method": method, "expected_move": round(expected_move, 2)}
+    if gap_detected:
+        target_line = lines[gap_line]
+        if gap_type == "GAP_UP":
+            entry_type, entry_price, action = "CALLS", target_line["current"], "WAIT_PULLBACK"
+            reason = f"Gap UP through {target_line['name']} - wait for pullback to {entry_price:.2f}"
+        else:
+            entry_type, entry_price, action = "PUTS", target_line["current"], "WAIT_BOUNCE"
+            reason = f"Gap DOWN through {target_line['name']} - wait for bounce to {entry_price:.2f}"
+        
+        return {"action": action, "entry_type": entry_type, "entry_price": entry_price, "target_line": gap_line, "target_line_name": target_line["name"], "reason": reason, "gap_detected": True, "gap_type": gap_type, "gap_distance": distances[gap_line]["abs_distance"], "ready": False, "confluence_at_entry": any(c["structure_key"] == gap_line for c in confluence["confluences"])}
     
-    if direction == "LONG":
-        # CALLS: OTM strike is ABOVE entry price
-        if method == "gamma_optimal": raw_strike = entry_price + (expected_move * 0.35)
-        elif method == "conservative": raw_strike = entry_price + 15
-        elif method == "aggressive": raw_strike = entry_price + 5
-        else: raw_strike = entry_price + 10  # round_number
-        strike = round(raw_strike / 5) * 5
-        option_type = "CALL"
-        otm_distance = strike - entry_price
-    else:  # SHORT
-        # PUTS: OTM strike is BELOW entry price
-        if method == "gamma_optimal": raw_strike = entry_price - (expected_move * 0.35)
-        elif method == "conservative": raw_strike = entry_price - 15
-        elif method == "aggressive": raw_strike = entry_price - 5
-        else: raw_strike = entry_price - 10  # round_number
-        strike = round(raw_strike / 5) * 5
-        option_type = "PUT"
-        otm_distance = entry_price - strike
+    nearest_entry_type = nearest_line["entry_type"]
+    ma_aligns = (ma_bias == "LONG" and nearest_entry_type == "CALLS") or (ma_bias == "SHORT" and nearest_entry_type == "PUTS") or ma_bias == "NEUTRAL"
     
-    return {"strike": int(strike), "option_type": option_type, "otm_distance": round(otm_distance, 2), "method": method, "expected_move": round(expected_move, 2)}
-
-def calculate_dynamic_stop(es_candles: Optional[pd.DataFrame], premium: float, vix_current: float) -> Dict:
-    if es_candles is None or len(es_candles) < 14 or premium <= 0:
-        return {"stop_pct": 50, "stop_price": round(premium * 0.5, 2), "atr": None, "vix_multiplier": 1.0}
-    high, low, close = es_candles['High'], es_candles['Low'], es_candles['Close']
-    tr = pd.concat([high - low, abs(high - close.shift(1)), abs(low - close.shift(1))], axis=1).max(axis=1)
-    atr = tr.rolling(window=14).mean().iloc[-1]
-    vix_mult = 0.85 if vix_current < 15 else 1.0 if vix_current < 20 else 1.15 if vix_current < 25 else 1.3
-    stop_amount = atr * 0.5 * 0.30 * vix_mult
-    stop_pct = max(35, min(65, (stop_amount / premium) * 100))
-    return {"stop_pct": round(stop_pct, 1), "stop_price": round(premium * (1 - stop_pct / 100), 2), "atr": round(atr, 2), "vix_multiplier": vix_mult}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CONFIDENCE SCORING
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def calculate_confidence(ma_bias: Dict, structure: Dict, vix_zone: Dict, momentum: Dict, cone_confluence: Dict) -> Dict:
-    """
-    Confidence score based on alignment of pillars.
-    - MA Bias: Direction filter (25 pts)
-    - Structure: Entry levels - score based on range quality (30 pts)
-    - VIX Zone: Timing confirmation (20 pts)
-    - Momentum: Additional confirmation (15 pts)
-    - Cone Confluence: Bonus for hitting cone rails (10 pts)
-    
-    Structure does NOT vote on direction - it just provides entry levels.
-    """
-    scores = {
-        "MA Bias": ma_bias.get("score", 0),
-        "Structure": structure.get("score", 0),
-        "VIX Zone": vix_zone.get("score", 0),
-        "Momentum": momentum.get("score", 0),
-        "Cone Confluence": cone_confluence.get("score", 0)
-    }
-    total = sum(scores.values())
-    
-    if total >= 85: grade, action = "A+", "STRONG_ENTRY"
-    elif total >= 75: grade, action = "HIGH", "ENTRY"
-    elif total >= 60: grade, action = "MEDIUM", "CAUTIOUS"
-    elif total >= 45: grade, action = "LOW", "WAIT"
-    else: grade, action = "NO_TRADE", "AVOID"
-    
-    # Check alignment between MA Bias and VIX (structure doesn't vote)
-    ma_signal = ma_bias.get("signal", "").upper()
-    vix_signal = vix_zone.get("signal", "").upper()
-    momentum_signal = momentum.get("signal", "").upper()
-    
-    # Count confirmations for the MA Bias direction
-    if ma_signal == "LONG":
-        confirmations = 0
-        if vix_signal == "CALLS": confirmations += 1
-        if momentum_signal == "BULLISH": confirmations += 1
-    elif ma_signal == "SHORT":
-        confirmations = 0
-        if vix_signal == "PUTS": confirmations += 1
-        if momentum_signal == "BEARISH": confirmations += 1
+    if nearest_line["direction"] == "rising":
+        approaching = not nearest_dist["above"]
     else:
-        confirmations = 0
+        approaching = nearest_dist["above"]
     
-    return {
-        "total": total,
-        "grade": grade,
-        "action": action,
-        "breakdown": scores,
-        "confirmations": confirmations,
-        "ma_signal": ma_signal,
-        "vix_confirms": (ma_signal == "LONG" and vix_signal == "CALLS") or (ma_signal == "SHORT" and vix_signal == "PUTS"),
-        "momentum_confirms": (ma_signal == "LONG" and momentum_signal == "BULLISH") or (ma_signal == "SHORT" and momentum_signal == "BEARISH")
-    }
+    entry_price = nearest_line["current"]
+    distance_to_entry = nearest_dist["abs_distance"]
+    
+    if distance_to_entry <= 3:
+        action, ready = ("READY" if ma_aligns else "READY_NO_BIAS"), ma_aligns
+    elif distance_to_entry <= 10 and approaching:
+        action, ready = "APPROACHING", False
+    else:
+        action, ready = "WAITING", False
+    
+    return {"action": action, "entry_type": nearest_entry_type, "entry_price": entry_price, "target_line": nearest, "target_line_name": nearest_line["name"], "reason": f"{nearest_line['name']} at {entry_price:.2f} ({distance_to_entry:.1f} pts away)", "gap_detected": False, "gap_type": None, "gap_distance": 0, "ready": ready, "ma_aligns": ma_aligns, "approaching": approaching, "distance_to_entry": distance_to_entry, "confluence_at_entry": any(c["structure_key"] == nearest for c in confluence["confluences"])}
+
+def select_strike(entry_price: float, entry_type: str, method: str = "gamma_optimal") -> Dict:
+    if entry_type == "CALLS":
+        offset = 20 if method == "gamma_optimal" else 25 if method == "conservative" else 15
+        raw_strike = entry_price + offset
+        strike = round(raw_strike / 5) * 5
+        otm_distance = strike - entry_price
+    elif entry_type == "PUTS":
+        offset = 20 if method == "gamma_optimal" else 25 if method == "conservative" else 15
+        raw_strike = entry_price - offset
+        strike = round(raw_strike / 5) * 5
+        otm_distance = entry_price - strike
+    else:
+        return {"strike": 0, "option_type": "N/A", "otm_distance": 0, "method": method}
+    
+    return {"strike": int(strike), "option_type": "CALL" if entry_type == "CALLS" else "PUT", "otm_distance": round(otm_distance, 2), "method": method, "entry_price": entry_price}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 5-MIN REVERSAL
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def detect_5min_reversal(candles_5m: Optional[pd.DataFrame], entry_type: str, entry_price: float, current_price: float) -> Dict:
+    if candles_5m is None or len(candles_5m) < 5:
+        return {"status": "NO_DATA", "signal": "WAIT", "message": "Insufficient 5-min data", "ready": False, "rsi": None, "candle_pattern": None}
+    
+    close = candles_5m['Close']
+    rsi_5m = calculate_rsi(close, period=14)
+    last_candle = candles_5m.iloc[-1]
+    is_green = last_candle['Close'] > last_candle['Open']
+    is_red = last_candle['Close'] < last_candle['Open']
+    candle_pattern = "GREEN" if is_green else "RED" if is_red else "DOJI"
+    
+    dist_to_entry = abs(current_price - entry_price)
+    at_level = dist_to_entry <= 3
+    
+    if entry_type == "CALLS":
+        rsi_oversold = rsi_5m < 40
+        if at_level and is_green and rsi_oversold:
+            status, signal, message, ready = "REVERSAL_CONFIRMED", "BUY_CALLS", "✅ Bullish reversal - ENTER CALLS", True
+        elif at_level and is_green:
+            status, signal, message, ready = "CANDLE_CONFIRMED", "WATCH", "Green candle at level", False
+        elif at_level:
+            status, signal, message, ready = "AT_LEVEL", "WATCH", "Waiting for green candle", False
+        else:
+            status, signal, message, ready = "APPROACHING", "WAIT", f"Approaching ({dist_to_entry:.1f} pts)", False
+    elif entry_type == "PUTS":
+        rsi_overbought = rsi_5m > 60
+        if at_level and is_red and rsi_overbought:
+            status, signal, message, ready = "REVERSAL_CONFIRMED", "BUY_PUTS", "✅ Bearish reversal - ENTER PUTS", True
+        elif at_level and is_red:
+            status, signal, message, ready = "CANDLE_CONFIRMED", "WATCH", "Red candle at level", False
+        elif at_level:
+            status, signal, message, ready = "AT_LEVEL", "WATCH", "Waiting for red candle", False
+        else:
+            status, signal, message, ready = "APPROACHING", "WAIT", f"Approaching ({dist_to_entry:.1f} pts)", False
+    else:
+        status, signal, message, ready = "NO_ENTRY", "WAIT", "No entry type", False
+    
+    return {"status": status, "signal": signal, "message": message, "ready": ready, "rsi": rsi_5m, "candle_pattern": candle_pattern, "dist_to_entry": round(dist_to_entry, 2)}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VIX & CONFIDENCE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def analyze_vix(vix_current: float, vix_overnight_high: float, vix_overnight_low: float) -> Dict:
+    zone_name = "NORMAL"
+    for name, (low, high) in VIX_ZONES.items():
+        if low <= vix_current < high:
+            zone_name = name
+            break
+    
+    vix_range = vix_overnight_high - vix_overnight_low
+    vix_position = (vix_current - vix_overnight_low) / vix_range * 100 if vix_range > 0 else 50
+    
+    if vix_current > vix_overnight_high:
+        springboard, bias = "ABOVE_CEILING", "CALLS"
+    elif vix_current < vix_overnight_low:
+        springboard, bias = "BELOW_FLOOR", "PUTS"
+    elif vix_position > 75:
+        springboard, bias = "NEAR_CEILING", "CALLS"
+    elif vix_position < 25:
+        springboard, bias = "NEAR_FLOOR", "PUTS"
+    else:
+        springboard, bias = "MID_RANGE", "NEUTRAL"
+    
+    return {"current": vix_current, "overnight_high": vix_overnight_high, "overnight_low": vix_overnight_low, "zone": zone_name, "springboard": springboard, "bias": bias, "position_pct": round(vix_position, 1)}
+
+def calculate_confidence(ma_bias: Dict, structure: Dict, momentum: Dict, confluence: Dict, entry: Dict, vix: Dict) -> Dict:
+    raw_scores = {"MA Bias": ma_bias.get("score", 0), "Structure": structure.get("score", 0), "Momentum": momentum.get("score", 0), "Confluence": confluence.get("score", 0)}
+    raw_total = sum(raw_scores.values())
+    normalized_total = min(100, int(raw_total * 100 / 120))
+    
+    ma_signal = ma_bias.get("signal", "NEUTRAL")
+    entry_type = entry.get("entry_type", "")
+    momentum_signal = momentum.get("signal", "NEUTRAL")
+    
+    ma_aligns = (ma_signal == "LONG" and entry_type == "CALLS") or (ma_signal == "SHORT" and entry_type == "PUTS")
+    momentum_aligns = (momentum_signal == "BULLISH" and entry_type == "CALLS") or (momentum_signal == "BEARISH" and entry_type == "PUTS")
+    vix_aligns = (vix.get("bias") == "CALLS" and entry_type == "CALLS") or (vix.get("bias") == "PUTS" and entry_type == "PUTS")
+    alignment_count = sum([ma_aligns, momentum_aligns, vix_aligns])
+    
+    if normalized_total >= 85 and alignment_count >= 2:
+        grade, action = "A+", "STRONG_ENTRY"
+    elif normalized_total >= 75 and alignment_count >= 2:
+        grade, action = "A", "ENTRY"
+    elif normalized_total >= 65:
+        grade, action = "B", "CAUTIOUS"
+    elif normalized_total >= 50:
+        grade, action = "C", "WAIT"
+    else:
+        grade, action = "D", "NO_TRADE"
+    
+    return {"total": normalized_total, "raw_total": raw_total, "grade": grade, "action": action, "breakdown": raw_scores, "alignment": {"ma_aligns": ma_aligns, "momentum_aligns": momentum_aligns, "vix_aligns": vix_aligns, "count": alignment_count}}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PERSISTENCE
@@ -619,7 +581,9 @@ def render_sidebar() -> Dict:
     saved = load_inputs()
     
     with st.sidebar:
-        st.markdown("## ⚙️ SPX Prophet V4")
+        st.markdown("## 🔮 SPX Prophet V5")
+        st.markdown("*4-Line Day Structure*")
+        
         trading_date = st.date_input("📅 Trading Date", value=date.today())
         
         st.markdown("---")
@@ -632,43 +596,31 @@ def render_sidebar() -> Dict:
         ma_override = st.selectbox("Override MA Bias", ["AUTO", "LONG", "SHORT", "NEUTRAL"], index=0)
         
         st.markdown("---")
-        st.markdown("### 📐 Pillar 2: Structure")
+        st.markdown("### 📐 Pillar 2: Day Structure")
+        st.markdown("*Overnight: 5 PM → 8:30 AM CT*")
         
-        # Time options for dropdowns (30-min intervals)
         HOUR_OPTIONS = list(range(0, 24))
-        MINUTE_OPTIONS = [0, 30]
+        MINUTE_OPTIONS = [0, 15, 30, 45]
         
-        def format_time_display(h, m):
-            """Format hour:minute for display"""
-            period = "AM" if h < 12 else "PM"
-            display_h = h if h <= 12 else h - 12
-            if display_h == 0: display_h = 12
-            return f"{display_h}:{m:02d} {period}"
-        
-        st.markdown("**CEILING Anchors (Overnight Highs)**")
+        st.markdown("**Overnight HIGH**")
         c1, c2, c3 = st.columns([2, 1, 1])
-        ceil1_price = c1.number_input("C1 Price", value=float(saved.get("ceil1_price", 6065.0)), step=0.5, key="c1p")
-        ceil1_hour = c2.selectbox("Hr", HOUR_OPTIONS, index=int(saved.get("ceil1_hour", 22)), key="c1h")
-        ceil1_min = c3.selectbox("Min", MINUTE_OPTIONS, index=MINUTE_OPTIONS.index(int(saved.get("ceil1_min", 30))), key="c1m")
+        on_high_price = c1.number_input("Price", value=float(saved.get("on_high_price", 6070.0)), step=0.5, key="onh_p")
+        on_high_hour = c2.selectbox("Hr", HOUR_OPTIONS, index=int(saved.get("on_high_hour", 2)), key="onh_h")
+        on_high_min = c3.selectbox("Min", MINUTE_OPTIONS, index=MINUTE_OPTIONS.index(int(saved.get("on_high_min", 0))) if int(saved.get("on_high_min", 0)) in MINUTE_OPTIONS else 0, key="onh_m")
         
+        st.markdown("**Overnight LOW**")
         c1, c2, c3 = st.columns([2, 1, 1])
-        ceil2_price = c1.number_input("C2 Price", value=float(saved.get("ceil2_price", 6060.0)), step=0.5, key="c2p")
-        ceil2_hour = c2.selectbox("Hr", HOUR_OPTIONS, index=int(saved.get("ceil2_hour", 2)), key="c2h")
-        ceil2_min = c3.selectbox("Min", MINUTE_OPTIONS, index=MINUTE_OPTIONS.index(int(saved.get("ceil2_min", 0))), key="c2m")
+        on_low_price = c1.number_input("Price", value=float(saved.get("on_low_price", 6020.0)), step=0.5, key="onl_p")
+        on_low_hour = c2.selectbox("Hr", HOUR_OPTIONS, index=int(saved.get("on_low_hour", 22)), key="onl_h")
+        on_low_min = c3.selectbox("Min", MINUTE_OPTIONS, index=MINUTE_OPTIONS.index(int(saved.get("on_low_min", 0))) if int(saved.get("on_low_min", 0)) in MINUTE_OPTIONS else 0, key="onl_m")
         
-        st.markdown("**FLOOR Anchors (Overnight Lows)**")
-        c1, c2, c3 = st.columns([2, 1, 1])
-        floor1_price = c1.number_input("F1 Price", value=float(saved.get("floor1_price", 6035.0)), step=0.5, key="f1p")
-        floor1_hour = c2.selectbox("Hr", HOUR_OPTIONS, index=int(saved.get("floor1_hour", 20)), key="f1h")
-        floor1_min = c3.selectbox("Min", MINUTE_OPTIONS, index=MINUTE_OPTIONS.index(int(saved.get("floor1_min", 0))), key="f1m")
-        
-        c1, c2, c3 = st.columns([2, 1, 1])
-        floor2_price = c1.number_input("F2 Price", value=float(saved.get("floor2_price", 6040.0)), step=0.5, key="f2p")
-        floor2_hour = c2.selectbox("Hr", HOUR_OPTIONS, index=int(saved.get("floor2_hour", 5)), key="f2h")
-        floor2_min = c3.selectbox("Min", MINUTE_OPTIONS, index=MINUTE_OPTIONS.index(int(saved.get("floor2_min", 30))), key="f2m")
+        st.markdown("**Pre-Market Override (7:30-8:30 AM)**")
+        use_premarket = st.checkbox("Enable Pre-Market Override", value=False)
+        pm_high = st.number_input("Pre-Mkt High", value=float(saved.get("pm_high", 6075.0)), step=0.5) if use_premarket else None
+        pm_low = st.number_input("Pre-Mkt Low", value=float(saved.get("pm_low", 6015.0)), step=0.5) if use_premarket else None
         
         st.markdown("---")
-        st.markdown("### ⚡ Pillar 3: VIX Zone")
+        st.markdown("### ⚡ VIX")
         vix_overnight_high = st.number_input("VIX O/N High", value=float(saved.get("vix_overnight_high", 18.0)), step=0.1)
         vix_overnight_low = st.number_input("VIX O/N Low", value=float(saved.get("vix_overnight_low", 15.0)), step=0.1)
         use_manual_vix = st.checkbox("Manual VIX", value=False)
@@ -677,21 +629,20 @@ def render_sidebar() -> Dict:
         st.markdown("---")
         st.markdown("### 📊 Prior Day (Cones)")
         c1, c2, c3 = st.columns([2, 1, 1])
-        prior_high = c1.number_input("Prior High", value=float(saved.get("prior_high", 6070.0)), step=0.5)
-        prior_high_hour = c2.selectbox("Hr", HOUR_OPTIONS, index=int(saved.get("prior_high_hour", 10)), key="phh")
-        prior_high_min = c3.selectbox("Min", MINUTE_OPTIONS, index=MINUTE_OPTIONS.index(int(saved.get("prior_high_min", 0))), key="phm")
+        prior_high = c1.number_input("Prior High", value=float(saved.get("prior_high", 6075.0)), step=0.5)
+        prior_high_hour = c2.selectbox("Hr", HOUR_OPTIONS, index=int(saved.get("prior_high_hour", 10)), key="ph_h")
+        prior_high_min = c3.selectbox("Min", MINUTE_OPTIONS, index=MINUTE_OPTIONS.index(int(saved.get("prior_high_min", 0))) if int(saved.get("prior_high_min", 0)) in MINUTE_OPTIONS else 0, key="ph_m")
         
         c1, c2, c3 = st.columns([2, 1, 1])
-        prior_low = c1.number_input("Prior Low", value=float(saved.get("prior_low", 6020.0)), step=0.5)
-        prior_low_hour = c2.selectbox("Hr", HOUR_OPTIONS, index=int(saved.get("prior_low_hour", 14)), key="plh")
-        prior_low_min = c3.selectbox("Min", MINUTE_OPTIONS, index=MINUTE_OPTIONS.index(int(saved.get("prior_low_min", 0))), key="plm")
+        prior_low = c1.number_input("Prior Low", value=float(saved.get("prior_low", 6010.0)), step=0.5)
+        prior_low_hour = c2.selectbox("Hr", HOUR_OPTIONS, index=int(saved.get("prior_low_hour", 14)), key="pl_h")
+        prior_low_min = c3.selectbox("Min", MINUTE_OPTIONS, index=MINUTE_OPTIONS.index(int(saved.get("prior_low_min", 0))) if int(saved.get("prior_low_min", 0)) in MINUTE_OPTIONS else 0, key="pl_m")
         
-        # Close is always 3:00 PM CT (RTH close)
-        prior_close = st.number_input("Prior Close (3 PM CT)", value=float(saved.get("prior_close", 6050.0)), step=0.5)
+        prior_close = st.number_input("Prior Close (3 PM)", value=float(saved.get("prior_close", 6045.0)), step=0.5)
         
         st.markdown("---")
-        st.markdown("### 🎯 Strike Selection")
-        strike_method = st.selectbox("Method", ["gamma_optimal", "conservative", "aggressive", "round_number"], index=0)
+        st.markdown("### 🎯 Strike Method")
+        strike_method = st.selectbox("OTM Distance", ["gamma_optimal", "conservative", "aggressive"], index=0)
         
         st.markdown("---")
         st.markdown("### 🔄 Auto-Refresh")
@@ -702,21 +653,24 @@ def render_sidebar() -> Dict:
         show_debug = st.checkbox("Show Debug Panel", value=False)
         
         if st.button("💾 Save Inputs", use_container_width=True):
-            save_inputs({"spx_price": spx_price, "ceil1_price": ceil1_price, "ceil1_hour": ceil1_hour, "ceil1_min": ceil1_min, "ceil2_price": ceil2_price, "ceil2_hour": ceil2_hour, "ceil2_min": ceil2_min, "floor1_price": floor1_price, "floor1_hour": floor1_hour, "floor1_min": floor1_min, "floor2_price": floor2_price, "floor2_hour": floor2_hour, "floor2_min": floor2_min, "vix_overnight_high": vix_overnight_high, "vix_overnight_low": vix_overnight_low, "vix_current": vix_current, "prior_high": prior_high, "prior_high_hour": prior_high_hour, "prior_high_min": prior_high_min, "prior_low": prior_low, "prior_low_hour": prior_low_hour, "prior_low_min": prior_low_min, "prior_close": prior_close})
+            save_inputs({"spx_price": spx_price, "on_high_price": on_high_price, "on_high_hour": on_high_hour, "on_high_min": on_high_min, "on_low_price": on_low_price, "on_low_hour": on_low_hour, "on_low_min": on_low_min, "pm_high": pm_high, "pm_low": pm_low, "vix_overnight_high": vix_overnight_high, "vix_overnight_low": vix_overnight_low, "vix_current": vix_current, "prior_high": prior_high, "prior_high_hour": prior_high_hour, "prior_high_min": prior_high_min, "prior_low": prior_low, "prior_low_hour": prior_low_hour, "prior_low_min": prior_low_min, "prior_close": prior_close})
             st.success("✅ Saved!")
     
     prev_day = trading_date - timedelta(days=1)
-    def make_anchor_time(hour, minute, base_date):
-        anchor_date = base_date if hour >= 17 else trading_date
-        return CT.localize(datetime.combine(anchor_date, time(hour, minute)))
     
-    ceiling_anchors = [(ceil1_price, make_anchor_time(ceil1_hour, ceil1_min, prev_day)), (ceil2_price, make_anchor_time(ceil2_hour, ceil2_min, prev_day))]
-    floor_anchors = [(floor1_price, make_anchor_time(floor1_hour, floor1_min, prev_day)), (floor2_price, make_anchor_time(floor2_hour, floor2_min, prev_day))]
+    def make_overnight_time(hour: int, minute: int, trading_date: date) -> datetime:
+        if hour >= 17:
+            return CT.localize(datetime.combine(prev_day, time(hour, minute)))
+        else:
+            return CT.localize(datetime.combine(trading_date, time(hour, minute)))
+    
+    on_high_time = make_overnight_time(on_high_hour, on_high_min, trading_date)
+    on_low_time = make_overnight_time(on_low_hour, on_low_min, trading_date)
     prior_high_time = CT.localize(datetime.combine(prev_day, time(prior_high_hour, prior_high_min)))
     prior_low_time = CT.localize(datetime.combine(prev_day, time(prior_low_hour, prior_low_min)))
-    prior_close_time = CT.localize(datetime.combine(prev_day, time(15, 0)))  # Always 3:00 PM CT
+    prior_close_time = CT.localize(datetime.combine(prev_day, time(15, 0)))
     
-    return {"trading_date": trading_date, "spx_price": spx_price, "ma_override": ma_override, "ceiling_anchors": ceiling_anchors, "floor_anchors": floor_anchors, "vix_overnight_high": vix_overnight_high, "vix_overnight_low": vix_overnight_low, "vix_current": vix_current, "prior_high": prior_high, "prior_high_time": prior_high_time, "prior_low": prior_low, "prior_low_time": prior_low_time, "prior_close": prior_close, "prior_close_time": prior_close_time, "strike_method": strike_method, "auto_refresh": auto_refresh, "refresh_interval": refresh_interval, "show_debug": show_debug}
+    return {"trading_date": trading_date, "spx_price": spx_price, "ma_override": ma_override, "on_high_price": on_high_price, "on_high_time": on_high_time, "on_low_price": on_low_price, "on_low_time": on_low_time, "pm_high": pm_high, "pm_low": pm_low, "vix_overnight_high": vix_overnight_high, "vix_overnight_low": vix_overnight_low, "vix_current": vix_current, "prior_high": prior_high, "prior_high_time": prior_high_time, "prior_low": prior_low, "prior_low_time": prior_low_time, "prior_close": prior_close, "prior_close_time": prior_close_time, "strike_method": strike_method, "auto_refresh": auto_refresh, "refresh_interval": refresh_interval, "show_debug": show_debug}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN APPLICATION
@@ -728,227 +682,177 @@ def main():
     now_ct = get_now_ct()
     target_9am = CT.localize(datetime.combine(inputs["trading_date"], time(9, 0)))
     
+    # Data Loading
     with st.spinner("Loading market data..."):
-        # Track data sources
         data_sources = {}
         
-        # SPX Price
         if inputs["spx_price"]:
-            current_price = inputs["spx_price"]
-            data_sources["spx"] = "MANUAL"
+            current_price, data_sources["spx"] = inputs["spx_price"], "MANUAL"
         else:
             fetched_spx = fetch_spx_price()
-            if fetched_spx:
-                current_price = fetched_spx
-                data_sources["spx"] = "LIVE"
-            else:
-                current_price = None  # Will show error
-                data_sources["spx"] = "FAILED"
+            current_price, data_sources["spx"] = (fetched_spx, "LIVE") if fetched_spx else (None, "FAILED")
         
-        # VIX
         if inputs["vix_current"]:
-            vix_current = inputs["vix_current"]
-            data_sources["vix"] = "MANUAL"
+            vix_current, data_sources["vix"] = inputs["vix_current"], "MANUAL"
         else:
             fetched_vix = fetch_vix_price()
-            if fetched_vix:
-                vix_current = fetched_vix
-                data_sources["vix"] = "LIVE"
-            else:
-                vix_current = None
-                data_sources["vix"] = "FAILED"
+            vix_current, data_sources["vix"] = (fetched_vix, "LIVE") if fetched_vix else (16.0, "DEFAULT")
         
-        # ES Candles
         es_candles = fetch_es_30min_candles()
-        data_sources["es"] = "LIVE" if es_candles is not None and len(es_candles) >= 50 else "PARTIAL" if es_candles is not None else "FAILED"
+        es_count = len(es_candles) if es_candles is not None else 0
+        data_sources["es"] = "LIVE" if es_count >= 50 else "PARTIAL" if es_count > 0 else "FAILED"
         
-        # SPX 5-min
         spx_5min = fetch_spx_5min_candles()
         data_sources["5min"] = "LIVE" if spx_5min is not None else "FAILED"
     
-    # CRITICAL DATA CHECK - Stop if SPX or VIX missing
-    if current_price is None or vix_current is None:
-        st.error("❌ **CRITICAL DATA MISSING** - Cannot proceed without SPX price and VIX. Enable Manual Input in sidebar.")
+    if current_price is None:
+        st.error("❌ **SPX PRICE UNAVAILABLE** - Enable Manual SPX in sidebar")
         st.stop()
     
-    # HERO HEADER
-    st.markdown(f'<div class="hero-header"><div class="hero-title">🔮 SPX PROPHET V4</div><div class="hero-subtitle">Institutional 0DTE Analytics | 3-Pillar Methodology</div><div class="hero-price">{current_price:,.2f}</div><div class="hero-time">{now_ct.strftime("%I:%M:%S %p CT")} | {inputs["trading_date"].strftime("%A, %B %d, %Y")}</div></div>', unsafe_allow_html=True)
+    # Hero Header
+    st.markdown(f'<div class="hero-header"><div class="hero-title">🔮 SPX PROPHET V5</div><div class="hero-subtitle">4-Line Day Structure | Confluence Detection | 3-Pillar Methodology</div><div class="hero-price">{current_price:,.2f}</div><div class="hero-time">{now_ct.strftime("%I:%M:%S %p CT")} | {inputs["trading_date"].strftime("%A, %B %d, %Y")}</div></div>', unsafe_allow_html=True)
     
-    # DATA STATUS BAR (shows source of each data point)
     def status_icon(status):
-        return "🟢" if status == "LIVE" else "🟡" if status == "MANUAL" else "🟠" if status == "PARTIAL" else "🔴"
+        return "🟢" if status == "LIVE" else "🟡" if status in ["MANUAL", "DEFAULT"] else "🟠" if status == "PARTIAL" else "🔴"
     
-    es_count = len(es_candles) if es_candles is not None else 0
-    data_msg = f"SPX {status_icon(data_sources['spx'])} {data_sources['spx']} | ES {status_icon(data_sources['es'])} ({es_count}) | VIX {status_icon(data_sources['vix'])} {data_sources['vix']}"
-    
-    if data_sources["es"] in ["FAILED", "PARTIAL"]:
-        data_msg += " | ⚠️ Set MA Bias manually"
-    
+    data_msg = f"SPX {status_icon(data_sources['spx'])} | ES {status_icon(data_sources['es'])} ({es_count}) | VIX {status_icon(data_sources['vix'])} | 5m {status_icon(data_sources['5min'])}"
     st.markdown(f'<div style="text-align:center;font-size:11px;color:var(--text-secondary);margin-bottom:16px;padding:8px;background:rgba(255,255,255,0.02);border-radius:8px">{data_msg}</div>', unsafe_allow_html=True)
     
-    # ANALYSIS
-    ma_bias = {"signal": inputs["ma_override"], "reason": "Manual override", "score": 25 if inputs["ma_override"] != "NEUTRAL" else 0, "ema_50": None, "sma_200": None, "diff_pct": None} if inputs["ma_override"] != "AUTO" else calculate_ma_bias(es_candles)
-    structure = calculate_day_structure(inputs["ceiling_anchors"], inputs["floor_anchors"], target_9am, current_price)
-    vix_zone = calculate_vix_zone(vix_current, inputs["vix_overnight_high"], inputs["vix_overnight_low"])
-    momentum = calculate_30min_momentum(es_candles)
+    # Analysis
+    ma_bias = {"signal": inputs["ma_override"], "reason": "Manual override", "score": 25 if inputs["ma_override"] != "NEUTRAL" else 0, "ema_50": None, "sma_200": None, "diff_pct": None, "candle_count": 0, "data_status": "OVERRIDE"} if inputs["ma_override"] != "AUTO" else calculate_ma_bias(es_candles)
+    
+    structure = calculate_day_structure(inputs["on_high_price"], inputs["on_high_time"], inputs["on_low_price"], inputs["on_low_time"], target_9am, current_price, inputs["pm_high"], inputs["pm_low"])
+    momentum = calculate_momentum(es_candles)
     cones = calculate_cone_rails(inputs["prior_high"], inputs["prior_high_time"], inputs["prior_low"], inputs["prior_low_time"], inputs["prior_close"], inputs["prior_close_time"], target_9am)
-    cone_confluence = calculate_cone_confluence(cones, current_price)
-    confidence = calculate_confidence(ma_bias, structure, vix_zone, momentum, cone_confluence)
+    confluence = detect_confluence(structure, cones, current_price)
+    vix = analyze_vix(vix_current, inputs["vix_overnight_high"], inputs["vix_overnight_low"])
+    entry = determine_entry(structure, ma_bias["signal"], current_price, confluence)
+    strike_info = select_strike(entry["entry_price"], entry["entry_type"], inputs["strike_method"])
     
-    # ENTRY TRIGGER - ONLY RELEVANT DURING INSTITUTIONAL WINDOW (8:30-11:30 AM CT)
     now_time = now_ct.time()
-    entry_window_start = time(8, 30)
-    entry_window_end = time(11, 30)
-    in_entry_window = entry_window_start <= now_time <= entry_window_end
+    in_entry_window = time(8, 30) <= now_time <= time(11, 30)
+    reversal = detect_5min_reversal(spx_5min, entry["entry_type"], entry["entry_price"], current_price) if in_entry_window else {"status": "OUTSIDE_WINDOW", "signal": "WAIT", "message": "Entry window: 8:30-11:30 AM CT", "ready": False, "rsi": None, "candle_pattern": None}
     
-    # Structure at 9 AM (planned entry) - this is what matters
-    # DIRECTION IS DETERMINED BY MA BIAS (Pillar 1), NOT confidence score
-    # MA Bias = LONG → Only take CALLS → Entry at FLOOR
-    # MA Bias = SHORT → Only take PUTS → Entry at CEILING
-    # MA Bias = NEUTRAL → No trades
+    confidence = calculate_confidence(ma_bias, structure, momentum, confluence, entry, vix)
     
-    trade_direction = ma_bias["signal"]  # LONG, SHORT, or NEUTRAL
-    
-    if trade_direction == "LONG":
-        trigger_price_9am = structure["floor_9am"]
-        target_price_9am = structure["ceiling_9am"]
-        option_type = "CALL"
-    elif trade_direction == "SHORT":
-        trigger_price_9am = structure["ceiling_9am"]
-        target_price_9am = structure["floor_9am"]
-        option_type = "PUT"
-    else:
-        trigger_price_9am = structure["floor_9am"]  # Show floor by default for reference
-        target_price_9am = structure["ceiling_9am"]
-        option_type = "N/A"
-    
-    # Strike based on 9 AM structure
-    strike_info = select_strike(trigger_price_9am, target_price_9am, trade_direction, inputs["strike_method"])
-    
-    # Reversal detection only matters during entry window
-    if in_entry_window and trade_direction != "NEUTRAL":
-        reversal = detect_5min_reversal(spx_5min, trade_direction, trigger_price_9am, current_price)
-    else:
-        reversal = {"status": "OUTSIDE_WINDOW", "signal": "WAIT", "message": "Entry window: 8:30-11:30 AM CT" if not in_entry_window else "No direction (MA Bias NEUTRAL)", "ready": False, "rsi": None, "macd_direction": None, "candle_pattern": None}
-    
-    stop_info = calculate_dynamic_stop(es_candles, 5.0, vix_current)
-    
-    # ENTRY TRIGGER ALERT - Shows 9 AM planned entry
-    if trade_direction == "NEUTRAL":
-        # No direction from MA Bias
-        alert_class = "wait"
-        action_class = "wait"
-        action_text = "⛔ NO TRADE - MA Bias is NEUTRAL"
-        details_text = f"Floor @ 9 AM: {structure['floor_9am']:,.2f} | Ceiling @ 9 AM: {structure['ceiling_9am']:,.2f}"
-    elif not in_entry_window:
-        # Outside entry window - show preview
-        alert_class = "wait"
-        action_class = "wait"
-        if trade_direction == "LONG":
-            action_text = f"📅 9 AM PLAN: Buy {strike_info['strike']} CALL at Floor {trigger_price_9am:,.2f}"
-        else:
-            action_text = f"📅 9 AM PLAN: Buy {strike_info['strike']} PUT at Ceiling {trigger_price_9am:,.2f}"
-        details_text = f"Entry: {trigger_price_9am:,.2f} | Target: {target_price_9am:,.2f} | Range: {abs(target_price_9am - trigger_price_9am):.1f} pts"
+    # Entry Alert
+    if entry["gap_detected"]:
+        alert_class, action_class = "gap", "gap"
+        action_text = f"⚠️ GAP {entry['gap_type'].replace('_', ' ')} - Wait for Retracement"
+        details_text = f"Target: {entry['entry_price']:.2f} ({entry['target_line_name']}) | {entry['entry_type']} on pullback"
     elif reversal["ready"] and confidence["total"] >= 60:
-        alert_class = "" if trade_direction == "LONG" else "puts"
+        alert_class = "" if entry["entry_type"] == "CALLS" else "puts"
         action_class = "buy"
         action_text = f"🟢 BUY NOW: {strike_info['strike']} {strike_info['option_type']}"
-        details_text = f"Entry: {trigger_price_9am:,.2f} | Current: {current_price:,.2f} | Distance: {abs(current_price - trigger_price_9am):.2f} pts"
-    elif reversal["status"] == "AT_LEVEL":
-        alert_class = "" if trade_direction == "LONG" else "puts"
-        action_class = "wait"
-        action_text = "⏳ AT LEVEL - WATCH FOR 5m REVERSAL"
-        details_text = f"Entry: {trigger_price_9am:,.2f} | Current: {current_price:,.2f} | {reversal['message']}"
+        details_text = f"Entry: {entry['entry_price']:.2f} | Current: {current_price:.2f}" + (" | 🟣 CONFLUENCE" if entry["confluence_at_entry"] else "")
+    elif entry["action"] in ["READY", "READY_NO_BIAS"]:
+        alert_class, action_class = "wait", "wait"
+        action_text = f"⏳ AT LEVEL - Watch for {entry['entry_type']} Entry"
+        details_text = f"{entry['target_line_name']} at {entry['entry_price']:.2f}"
+    elif not in_entry_window:
+        alert_class, action_class = "wait", "wait"
+        action_text = f"📅 PLAN: {entry['entry_type']} at {entry['target_line_name']}"
+        details_text = f"Entry: {entry['entry_price']:.2f} | Strike: {strike_info['strike']} {strike_info['option_type']}"
     else:
-        alert_class = "wait"
-        action_class = "wait"
-        if trade_direction == "LONG":
-            action_text = f"⏳ WAITING: Need pullback to Floor {trigger_price_9am:,.2f}"
-        else:
-            action_text = f"⏳ WAITING: Need rally to Ceiling {trigger_price_9am:,.2f}"
-        details_text = f"Entry: {trigger_price_9am:,.2f} | Current: {current_price:,.2f} | Distance: {abs(current_price - trigger_price_9am):.2f} pts"
+        alert_class, action_class = "wait", "wait"
+        action_text = f"⏳ WAITING: {entry['entry_type']} at {entry['target_line_name']}"
+        details_text = f"Entry: {entry['entry_price']:.2f} | Distance: {entry.get('distance_to_entry', structure['nearest_distance']):.1f} pts"
     
-    st.markdown(f'<div class="entry-alert {alert_class}"><div class="alert-title">ENTRY TRIGGER {"🟢 LIVE" if in_entry_window else "📋 PREVIEW"}</div><div class="alert-action {action_class}">{action_text}</div><div class="alert-details">{details_text}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="entry-alert {alert_class}"><div class="alert-title">ENTRY STATUS {"🟢 LIVE" if in_entry_window else "📋 PREVIEW"}</div><div class="alert-action {action_class}">{action_text}</div><div class="alert-details">{details_text}</div></div>', unsafe_allow_html=True)
     
-    # THREE PILLARS
+    # Three Pillars
     st.markdown("### Three Pillars")
     p1, p2, p3 = st.columns(3)
     
     with p1:
         ma_class = "calls" if ma_bias["signal"] == "LONG" else "puts" if ma_bias["signal"] == "SHORT" else "neutral"
-        data_status = ma_bias.get("data_status", "UNKNOWN")
-        status_color = "var(--green)" if data_status == "FULL" else "var(--amber)" if data_status == "PARTIAL" else "var(--red)"
-        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon blue">📊</div><div><div class="card-title">Pillar 1: MA Bias</div><div class="card-subtitle">ES 30-min | <span style="color:{status_color}">{ma_bias.get("candle_count", 0)} candles</span></div></div></div><span class="signal-badge {ma_class}">{ma_bias["signal"]}</span><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">50 EMA</span><span class="pillar-value">{ma_bias.get("ema_50") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">200 SMA</span><span class="pillar-value">{ma_bias.get("sma_200") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">Diff %</span><span class="pillar-value">{f"{ma_bias.get('diff_pct')}%" if ma_bias.get("diff_pct") else "—"}</span></div><div class="pillar-item"><span class="pillar-name">Score</span><span class="pillar-value">{ma_bias["score"]}/25</span></div></div>', unsafe_allow_html=True)
+        status_color = "var(--green)" if ma_bias.get("data_status") in ["FULL", "OVERRIDE"] else "var(--amber)" if ma_bias.get("data_status") == "PARTIAL" else "var(--red)"
+        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon blue">📊</div><div><div class="card-title">Pillar 1: MA Bias</div><div class="card-subtitle">Direction | <span style="color:{status_color}">{ma_bias.get("candle_count", 0)} candles</span></div></div></div><span class="signal-badge {ma_class}">{ma_bias["signal"]}</span><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">50 EMA</span><span class="pillar-value">{ma_bias.get("ema_50") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">200 SMA</span><span class="pillar-value">{ma_bias.get("sma_200") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">Score</span><span class="pillar-value">{ma_bias["score"]}/30</span></div></div>', unsafe_allow_html=True)
     
     with p2:
-        # Show distance to entry based on MA Bias direction
-        if trade_direction == "LONG":
-            entry_label = "Floor (Entry)"
-            entry_dist = structure["dist_to_floor"]
-            dist_display = f"{entry_dist:.1f} pts {'above' if entry_dist > 0 else 'below'}" if entry_dist != 0 else "AT LEVEL"
-        elif trade_direction == "SHORT":
-            entry_label = "Ceiling (Entry)"
-            entry_dist = structure["dist_to_ceiling"]
-            dist_display = f"{entry_dist:.1f} pts {'below' if entry_dist > 0 else 'above'}" if entry_dist != 0 else "AT LEVEL"
-        else:
-            entry_label = "No Entry"
-            dist_display = "Set MA Bias"
+        lines = structure["lines"]
+        nearest = structure["nearest_line"]
+        lines_html = ""
+        for key in ["ceiling_rising", "ceiling_falling", "floor_rising", "floor_falling"]:
+            line = lines[key]
+            is_active = key == nearest
+            direction_class = "rising" if line["direction"] == "rising" else "falling"
+            active_class = " active" if is_active else ""
+            has_confluence = any(c["structure_key"] == key for c in confluence["confluences"])
+            confluence_badge = '<span class="confluence-badge">CONFLUENCE</span>' if has_confluence else ""
+            dist = structure["distances"][key]
+            dist_str = f"+{dist['distance']:.1f}" if dist['above'] else f"{dist['distance']:.1f}"
+            lines_html += f'<div class="structure-line {direction_class}{active_class}"><strong>{line["short"]}</strong> {line["current"]:.2f} ({dist_str}){confluence_badge}</div>'
         
-        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon amber">📐</div><div><div class="card-title">Pillar 2: Structure</div><div class="card-subtitle">9 AM Entry Levels</div></div></div><div class="pillar-item"><span class="pillar-name">Ceiling @ 9 AM</span><span class="pillar-value table-down">{structure["ceiling_9am"]:,.2f}</span></div><div class="pillar-item"><span class="pillar-name">Floor @ 9 AM</span><span class="pillar-value table-up">{structure["floor_9am"]:,.2f}</span></div><div class="pillar-item"><span class="pillar-name">Range</span><span class="pillar-value">{structure["range"]:.1f} pts</span></div><div class="pillar-item"><span class="pillar-name">Current Price</span><span class="pillar-value">{current_price:,.2f}</span></div><div class="pillar-item"><span class="pillar-name">Dist to {entry_label}</span><span class="pillar-value">{dist_display}</span></div><div class="pillar-item"><span class="pillar-name">Score</span><span class="pillar-value">{structure["score"]}/30</span></div></div>', unsafe_allow_html=True)
+        pm_override = '<div style="color:var(--amber);font-size:11px;margin-top:8px">⚠️ Pre-market override</div>' if structure["premarket_override_high"] or structure["premarket_override_low"] else ""
+        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon amber">📐</div><div><div class="card-title">Pillar 2: Structure</div><div class="card-subtitle">4-Line Projection</div></div></div>{lines_html}<div class="pillar-item" style="margin-top:12px"><span class="pillar-name">O/N High</span><span class="pillar-value">{structure["effective_high"]:.2f}</span></div><div class="pillar-item"><span class="pillar-name">O/N Low</span><span class="pillar-value">{structure["effective_low"]:.2f}</span></div><div class="pillar-item"><span class="pillar-name">Score</span><span class="pillar-value">{structure["score"]}/35</span></div>{pm_override}</div>', unsafe_allow_html=True)
     
     with p3:
-        vix_class = "calls" if vix_zone["signal"] == "CALLS" else "puts" if vix_zone["signal"] == "PUTS" else "neutral"
-        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon green">⚡</div><div><div class="card-title">Pillar 3: VIX Zone</div><div class="card-subtitle">{vix_zone["zone"]}</div></div></div><span class="signal-badge {vix_class}">{vix_zone["signal"]}</span><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">Current VIX</span><span class="pillar-value">{vix_zone["current"]:.2f}</span></div><div class="pillar-item"><span class="pillar-name">O/N High</span><span class="pillar-value">{vix_zone["overnight_high"]:.2f}</span></div><div class="pillar-item"><span class="pillar-name">O/N Low</span><span class="pillar-value">{vix_zone["overnight_low"]:.2f}</span></div><div class="pillar-item"><span class="pillar-name">Springboard</span><span class="pillar-value">{vix_zone["springboard"]}</span></div><div class="pillar-item"><span class="pillar-name">Score</span><span class="pillar-value">{vix_zone["score"]}/20</span></div></div>', unsafe_allow_html=True)
-    
-    # CONFIDENCE & REVERSAL
-    c1, c2 = st.columns(2)
-    with c1:
-        fill_class = "a-plus" if confidence["grade"] == "A+" else "high" if confidence["grade"] == "HIGH" else "medium" if confidence["grade"] == "MEDIUM" else "low"
-        breakdown_html = "".join([f'<div class="pillar-item"><span class="pillar-name">{name}</span><span class="pillar-value">+{score}</span></div>' for name, score in confidence["breakdown"].items()])
-        
-        # Show confirmation status
-        vix_check = "✅" if confidence.get("vix_confirms") else "❌"
-        mom_check = "✅" if confidence.get("momentum_confirms") else "❌"
-        
-        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon purple">📋</div><div><div class="card-title">Confidence Score</div><div class="card-subtitle">{confidence["grade"]} Setup</div></div></div><div class="confidence-container"><div class="confidence-bar"><div class="confidence-fill {fill_class}" style="width:{confidence["total"]}%"></div></div><div class="confidence-label"><span class="confidence-score">{confidence["total"]}/100</span><span style="color:{"var(--green)" if confidence["total"] >= 75 else "var(--amber)" if confidence["total"] >= 60 else "var(--red)"}">{confidence["grade"]}</span></div></div><div class="pillar-item"><span class="pillar-name">VIX Confirms</span><span class="pillar-value">{vix_check}</span></div><div class="pillar-item"><span class="pillar-name">Momentum Confirms</span><span class="pillar-value">{mom_check}</span></div>{breakdown_html}</div>', unsafe_allow_html=True)
-    
-    with c2:
-        if in_entry_window and trade_direction != "NEUTRAL":
-            rev_class = "bullish" if reversal["signal"] in ["BUY_CALLS", "WATCH"] and trade_direction == "LONG" else "bearish" if reversal["signal"] in ["BUY_PUTS", "WATCH"] and trade_direction == "SHORT" else "neutral"
-            window_status = "🟢 ENTRY WINDOW ACTIVE"
-        else:
-            rev_class = "neutral"
-            window_status = "⏳ Outside Entry Window" if not in_entry_window else "⛔ No Direction"
-        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon cyan">🔄</div><div><div class="card-title">5-Min Reversal</div><div class="card-subtitle">{window_status}</div></div></div><div class="reversal-box"><div class="reversal-status {rev_class}">{reversal["message"]}</div></div><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">5m RSI</span><span class="pillar-value">{reversal.get("rsi") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">5m MACD</span><span class="pillar-value">{reversal.get("macd_direction") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">Last Candle</span><span class="pillar-value">{reversal.get("candle_pattern") or "—"}</span></div></div>', unsafe_allow_html=True)
-    
-    # STRIKE & MOMENTUM
-    s1, s2 = st.columns(2)
-    with s1:
-        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon purple">🎯</div><div><div class="card-title">Strike Selection</div><div class="card-subtitle">{strike_info["method"].replace("_", " ").title()} @ 9 AM Entry</div></div></div><div class="metric-value purple" style="font-size:32px">{strike_info["strike"]} {strike_info["option_type"]}</div><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">Entry Price (9 AM)</span><span class="pillar-value">{trigger_price_9am:,.2f}</span></div><div class="pillar-item"><span class="pillar-name">OTM Distance</span><span class="pillar-value">{strike_info["otm_distance"]:.1f} pts</span></div><div class="pillar-item"><span class="pillar-name">Target</span><span class="pillar-value">{target_price_9am:,.2f}</span></div><div class="pillar-item"><span class="pillar-name">Expected Move</span><span class="pillar-value">{strike_info["expected_move"]:.1f} pts</span></div><div class="pillar-item"><span class="pillar-name">Stop %</span><span class="pillar-value">{stop_info["stop_pct"]:.0f}%</span></div></div>', unsafe_allow_html=True)
-    
-    with s2:
         mom_class = "calls" if momentum["signal"] == "BULLISH" else "puts" if momentum["signal"] == "BEARISH" else "neutral"
         macd_info = momentum.get("macd", {})
-        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon blue">📈</div><div><div class="card-title">30-Min Momentum</div><div class="card-subtitle">{momentum["signal"]}</div></div></div><span class="signal-badge {mom_class}">{momentum["signal"]}</span><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">RSI (14)</span><span class="pillar-value">{momentum.get("rsi", "N/A")}</span></div><div class="pillar-item"><span class="pillar-name">MACD</span><span class="pillar-value">{macd_info.get("direction", "N/A")} {"📈" if macd_info.get("expanding") else "📉"}</span></div><div class="pillar-item"><span class="pillar-name">Structure</span><span class="pillar-value">{momentum.get("structure", "N/A")}</span></div><div class="pillar-item"><span class="pillar-name">Score</span><span class="pillar-value">{momentum["score"]}/15</span></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon green">📈</div><div><div class="card-title">Pillar 3: Momentum</div><div class="card-subtitle">ES Confirmation</div></div></div><span class="signal-badge {mom_class}">{momentum["signal"]}</span><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">RSI (14)</span><span class="pillar-value">{momentum.get("rsi", "—")}</span></div><div class="pillar-item"><span class="pillar-name">MACD</span><span class="pillar-value">{macd_info.get("direction", "—")} {"📈" if macd_info.get("expanding") else "📉"}</span></div><div class="pillar-item"><span class="pillar-name">Structure</span><span class="pillar-value">{momentum.get("structure", "—")}</span></div><div class="pillar-item"><span class="pillar-name">Score</span><span class="pillar-value">{momentum["score"]}/35</span></div></div>', unsafe_allow_html=True)
     
-    # CONE RAILS
-    st.markdown("### Cone Rails")
+    # Confidence & Reversal
+    c1, c2 = st.columns(2)
+    
+    with c1:
+        fill_class = "a-plus" if confidence["grade"] == "A+" else "high" if confidence["grade"] in ["A", "B"] else "medium" if confidence["grade"] == "C" else "low"
+        breakdown_html = "".join([f'<div class="pillar-item"><span class="pillar-name">{name}</span><span class="pillar-value">+{score}</span></div>' for name, score in confidence["breakdown"].items()])
+        align = confidence["alignment"]
+        align_html = f'<div class="pillar-item"><span class="pillar-name">MA Aligns</span><span class="pillar-value">{"✅" if align["ma_aligns"] else "❌"}</span></div><div class="pillar-item"><span class="pillar-name">Momentum Aligns</span><span class="pillar-value">{"✅" if align["momentum_aligns"] else "❌"}</span></div><div class="pillar-item"><span class="pillar-name">VIX Aligns</span><span class="pillar-value">{"✅" if align["vix_aligns"] else "❌"}</span></div>'
+        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon purple">📋</div><div><div class="card-title">Confidence Score</div><div class="card-subtitle">{confidence["grade"]} Setup | {confidence["action"]}</div></div></div><div class="confidence-container"><div class="confidence-bar"><div class="confidence-fill {fill_class}" style="width:{confidence["total"]}%"></div></div><div class="confidence-label"><span class="confidence-score">{confidence["total"]}/100</span><span style="color:{"var(--green)" if confidence["total"] >= 75 else "var(--amber)" if confidence["total"] >= 60 else "var(--red)"}">{confidence["grade"]}</span></div></div>{align_html}<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">{breakdown_html}</div></div>', unsafe_allow_html=True)
+    
+    with c2:
+        rev_class = "bullish" if reversal.get("ready") and entry["entry_type"] == "CALLS" else "bearish" if reversal.get("ready") and entry["entry_type"] == "PUTS" else "neutral"
+        window_status = "🟢 ENTRY WINDOW" if in_entry_window else "⏳ Outside Window"
+        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon cyan">🔄</div><div><div class="card-title">5-Min Reversal</div><div class="card-subtitle">{window_status}</div></div></div><div class="reversal-box"><div class="reversal-status {rev_class}">{reversal["message"]}</div></div><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">5m RSI</span><span class="pillar-value">{reversal.get("rsi") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">Last Candle</span><span class="pillar-value">{reversal.get("candle_pattern") or "—"}</span></div><div class="pillar-item"><span class="pillar-name">Dist to Entry</span><span class="pillar-value">{reversal.get("dist_to_entry", "—")} pts</span></div></div>', unsafe_allow_html=True)
+    
+    # Strike & VIX
+    s1, s2 = st.columns(2)
+    
+    with s1:
+        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon purple">🎯</div><div><div class="card-title">Strike Selection</div><div class="card-subtitle">{strike_info["method"].replace("_", " ").title()}</div></div></div><div class="metric-value purple" style="font-size:32px">{strike_info["strike"]} {strike_info["option_type"]}</div><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">Entry Level</span><span class="pillar-value">{entry["entry_price"]:.2f}</span></div><div class="pillar-item"><span class="pillar-name">OTM Distance</span><span class="pillar-value">{strike_info["otm_distance"]:.1f} pts</span></div><div class="pillar-item"><span class="pillar-name">Target Line</span><span class="pillar-value">{entry["target_line_name"]}</span></div><div class="pillar-item"><span class="pillar-name">Confluence</span><span class="pillar-value">{"🟣 YES" if entry["confluence_at_entry"] else "—"}</span></div></div>', unsafe_allow_html=True)
+    
+    with s2:
+        vix_class = "calls" if vix["bias"] == "CALLS" else "puts" if vix["bias"] == "PUTS" else "neutral"
+        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon red">⚡</div><div><div class="card-title">VIX Analysis</div><div class="card-subtitle">{vix["zone"]} Zone</div></div></div><span class="signal-badge {vix_class}">{vix["bias"]}</span><div class="pillar-item" style="margin-top:12px"><span class="pillar-name">Current VIX</span><span class="pillar-value">{vix["current"]:.2f}</span></div><div class="pillar-item"><span class="pillar-name">O/N High</span><span class="pillar-value">{vix["overnight_high"]:.2f}</span></div><div class="pillar-item"><span class="pillar-name">O/N Low</span><span class="pillar-value">{vix["overnight_low"]:.2f}</span></div><div class="pillar-item"><span class="pillar-name">Springboard</span><span class="pillar-value">{vix["springboard"]}</span></div></div>', unsafe_allow_html=True)
+    
+    # Cone Rails
+    st.markdown("### Cone Rails (Prior Day)")
     cone_rows = "".join([f'<tr><td>{name}</td><td>{cone["anchor"]:,.2f}</td><td>{cone["anchor_time"]}</td><td class="table-up">{cone["asc"]:,.2f}</td><td class="table-down">{cone["desc"]:,.2f}</td><td>±{cone["expansion"]:.1f}</td><td>{cone["blocks"]}</td></tr>' for name, cone in cones.items()])
     st.markdown(f'<div class="card"><table class="data-table"><thead><tr><th>Cone</th><th>Anchor</th><th>Time</th><th>Ascending</th><th>Descending</th><th>Expansion</th><th>Blocks</th></tr></thead><tbody>{cone_rows}</tbody></table></div>', unsafe_allow_html=True)
     
-    if cone_confluence["count"] > 0:
-        conf_items = ", ".join([f'{c["cone"]} {c["rail"]} ({c["distance"]} pts)' for c in cone_confluence["confluences"]])
-        st.markdown(f'<div class="card"><div class="card-header"><div class="card-icon green">✨</div><div><div class="card-title">Cone Confluence</div><div class="card-subtitle">{cone_confluence["count"]} active</div></div></div><div style="color:var(--text-primary)">{conf_items}</div></div>', unsafe_allow_html=True)
+    # Confluence Zones
+    if confluence["count"] > 0:
+        st.markdown("### 🟣 Confluence Zones (Heavy S/R)")
+        conf_rows = ""
+        for c in confluence["confluences"]:
+            strength_color = "var(--purple)" if c["strength"] == "HEAVY" else "var(--amber)"
+            conf_rows += f'<tr><td>{c["structure_line"]}</td><td>{c["structure_price"]:.2f}</td><td>{c["cone_rail"]}</td><td>{c["cone_price"]:.2f}</td><td style="color:{strength_color};font-weight:600">{c["avg_price"]:.2f}</td><td>{c["dist_from_current"]:.1f}</td><td style="color:{strength_color}">{c["strength"]}</td></tr>'
+        st.markdown(f'<div class="card"><table class="data-table"><thead><tr><th>Structure</th><th>Price</th><th>Cone</th><th>Price</th><th>Avg Level</th><th>Dist</th><th>Strength</th></tr></thead><tbody>{conf_rows}</tbody></table></div>', unsafe_allow_html=True)
     
-    # DEBUG
+    # Structure at 9 AM Reference
+    with st.expander("📐 Structure Levels at 9:00 AM CT"):
+        struct_9am_rows = ""
+        for key in ["ceiling_rising", "ceiling_falling", "floor_rising", "floor_falling"]:
+            line = structure["lines"][key]
+            entry_color = "var(--green)" if line["entry_type"] == "CALLS" else "var(--red)"
+            struct_9am_rows += f'<tr><td>{line["name"]}</td><td>{line["anchor"]:.2f}</td><td>{line["at_9am"]:.2f}</td><td>±{line["expansion"]:.1f}</td><td>{line["blocks"]}</td><td style="color:{entry_color}">{line["entry_type"]}</td><td style="color:var(--amber)">{line["gap_entry_type"]}</td></tr>'
+        st.markdown(f'<div class="card"><table class="data-table"><thead><tr><th>Line</th><th>Anchor</th><th>@ 9 AM</th><th>Expansion</th><th>Blocks</th><th>Normal</th><th>Gap</th></tr></thead><tbody>{struct_9am_rows}</tbody></table></div>', unsafe_allow_html=True)
+    
+    # Debug
     if inputs["show_debug"]:
         st.markdown("### 🔧 Debug Panel")
-        st.markdown(f'<div class="card"><div class="pillar-item"><span class="pillar-name">ES Candle Count</span><span class="pillar-value">{len(es_candles) if es_candles is not None else 0}</span></div><div class="pillar-item"><span class="pillar-name">First Candle</span><span class="pillar-value">{es_candles.index[0] if es_candles is not None and len(es_candles) > 0 else "N/A"}</span></div><div class="pillar-item"><span class="pillar-name">Last Candle</span><span class="pillar-value">{es_candles.index[-1] if es_candles is not None and len(es_candles) > 0 else "N/A"}</span></div><div class="pillar-item"><span class="pillar-name">5m Candles</span><span class="pillar-value">{len(spx_5min) if spx_5min is not None else 0}</span></div><div class="pillar-item"><span class="pillar-name">Auto-Refresh</span><span class="pillar-value">{"ON" if inputs["auto_refresh"] else "OFF"}</span></div></div>', unsafe_allow_html=True)
+        d1, d2 = st.columns(2)
+        with d1:
+            st.markdown(f'<div class="card"><div class="card-title">Data Status</div><div class="pillar-item"><span class="pillar-name">ES Candles</span><span class="pillar-value">{es_count}</span></div><div class="pillar-item"><span class="pillar-name">5m Candles</span><span class="pillar-value">{len(spx_5min) if spx_5min is not None else 0}</span></div><div class="pillar-item"><span class="pillar-name">Current Time</span><span class="pillar-value">{now_ct.strftime("%H:%M:%S")}</span></div></div>', unsafe_allow_html=True)
+        with d2:
+            st.markdown(f'<div class="card"><div class="card-title">Structure Calc</div><div class="pillar-item"><span class="pillar-name">O/N High Time</span><span class="pillar-value">{inputs["on_high_time"].strftime("%m/%d %I:%M %p")}</span></div><div class="pillar-item"><span class="pillar-name">O/N Low Time</span><span class="pillar-value">{inputs["on_low_time"].strftime("%m/%d %I:%M %p")}</span></div><div class="pillar-item"><span class="pillar-name">Gap Threshold</span><span class="pillar-value">{GAP_THRESHOLD} pts</span></div></div>', unsafe_allow_html=True)
+        st.json(entry)
     
-    # FOOTER
-    st.markdown(f'<div class="app-footer">SPX PROPHET V4 | {now_ct.strftime("%H:%M:%S CT")} | Auto-Refresh: {"ON" if inputs["auto_refresh"] else "OFF"} ({inputs["refresh_interval"]}s)</div>', unsafe_allow_html=True)
+    # Footer
+    st.markdown(f'<div class="app-footer">SPX PROPHET V5 | 4-Line Day Structure | {now_ct.strftime("%H:%M:%S CT")} | Auto-Refresh: {"ON" if inputs["auto_refresh"] else "OFF"}</div>', unsafe_allow_html=True)
     
-    # AUTO-REFRESH
     if inputs["auto_refresh"]:
         time_module.sleep(inputs["refresh_interval"])
         st.rerun()
