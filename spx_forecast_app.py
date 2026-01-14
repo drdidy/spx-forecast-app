@@ -1185,15 +1185,18 @@ def render_sidebar() -> Dict:
     saved = load_inputs()
     
     with st.sidebar:
-        st.markdown("## 🔮 SPX Prophet V5.2")
-        st.markdown("*All Trades | Options Pricing*")
+        st.markdown("## 🔮 SPX Prophet V5.3")
+        st.markdown("*Multi-Signal Flow | All Trades*")
         
         trading_date = st.date_input("📅 Trading Date", value=date.today())
         
         st.markdown("---")
         st.markdown("### 📈 SPX Price")
         use_manual = st.checkbox("Manual SPX", value=False)
-        spx_price = st.number_input("SPX", value=float(saved.get("spx_price", 6050.0)), step=1.0) if use_manual else None
+        # Handle None values from saved data
+        saved_spx = saved.get("spx_price")
+        default_spx = float(saved_spx) if saved_spx is not None else 6050.0
+        spx_price = st.number_input("SPX", value=default_spx, step=1.0) if use_manual else None
         
         st.markdown("---")
         st.markdown("### 📊 MA Bias Override")
