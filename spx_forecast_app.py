@@ -1375,8 +1375,8 @@ def main():
         cones
     )
     
-    # Display Channel Analysis Card
-    if inputs["channel_type"] != "UNDETERMINED":
+    # Display Channel Analysis Card (only when both channel and breakout are selected)
+    if inputs["channel_type"] != "UNDETERMINED" and inputs["breakout_dir"] != "NONE":
         st.markdown("### 🎯 Channel Analysis")
         
         # Determine colors
@@ -1397,56 +1397,19 @@ def main():
         # Format prices safely
         primary_price_str = f"{channel_analysis['primary_target_price']:.2f}" if channel_analysis["primary_target_price"] else "—"
         secondary_price_str = f"{channel_analysis['secondary_target_price']:.2f}" if channel_analysis["secondary_target_price"] else "—"
+        primary_target_name = channel_analysis["primary_target"] or "—"
+        secondary_target_name = channel_analysis["secondary_target"] or "—"
+        primary_action = channel_analysis["primary_action"] or ""
+        secondary_action = channel_analysis["secondary_action"] or ""
+        analysis_text = channel_analysis["analysis"]
+        retail_bias_display = retail_bias.replace("_", " ")
+        trade_bias_display = channel_analysis["trade_bias"]
+        channel_display = inputs["channel_type"]
+        breakout_display = inputs["breakout_dir"]
         
-        # Build card
-        channel_html = f'''
-        <div class="card" style="border-left:4px solid {bias_color}">
-            <div class="card-header">
-                <div class="card-icon" style="background:rgba(168,85,247,0.15)">{bias_icon}</div>
-                <div>
-                    <div class="card-title">MM Hunt Analysis</div>
-                    <div class="card-subtitle">{inputs["channel_type"]} Channel | Break {inputs["breakout_dir"]}</div>
-                </div>
-            </div>
-            
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
-                <div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px">
-                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">PCR</div>
-                    <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:{pcr_color}">{pcr_display}</div>
-                </div>
-                <div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px">
-                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">Retail Bias</div>
-                    <div style="font-size:12px;font-weight:600;color:{pcr_color}">{retail_bias.replace("_", " ")}</div>
-                </div>
-                <div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px">
-                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">Trade Bias</div>
-                    <div style="font-size:14px;font-weight:600;color:{bias_color}">{channel_analysis["trade_bias"]}</div>
-                </div>
-            </div>
-            
-            <div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.3);border-radius:12px;padding:12px;margin-bottom:12px">
-                <div style="font-size:11px;color:#a855f7;font-weight:600;margin-bottom:8px">🎯 PRIMARY TARGET</div>
-                <div style="display:flex;justify-content:space-between;align-items:center">
-                    <span style="font-size:14px">{channel_analysis["primary_target"] or "—"}</span>
-                    <span style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:{bias_color}">{primary_price_str}</span>
-                </div>
-                <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">{channel_analysis["primary_action"] or ""}</div>
-            </div>
-            
-            <div style="background:rgba(0,212,170,0.1);border:1px solid rgba(0,212,170,0.3);border-radius:12px;padding:12px">
-                <div style="font-size:11px;color:#00d4aa;font-weight:600;margin-bottom:8px">📈 THEN TARGET</div>
-                <div style="display:flex;justify-content:space-between;align-items:center">
-                    <span style="font-size:14px">{channel_analysis["secondary_target"] or "—"}</span>
-                    <span style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600">{secondary_price_str}</span>
-                </div>
-                <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">{channel_analysis["secondary_action"] or ""}</div>
-            </div>
-            
-            <div style="font-size:12px;color:rgba(255,255,255,0.7);margin-top:12px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px">
-                💡 {channel_analysis["analysis"]}
-            </div>
-        </div>
-        '''
+        # Build card as single line HTML
+        channel_html = f'<div class="card" style="border-left:4px solid {bias_color}"><div class="card-header"><div class="card-icon" style="background:rgba(168,85,247,0.15)">{bias_icon}</div><div><div class="card-title">MM Hunt Analysis</div><div class="card-subtitle">{channel_display} Channel | Break {breakout_display}</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px"><div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px"><div style="font-size:10px;color:rgba(255,255,255,0.5)">PCR</div><div style="font-family:IBM Plex Mono,monospace;font-size:16px;font-weight:600;color:{pcr_color}">{pcr_display}</div></div><div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px"><div style="font-size:10px;color:rgba(255,255,255,0.5)">Retail Bias</div><div style="font-size:12px;font-weight:600;color:{pcr_color}">{retail_bias_display}</div></div><div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px"><div style="font-size:10px;color:rgba(255,255,255,0.5)">Trade Bias</div><div style="font-size:14px;font-weight:600;color:{bias_color}">{trade_bias_display}</div></div></div><div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.3);border-radius:12px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:#a855f7;font-weight:600;margin-bottom:8px">🎯 PRIMARY TARGET</div><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:14px">{primary_target_name}</span><span style="font-family:IBM Plex Mono,monospace;font-size:18px;font-weight:600;color:{bias_color}">{primary_price_str}</span></div><div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">{primary_action}</div></div><div style="background:rgba(0,212,170,0.1);border:1px solid rgba(0,212,170,0.3);border-radius:12px;padding:12px"><div style="font-size:11px;color:#00d4aa;font-weight:600;margin-bottom:8px">📈 THEN TARGET</div><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:14px">{secondary_target_name}</span><span style="font-family:IBM Plex Mono,monospace;font-size:18px;font-weight:600">{secondary_price_str}</span></div><div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">{secondary_action}</div></div><div style="font-size:12px;color:rgba(255,255,255,0.7);margin-top:12px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px">💡 {analysis_text}</div></div>'
+        
         st.markdown(channel_html, unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
