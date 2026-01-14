@@ -551,16 +551,36 @@ def calculate_all_trades(
     }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PILLAR 3: MOMENTUM
+# PILLAR 3: MOMENTUM - RSI Midline Reversion + MACD Confirmation
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def calculate_momentum(es_candles: Optional[pd.DataFrame]) -> Dict:
+def calculate_momentum(es_candles: Optional[pd.DataFrame], ma_bias: str = "NEUTRAL") -> Dict:
+    """
+    RSI Midline Reversion Strategy:
+    - In uptrends (MA LONG): RSI oscillates 50-80, buy pullbacks to 50-60
+    - In downtrends (MA SHORT): RSI oscillates 20-50, sell bounces to 40-50
+    - MACD histogram confirms momentum direction
+    
+    Zones:
+    - Overbought: RSI > 80
+    - Oversold: RSI < 20
+    - Bullish pullback zone: 50-60 (in uptrend)
+    - Bearish bounce zone: 40-50 (in downtrend)
+    """
     if es_candles is None or len(es_candles) < 26:
-        return {"signal": "NEUTRAL", "score": 0, "rsi": 50, "macd_direction": "FLAT"}
+        return {
+            "signal": "NEUTRAL", 
+            "score": 0, 
+            "rsi": 50, 
+            "rsi_zone": "MID",
+            "macd_histogram": 0,
+            "macd_direction": "FLAT",
+            "detail": "Insufficient data"
+        }
     
     close = es_candles['Close']
     
-    # RSI
+    # RSI (14-period)
     delta = close.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -568,22 +588,114 @@ def calculate_momentum(es_candles: Optional[pd.DataFrame]) -> Dict:
     rsi = 100 - (100 / (1 + rs))
     rsi_val = round(rsi.iloc[-1], 2) if not pd.isna(rsi.iloc[-1]) else 50
     
-    # MACD
+    # MACD (12/26/9)
     ema_12 = close.ewm(span=12, adjust=False).mean()
     ema_26 = close.ewm(span=26, adjust=False).mean()
-    histogram = (ema_12 - ema_26) - (ema_12 - ema_26).ewm(span=9, adjust=False).mean()
-    macd_hist = histogram.iloc[-1]
+    macd_line = ema_12 - ema_26
+    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+    histogram = macd_line - signal_line
+    macd_hist = round(histogram.iloc[-1], 2)
+    macd_bull = macd_hist > 0
     
-    rsi_bull, macd_bull = rsi_val > 50, macd_hist > 0
-    
-    if rsi_bull and macd_bull:
-        signal, score = "BULLISH", 30
-    elif not rsi_bull and not macd_bull:
-        signal, score = "BEARISH", 30
+    # Determine RSI zone
+    if rsi_val > 80:
+        rsi_zone = "OVERBOUGHT"
+    elif rsi_val < 20:
+        rsi_zone = "OVERSOLD"
+    elif 50 <= rsi_val <= 60:
+        rsi_zone = "PULLBACK"  # Potential buy zone in uptrend
+    elif 40 <= rsi_val < 50:
+        rsi_zone = "BOUNCE"    # Potential sell zone in downtrend
+    elif rsi_val > 60:
+        rsi_zone = "BULLISH"
+    elif rsi_val < 40:
+        rsi_zone = "BEARISH"
     else:
-        signal, score = "NEUTRAL", 15
+        rsi_zone = "MID"
     
-    return {"signal": signal, "score": score, "rsi": rsi_val, "macd_direction": "GREEN" if macd_bull else "RED"}
+    # Generate signal based on MA Bias + RSI Zone + MACD Confirmation
+    signal = "NEUTRAL"
+    score = 15
+    detail = ""
+    
+    if ma_bias == "LONG":
+        # Uptrend: Look for pullbacks to 50-60
+        if rsi_zone == "PULLBACK" and macd_bull:
+            signal = "PULLBACK BUY"
+            score = 35
+            detail = "RSI pulled back to 50-60, MACD confirms"
+        elif rsi_zone == "PULLBACK" and not macd_bull:
+            signal = "WAIT"
+            score = 10
+            detail = "RSI in zone but MACD weak"
+        elif rsi_zone == "OVERBOUGHT":
+            signal = "OVERBOUGHT"
+            score = 5
+            detail = "RSI > 80, wait for pullback"
+        elif rsi_zone == "BULLISH" and macd_bull:
+            signal = "BULLISH"
+            score = 25
+            detail = "Trend intact"
+        else:
+            signal = "NEUTRAL"
+            score = 15
+            detail = "No clear setup"
+            
+    elif ma_bias == "SHORT":
+        # Downtrend: Look for bounces to 40-50
+        if rsi_zone == "BOUNCE" and not macd_bull:
+            signal = "BOUNCE SELL"
+            score = 35
+            detail = "RSI bounced to 40-50, MACD confirms"
+        elif rsi_zone == "BOUNCE" and macd_bull:
+            signal = "WAIT"
+            score = 10
+            detail = "RSI in zone but MACD not confirming"
+        elif rsi_zone == "OVERSOLD":
+            signal = "OVERSOLD"
+            score = 5
+            detail = "RSI < 20, wait for bounce"
+        elif rsi_zone == "BEARISH" and not macd_bull:
+            signal = "BEARISH"
+            score = 25
+            detail = "Trend intact"
+        else:
+            signal = "NEUTRAL"
+            score = 15
+            detail = "No clear setup"
+    
+    else:
+        # No MA Bias - use basic RSI/MACD
+        if rsi_val > 50 and macd_bull:
+            signal = "BULLISH"
+            score = 25
+            detail = "RSI > 50, MACD green"
+        elif rsi_val < 50 and not macd_bull:
+            signal = "BEARISH"
+            score = 25
+            detail = "RSI < 50, MACD red"
+        elif rsi_zone == "OVERBOUGHT":
+            signal = "OVERBOUGHT"
+            score = 5
+            detail = "RSI > 80"
+        elif rsi_zone == "OVERSOLD":
+            signal = "OVERSOLD"
+            score = 5
+            detail = "RSI < 20"
+        else:
+            signal = "NEUTRAL"
+            score = 15
+            detail = "Mixed signals"
+    
+    return {
+        "signal": signal,
+        "score": score,
+        "rsi": rsi_val,
+        "rsi_zone": rsi_zone,
+        "macd_histogram": macd_hist,
+        "macd_direction": "GREEN" if macd_bull else "RED",
+        "detail": detail
+    }
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # VIX ANALYSIS
@@ -930,8 +1042,8 @@ def main():
         inputs["pm_high"], inputs["pm_low"]
     )
     
-    # Momentum
-    momentum = calculate_momentum(es_candles)
+    # Momentum - pass MA bias for midline reversion strategy
+    momentum = calculate_momentum(es_candles, ma_bias["signal"])
     
     # VIX
     vix = analyze_vix(vix_current, inputs["vix_on_high"], inputs["vix_on_low"])
@@ -987,16 +1099,26 @@ def main():
         ''', unsafe_allow_html=True)
     
     with p2:
-        mom_class = "calls" if momentum["signal"] == "BULLISH" else "puts" if momentum["signal"] == "BEARISH" else "neutral"
+        # Momentum signal colors
+        if momentum["signal"] in ["PULLBACK BUY", "BULLISH"]:
+            mom_class = "calls"
+        elif momentum["signal"] in ["BOUNCE SELL", "BEARISH"]:
+            mom_class = "puts"
+        elif momentum["signal"] in ["OVERBOUGHT", "OVERSOLD", "WAIT"]:
+            mom_class = "neutral"
+        else:
+            mom_class = "neutral"
+        
         st.markdown(f'''
         <div class="card">
             <div class="card-header">
                 <div class="card-icon green">📈</div>
-                <div><div class="card-title">Momentum</div><div class="card-subtitle">RSI + MACD</div></div>
+                <div><div class="card-title">Momentum</div><div class="card-subtitle">RSI Midline + MACD</div></div>
             </div>
             <span class="signal-badge {mom_class}">{momentum["signal"]}</span>
-            <div class="pillar-item" style="margin-top:12px"><span class="pillar-name">RSI</span><span class="pillar-value">{momentum["rsi"]}</span></div>
-            <div class="pillar-item"><span class="pillar-name">MACD</span><span class="pillar-value">{momentum["macd_direction"]}</span></div>
+            <div class="pillar-item" style="margin-top:12px"><span class="pillar-name">RSI (14)</span><span class="pillar-value">{momentum["rsi"]} <span style="font-size:10px;color:rgba(255,255,255,0.5)">({momentum["rsi_zone"]})</span></span></div>
+            <div class="pillar-item"><span class="pillar-name">MACD Hist</span><span class="pillar-value" style="color:{"#00d4aa" if momentum["macd_direction"] == "GREEN" else "#ff4757"}">{momentum["macd_histogram"]:+.2f}</span></div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.05)">{momentum["detail"]}</div>
         </div>
         ''', unsafe_allow_html=True)
     
