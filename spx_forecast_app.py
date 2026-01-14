@@ -1394,6 +1394,10 @@ def main():
         pcr_display = f"{pcr:.2f}" if pcr else "N/A"
         pcr_color = "#00d4aa" if retail_bias == "HEAVY_CALLS" else "#ff4757" if retail_bias == "HEAVY_PUTS" else "#ffa502"
         
+        # Format prices safely
+        primary_price_str = f"{channel_analysis['primary_target_price']:.2f}" if channel_analysis["primary_target_price"] else "—"
+        secondary_price_str = f"{channel_analysis['secondary_target_price']:.2f}" if channel_analysis["secondary_target_price"] else "—"
+        
         # Build card
         channel_html = f'''
         <div class="card" style="border-left:4px solid {bias_color}">
@@ -1424,7 +1428,7 @@ def main():
                 <div style="font-size:11px;color:#a855f7;font-weight:600;margin-bottom:8px">🎯 PRIMARY TARGET</div>
                 <div style="display:flex;justify-content:space-between;align-items:center">
                     <span style="font-size:14px">{channel_analysis["primary_target"] or "—"}</span>
-                    <span style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:{bias_color}">{channel_analysis["primary_target_price"]:.2f if channel_analysis["primary_target_price"] else "—"}</span>
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:{bias_color}">{primary_price_str}</span>
                 </div>
                 <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">{channel_analysis["primary_action"] or ""}</div>
             </div>
@@ -1433,7 +1437,7 @@ def main():
                 <div style="font-size:11px;color:#00d4aa;font-weight:600;margin-bottom:8px">📈 THEN TARGET</div>
                 <div style="display:flex;justify-content:space-between;align-items:center">
                     <span style="font-size:14px">{channel_analysis["secondary_target"] or "—"}</span>
-                    <span style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600">{channel_analysis["secondary_target_price"]:.2f if channel_analysis["secondary_target_price"] else "—"}</span>
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600">{secondary_price_str}</span>
                 </div>
                 <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">{channel_analysis["secondary_action"] or ""}</div>
             </div>
