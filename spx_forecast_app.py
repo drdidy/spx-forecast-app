@@ -1400,6 +1400,47 @@ def main():
     option_data = fetch_options_for_strikes(inputs["trading_date"], strikes_needed)
     
     # ═══════════════════════════════════════════════════════════════════════════
+    # FLOW BIAS - Multi-Signal Detection
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    if inputs["use_auto_flow"]:
+        flow_bias = calculate_flow_bias(
+            current_price,
+            inputs["on_high_price"],
+            inputs["on_low_price"],
+            vix_current,
+            inputs["vix_on_high"],
+            inputs["vix_on_low"],
+            inputs["prior_close"],
+            es_candles
+        )
+        retail_bias, bias_desc = get_retail_bias(flow_bias)
+    else:
+        retail_bias = inputs["retail_bias_override"] or "NEUTRAL"
+        bias_desc = f"Manual: {retail_bias}"
+        flow_bias = {
+            "bias": retail_bias,
+            "score": 0,
+            "description": bias_desc,
+            "mm_play": "Manual override",
+            "confidence": "N/A",
+            "agreement_pct": 0,
+            "signals": [],
+            "price_position": 50,
+            "vix_position": 50,
+            "gap": 0
+        }
+    
+    # Run channel analysis with retail bias
+    channel_analysis = analyze_channel(
+        inputs["channel_type"],
+        inputs["breakout_dir"],
+        retail_bias,
+        all_trades,
+        cones
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════════════
     # HERO HEADER
     # ═══════════════════════════════════════════════════════════════════════════
     
@@ -1547,47 +1588,6 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     # CHANNEL ANALYSIS
     # ═══════════════════════════════════════════════════════════════════════════
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # FLOW BIAS - Multi-Signal Detection
-    # ═══════════════════════════════════════════════════════════════════════════
-    
-    if inputs["use_auto_flow"]:
-        flow_bias = calculate_flow_bias(
-            current_price,
-            inputs["on_high_price"],
-            inputs["on_low_price"],
-            vix_current,
-            inputs["vix_on_high"],
-            inputs["vix_on_low"],
-            inputs["prior_close"],
-            es_candles
-        )
-        retail_bias, bias_desc = get_retail_bias(flow_bias)
-    else:
-        retail_bias = inputs["retail_bias_override"] or "NEUTRAL"
-        bias_desc = f"Manual: {retail_bias}"
-        flow_bias = {
-            "bias": retail_bias,
-            "score": 0,
-            "description": bias_desc,
-            "mm_play": "Manual override",
-            "confidence": "N/A",
-            "agreement_pct": 0,
-            "signals": [],
-            "price_position": 50,
-            "vix_position": 50,
-            "gap": 0
-        }
-    
-    # Run channel analysis
-    channel_analysis = analyze_channel(
-        inputs["channel_type"],
-        inputs["breakout_dir"],
-        retail_bias,
-        all_trades,
-        cones
-    )
     
     # Display Channel Analysis Card (only when both channel and breakout are selected)
     if inputs["channel_type"] != "UNDETERMINED" and inputs["breakout_dir"] != "NONE":
