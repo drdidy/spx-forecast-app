@@ -857,51 +857,111 @@ def calculate_trade_projections(
     }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PUT/CALL RATIO - Retail Bias Detection
+# PUT/CALL RATIO - Retail Bias Detection (Using Polygon)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_spx_pcr() -> Tuple[Optional[float], str]:
+def fetch_pcr_from_polygon(trading_date: date) -> Tuple[Optional[float], str]:
     """
-    Fetch SPX Put/Call Ratio using open interest from yfinance
+    Fetch Put/Call Ratio using Polygon options data for SPY
     PCR < 0.7 = Heavy CALLS (retail bullish)
     PCR > 1.0 = Heavy PUTS (retail bearish)
     """
     try:
-        spx = yf.Ticker("^SPX")
-        expiries = spx.options
+        # Format date for Polygon
+        date_str = trading_date.strftime("%Y-%m-%d")
         
-        if not expiries:
-            # Fallback to SPY if SPX options not available
-            spx = yf.Ticker("SPY")
-            expiries = spx.options
+        # Get SPY options contracts for that date
+        # Use the options chain snapshot endpoint
+        url = f"{POLYGON_BASE}/v3/snapshot/options/SPY?apiKey={POLYGON_KEY}"
+        resp = requests.get(url, timeout=15)
         
-        if not expiries:
-            return None, "NO_DATA"
+        if resp.status_code == 200:
+            data = resp.json()
+            results = data.get("results", [])
+            
+            if results:
+                total_call_oi = 0
+                total_put_oi = 0
+                total_call_volume = 0
+                total_put_volume = 0
+                
+                for option in results:
+                    details = option.get("details", {})
+                    day_data = option.get("day", {})
+                    
+                    contract_type = details.get("contract_type", "")
+                    oi = option.get("open_interest", 0) or 0
+                    volume = day_data.get("volume", 0) or 0
+                    
+                    if contract_type == "call":
+                        total_call_oi += oi
+                        total_call_volume += volume
+                    elif contract_type == "put":
+                        total_put_oi += oi
+                        total_put_volume += volume
+                
+                # Calculate PCR from Open Interest (more reliable)
+                if total_call_oi > 0:
+                    pcr_oi = total_put_oi / total_call_oi
+                    return round(pcr_oi, 2), "POLYGON_OI"
+                
+                # Fallback to volume-based PCR
+                if total_call_volume > 0:
+                    pcr_vol = total_put_volume / total_call_volume
+                    return round(pcr_vol, 2), "POLYGON_VOL"
         
-        # Get nearest expiry (0DTE or next)
-        today_str = date.today().strftime("%Y-%m-%d")
-        nearest_expiry = expiries[0]
-        for exp in expiries:
-            if exp >= today_str:
-                nearest_expiry = exp
-                break
+        # If snapshot doesn't work, try aggregates for a simpler approach
+        # Get SPY price to estimate ATM strikes
+        spy_url = f"{POLYGON_BASE}/v2/aggs/ticker/SPY/prev?adjusted=true&apiKey={POLYGON_KEY}"
+        spy_resp = requests.get(spy_url, timeout=10)
         
-        # Fetch option chain
-        chain = spx.option_chain(nearest_expiry)
+        if spy_resp.status_code == 200:
+            spy_data = spy_resp.json()
+            if "results" in spy_data and len(spy_data["results"]) > 0:
+                spy_close = spy_data["results"][0].get("c", 590)
+                
+                # Check a range of strikes around ATM for the nearest expiry
+                atm_strike = round(spy_close / 5) * 5
+                strikes_to_check = [atm_strike - 10, atm_strike - 5, atm_strike, atm_strike + 5, atm_strike + 10]
+                
+                # Find the next expiry (today or next trading day)
+                expiry_date = trading_date
+                expiry_str = expiry_date.strftime("%y%m%d")
+                
+                total_call_oi = 0
+                total_put_oi = 0
+                
+                for strike in strikes_to_check:
+                    strike_int = int(strike * 1000)
+                    strike_str = f"{strike_int:08d}"
+                    
+                    # Check call
+                    call_ticker = f"O:SPY{expiry_str}C{strike_str}"
+                    call_url = f"{POLYGON_BASE}/v3/snapshot/options/{call_ticker}?apiKey={POLYGON_KEY}"
+                    call_resp = requests.get(call_url, timeout=5)
+                    if call_resp.status_code == 200:
+                        call_data = call_resp.json()
+                        if "results" in call_data:
+                            total_call_oi += call_data["results"].get("open_interest", 0) or 0
+                    
+                    # Check put
+                    put_ticker = f"O:SPY{expiry_str}P{strike_str}"
+                    put_url = f"{POLYGON_BASE}/v3/snapshot/options/{put_ticker}?apiKey={POLYGON_KEY}"
+                    put_resp = requests.get(put_url, timeout=5)
+                    if put_resp.status_code == 200:
+                        put_data = put_resp.json()
+                        if "results" in put_data:
+                            total_put_oi += put_data["results"].get("open_interest", 0) or 0
+                
+                if total_call_oi > 0:
+                    pcr = total_put_oi / total_call_oi
+                    return round(pcr, 2), "POLYGON_ATM"
         
-        # Calculate PCR from Open Interest
-        call_oi = chain.calls['openInterest'].sum()
-        put_oi = chain.puts['openInterest'].sum()
-        
-        if call_oi > 0:
-            pcr = put_oi / call_oi
-            return round(pcr, 2), "OK"
-        
-        return None, "NO_OI"
+        return None, "NO_DATA"
         
     except Exception as e:
-        return None, f"ERROR: {str(e)}"
+        return None, f"ERROR: {str(e)[:50]}"
 
 def get_retail_bias(pcr: Optional[float]) -> Tuple[str, str]:
     """
@@ -1359,7 +1419,7 @@ def main():
     
     # Get PCR and retail bias
     if inputs["use_auto_pcr"]:
-        pcr, pcr_status = fetch_spx_pcr()
+        pcr, pcr_status = fetch_pcr_from_polygon(inputs["trading_date"])
         retail_bias, bias_desc = get_retail_bias(pcr)
     else:
         pcr, pcr_status = None, "MANUAL"
