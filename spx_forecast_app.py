@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# SPX PROPHET V5.2 - Institutional 0DTE Trading Analytics
-# ALL 4 TRADES | Polygon Options Pricing | Entry/Exit Price Predictions
+# SPX PROPHET V5.3 - Institutional 0DTE Trading Analytics
+# ALL 4 TRADES | Multi-Signal Flow Bias | Entry/Exit Price Predictions
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import streamlit as st
@@ -38,7 +38,7 @@ def norm_pdf(x):
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-st.set_page_config(page_title="SPX Prophet V5.2", page_icon="🔮", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="SPX Prophet V5.3", page_icon="🔮", layout="wide", initial_sidebar_state="expanded")
 
 CT = pytz.timezone("America/Chicago")
 SLOPE = 0.48
@@ -857,126 +857,185 @@ def calculate_trade_projections(
     }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PUT/CALL RATIO - Retail Bias Detection (Using Polygon)
+# FLOW BIAS DETECTION - Multi-Signal Approach (REPLACES UNRELIABLE PCR API)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_pcr_from_polygon(trading_date: date) -> Tuple[Optional[float], str]:
+def calculate_flow_bias(
+    current_price: float,
+    on_high: float,
+    on_low: float,
+    vix_current: float,
+    vix_on_high: float,
+    vix_on_low: float,
+    prior_close: float,
+    es_candles: Optional[pd.DataFrame] = None
+) -> Dict:
     """
-    Fetch Put/Call Ratio using Polygon options data for SPY
-    PCR < 0.7 = Heavy CALLS (retail bullish)
-    PCR > 1.0 = Heavy PUTS (retail bearish)
-    """
-    try:
-        # Format date for Polygon
-        date_str = trading_date.strftime("%Y-%m-%d")
-        
-        # Get SPY options contracts for that date
-        # Use the options chain snapshot endpoint
-        url = f"{POLYGON_BASE}/v3/snapshot/options/SPY?apiKey={POLYGON_KEY}"
-        resp = requests.get(url, timeout=15)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            results = data.get("results", [])
-            
-            if results:
-                total_call_oi = 0
-                total_put_oi = 0
-                total_call_volume = 0
-                total_put_volume = 0
-                
-                for option in results:
-                    details = option.get("details", {})
-                    day_data = option.get("day", {})
-                    
-                    contract_type = details.get("contract_type", "")
-                    oi = option.get("open_interest", 0) or 0
-                    volume = day_data.get("volume", 0) or 0
-                    
-                    if contract_type == "call":
-                        total_call_oi += oi
-                        total_call_volume += volume
-                    elif contract_type == "put":
-                        total_put_oi += oi
-                        total_put_volume += volume
-                
-                # Calculate PCR from Open Interest (more reliable)
-                if total_call_oi > 0:
-                    pcr_oi = total_put_oi / total_call_oi
-                    return round(pcr_oi, 2), "POLYGON_OI"
-                
-                # Fallback to volume-based PCR
-                if total_call_volume > 0:
-                    pcr_vol = total_put_volume / total_call_volume
-                    return round(pcr_vol, 2), "POLYGON_VOL"
-        
-        # If snapshot doesn't work, try aggregates for a simpler approach
-        # Get SPY price to estimate ATM strikes
-        spy_url = f"{POLYGON_BASE}/v2/aggs/ticker/SPY/prev?adjusted=true&apiKey={POLYGON_KEY}"
-        spy_resp = requests.get(spy_url, timeout=10)
-        
-        if spy_resp.status_code == 200:
-            spy_data = spy_resp.json()
-            if "results" in spy_data and len(spy_data["results"]) > 0:
-                spy_close = spy_data["results"][0].get("c", 590)
-                
-                # Check a range of strikes around ATM for the nearest expiry
-                atm_strike = round(spy_close / 5) * 5
-                strikes_to_check = [atm_strike - 10, atm_strike - 5, atm_strike, atm_strike + 5, atm_strike + 10]
-                
-                # Find the next expiry (today or next trading day)
-                expiry_date = trading_date
-                expiry_str = expiry_date.strftime("%y%m%d")
-                
-                total_call_oi = 0
-                total_put_oi = 0
-                
-                for strike in strikes_to_check:
-                    strike_int = int(strike * 1000)
-                    strike_str = f"{strike_int:08d}"
-                    
-                    # Check call
-                    call_ticker = f"O:SPY{expiry_str}C{strike_str}"
-                    call_url = f"{POLYGON_BASE}/v3/snapshot/options/{call_ticker}?apiKey={POLYGON_KEY}"
-                    call_resp = requests.get(call_url, timeout=5)
-                    if call_resp.status_code == 200:
-                        call_data = call_resp.json()
-                        if "results" in call_data:
-                            total_call_oi += call_data["results"].get("open_interest", 0) or 0
-                    
-                    # Check put
-                    put_ticker = f"O:SPY{expiry_str}P{strike_str}"
-                    put_url = f"{POLYGON_BASE}/v3/snapshot/options/{put_ticker}?apiKey={POLYGON_KEY}"
-                    put_resp = requests.get(put_url, timeout=5)
-                    if put_resp.status_code == 200:
-                        put_data = put_resp.json()
-                        if "results" in put_data:
-                            total_put_oi += put_data["results"].get("open_interest", 0) or 0
-                
-                if total_call_oi > 0:
-                    pcr = total_put_oi / total_call_oi
-                    return round(pcr, 2), "POLYGON_ATM"
-        
-        return None, "NO_DATA"
-        
-    except Exception as e:
-        return None, f"ERROR: {str(e)[:50]}"
-
-def get_retail_bias(pcr: Optional[float]) -> Tuple[str, str]:
-    """
-    Determine retail bias from PCR
-    Returns: (bias, description)
-    """
-    if pcr is None:
-        return "NEUTRAL", "No PCR data"
+    Multi-signal flow bias detection - more reliable than PCR API
     
-    if pcr < 0.7:
-        return "HEAVY_CALLS", f"PCR {pcr:.2f} - Retail bullish"
-    elif pcr > 1.0:
-        return "HEAVY_PUTS", f"PCR {pcr:.2f} - Retail bearish"
+    SIGNALS:
+    1. Price Position: Where is price vs O/N range? (retail chases breakouts)
+    2. VIX Momentum: Is VIX rising or falling? (put demand proxy)
+    3. Gap Direction: Gap up = call buying overnight, Gap down = put buying
+    4. Price Velocity: Fast moves indicate aggressive retail positioning
+    
+    INTERPRETATION:
+    - HEAVY_CALLS: Retail is aggressively long → MM will hunt stops below
+    - HEAVY_PUTS: Retail is aggressively short → MM will hunt stops above
+    - NEUTRAL: Mixed signals → Play structure levels
+    """
+    
+    signals = []
+    score = 0  # Positive = bullish retail (heavy calls), Negative = bearish retail (heavy puts)
+    
+    on_range = on_high - on_low
+    on_mid = (on_high + on_low) / 2
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # SIGNAL 1: Price Position vs O/N Range (Weight: 30%)
+    # ─────────────────────────────────────────────────────────────────────────
+    if on_range > 0:
+        price_position = (current_price - on_low) / on_range * 100
     else:
-        return "NEUTRAL", f"PCR {pcr:.2f} - Balanced"
+        price_position = 50
+    
+    if current_price > on_high:
+        score += 30
+        signals.append(("Price Position", "CALLS", f"Above O/N High (+{current_price - on_high:.0f} pts)"))
+    elif current_price < on_low:
+        score -= 30
+        signals.append(("Price Position", "PUTS", f"Below O/N Low ({current_price - on_low:.0f} pts)"))
+    elif price_position > 75:
+        score += 15
+        signals.append(("Price Position", "CALLS", f"Near O/N High ({price_position:.0f}%)"))
+    elif price_position < 25:
+        score -= 15
+        signals.append(("Price Position", "PUTS", f"Near O/N Low ({price_position:.0f}%)"))
+    else:
+        signals.append(("Price Position", "NEUTRAL", f"Mid-range ({price_position:.0f}%)"))
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # SIGNAL 2: VIX Momentum (Weight: 25%)
+    # ─────────────────────────────────────────────────────────────────────────
+    vix_range = vix_on_high - vix_on_low
+    if vix_range > 0:
+        vix_position = (vix_current - vix_on_low) / vix_range * 100
+    else:
+        vix_position = 50
+    
+    if vix_current > vix_on_high:
+        score -= 25
+        signals.append(("VIX Momentum", "PUTS", f"VIX breakout ({vix_current:.1f} > {vix_on_high:.1f})"))
+    elif vix_current < vix_on_low:
+        score += 25
+        signals.append(("VIX Momentum", "CALLS", f"VIX breakdown ({vix_current:.1f} < {vix_on_low:.1f})"))
+    elif vix_position > 70:
+        score -= 12
+        signals.append(("VIX Momentum", "PUTS", f"VIX elevated ({vix_position:.0f}%)"))
+    elif vix_position < 30:
+        score += 12
+        signals.append(("VIX Momentum", "CALLS", f"VIX depressed ({vix_position:.0f}%)"))
+    else:
+        signals.append(("VIX Momentum", "NEUTRAL", f"VIX mid-range ({vix_position:.0f}%)"))
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # SIGNAL 3: Gap Direction (Weight: 25%)
+    # ─────────────────────────────────────────────────────────────────────────
+    gap = current_price - prior_close
+    gap_pct = (gap / prior_close) * 100
+    
+    if gap > 10:
+        score += 25
+        signals.append(("Gap Direction", "CALLS", f"Gap UP +{gap:.0f} pts ({gap_pct:+.2f}%)"))
+    elif gap < -10:
+        score -= 25
+        signals.append(("Gap Direction", "PUTS", f"Gap DOWN {gap:.0f} pts ({gap_pct:+.2f}%)"))
+    elif gap > 5:
+        score += 12
+        signals.append(("Gap Direction", "CALLS", f"Small gap up +{gap:.0f} pts"))
+    elif gap < -5:
+        score -= 12
+        signals.append(("Gap Direction", "PUTS", f"Small gap down {gap:.0f} pts"))
+    else:
+        signals.append(("Gap Direction", "NEUTRAL", f"Flat open ({gap:+.0f} pts)"))
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # SIGNAL 4: Intraday Velocity (Weight: 20%)
+    # ─────────────────────────────────────────────────────────────────────────
+    if es_candles is not None and len(es_candles) >= 2:
+        recent = es_candles.tail(6)
+        if len(recent) >= 2:
+            move_from_open = recent['Close'].iloc[-1] - recent['Open'].iloc[0]
+            avg_range = (recent['High'] - recent['Low']).mean()
+            
+            if move_from_open > avg_range * 2:
+                score += 20
+                signals.append(("Velocity", "CALLS", f"Strong rally +{move_from_open:.0f} pts"))
+            elif move_from_open < -avg_range * 2:
+                score -= 20
+                signals.append(("Velocity", "PUTS", f"Strong selloff {move_from_open:.0f} pts"))
+            elif move_from_open > avg_range:
+                score += 10
+                signals.append(("Velocity", "CALLS", f"Mild rally +{move_from_open:.0f} pts"))
+            elif move_from_open < -avg_range:
+                score -= 10
+                signals.append(("Velocity", "PUTS", f"Mild selloff {move_from_open:.0f} pts"))
+            else:
+                signals.append(("Velocity", "NEUTRAL", "Choppy/range-bound"))
+        else:
+            signals.append(("Velocity", "N/A", "Insufficient data"))
+    else:
+        signals.append(("Velocity", "N/A", "Insufficient data"))
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # FINAL DETERMINATION
+    # ─────────────────────────────────────────────────────────────────────────
+    if score >= 30:
+        bias = "HEAVY_CALLS"
+        description = f"Score {score:+d} - Retail aggressively LONG"
+        mm_play = "MM will hunt call buyers - expect fake breakdowns"
+    elif score <= -30:
+        bias = "HEAVY_PUTS"
+        description = f"Score {score:+d} - Retail aggressively SHORT"
+        mm_play = "MM will hunt put buyers - expect fake breakouts"
+    else:
+        bias = "NEUTRAL"
+        description = f"Score {score:+d} - Mixed positioning"
+        mm_play = "Play structure levels as they come"
+    
+    # Confidence based on signal agreement
+    call_signals = sum(1 for s in signals if s[1] == "CALLS")
+    put_signals = sum(1 for s in signals if s[1] == "PUTS")
+    total_signals = len([s for s in signals if s[1] != "NEUTRAL" and s[1] != "N/A"])
+    
+    if total_signals > 0:
+        agreement = max(call_signals, put_signals) / total_signals * 100
+    else:
+        agreement = 50
+    
+    if agreement >= 75:
+        confidence = "HIGH"
+    elif agreement >= 50:
+        confidence = "MEDIUM"
+    else:
+        confidence = "LOW"
+    
+    return {
+        "bias": bias,
+        "score": score,
+        "description": description,
+        "mm_play": mm_play,
+        "confidence": confidence,
+        "agreement_pct": round(agreement, 0),
+        "signals": signals,
+        "price_position": round(price_position, 1),
+        "vix_position": round(vix_position, 1),
+        "gap": round(gap, 1)
+    }
+
+def get_retail_bias(flow_bias: Dict) -> Tuple[str, str]:
+    """Convert flow bias to retail bias format for channel analysis"""
+    return flow_bias["bias"], flow_bias["description"]
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CHANNEL ANALYSIS - MM Hunt Detection
@@ -1207,10 +1266,10 @@ def render_sidebar() -> Dict:
             horizontal=True
         )
         
-        # Retail bias - auto or manual
-        st.markdown("**Retail Bias**")
-        use_auto_pcr = st.checkbox("Auto PCR", value=True)
-        if not use_auto_pcr:
+        # Retail bias - auto (multi-signal) or manual
+        st.markdown("**Flow Bias**")
+        use_auto_flow = st.checkbox("Auto Flow Detection", value=True, help="Multi-signal analysis: Price Position, VIX, Gap, Velocity")
+        if not use_auto_flow:
             retail_bias_override = st.radio(
                 "Manual Bias",
                 ["NEUTRAL", "HEAVY_CALLS", "HEAVY_PUTS"],
@@ -1260,7 +1319,7 @@ def render_sidebar() -> Dict:
         "channel_type": channel_type,
         "breakout_dir": breakout_dir,
         "retail_bias_override": retail_bias_override,
-        "use_auto_pcr": use_auto_pcr,
+        "use_auto_flow": use_auto_flow,
         "auto_refresh": auto_refresh,
         "refresh_sec": refresh_sec,
         "show_debug": show_debug
@@ -1348,12 +1407,84 @@ def main():
     
     st.markdown(f'''
     <div class="hero-header">
-        <div class="hero-title">🔮 SPX PROPHET V5.2</div>
-        <div class="hero-subtitle">Structure Levels @ {ref_time_str} | 0.48 Slope</div>
+        <div class="hero-title">🔮 SPX PROPHET V5.3</div>
+        <div class="hero-subtitle">Structure Levels @ {ref_time_str} | 0.48 Slope | Multi-Signal Flow</div>
         <div class="hero-price">{current_price:,.2f}</div>
         <div class="hero-time">{now_ct.strftime("%I:%M:%S %p CT")} | {inputs["trading_date"].strftime("%A, %B %d, %Y")}</div>
     </div>
     ''', unsafe_allow_html=True)
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # FLOW BIAS CARD (Multi-Signal Analysis)
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    st.markdown("### 🌊 Flow Bias Detection")
+    
+    # Determine colors and icons
+    if flow_bias["bias"] == "HEAVY_CALLS":
+        flow_color = "#00d4aa"
+        flow_icon = "📈"
+        flow_badge_class = "calls"
+    elif flow_bias["bias"] == "HEAVY_PUTS":
+        flow_color = "#ff4757"
+        flow_icon = "📉"
+        flow_badge_class = "puts"
+    else:
+        flow_color = "#ffa502"
+        flow_icon = "⚖️"
+        flow_badge_class = "neutral"
+    
+    # Score meter position (score ranges from -100 to +100)
+    meter_position = (flow_bias["score"] + 100) / 2  # Convert to 0-100 scale
+    
+    # Build signals HTML
+    signals_html = ""
+    for sig_name, sig_bias, sig_detail in flow_bias["signals"]:
+        if sig_bias == "CALLS":
+            sig_color = "#00d4aa"
+        elif sig_bias == "PUTS":
+            sig_color = "#ff4757"
+        else:
+            sig_color = "rgba(255,255,255,0.5)"
+        signals_html += f'<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.03)"><span style="color:rgba(255,255,255,0.6)">{sig_name}</span><span style="color:{sig_color};font-size:12px">{sig_detail}</span></div>'
+    
+    flow_html = f'''
+    <div class="card" style="border-left:4px solid {flow_color}">
+        <div class="card-header">
+            <div class="card-icon" style="background:rgba(168,85,247,0.15)">{flow_icon}</div>
+            <div>
+                <div class="card-title">Retail Flow Analysis</div>
+                <div class="card-subtitle">{flow_bias["confidence"]} Confidence | {flow_bias["agreement_pct"]:.0f}% Signal Agreement</div>
+            </div>
+        </div>
+        
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
+            <span class="signal-badge {flow_badge_class}">{flow_bias["bias"].replace("_", " ")}</span>
+            <span style="font-family:IBM Plex Mono,monospace;font-size:24px;font-weight:700;color:{flow_color}">{flow_bias["score"]:+d}</span>
+        </div>
+        
+        <div style="margin-bottom:16px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:4px">
+                <span>HEAVY PUTS</span>
+                <span>NEUTRAL</span>
+                <span>HEAVY CALLS</span>
+            </div>
+            <div style="height:8px;background:linear-gradient(90deg, #ff4757, #ffa502 50%, #00d4aa);border-radius:4px;position:relative">
+                <div style="position:absolute;left:{meter_position}%;top:-4px;width:4px;height:16px;background:#fff;border-radius:2px;transform:translateX(-50%);box-shadow:0 0 8px rgba(255,255,255,0.5)"></div>
+            </div>
+        </div>
+        
+        <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px;margin-bottom:12px">
+            <div style="font-size:13px;color:rgba(255,255,255,0.9);margin-bottom:8px">{flow_bias["description"]}</div>
+            <div style="font-size:12px;color:{flow_color};font-weight:500">🎯 {flow_bias["mm_play"]}</div>
+        </div>
+        
+        <div style="font-size:11px;color:#a855f7;font-weight:600;margin-bottom:8px">SIGNAL BREAKDOWN</div>
+        {signals_html}
+    </div>
+    '''
+    
+    st.markdown(flow_html, unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # PILLARS ROW
@@ -1417,14 +1548,37 @@ def main():
     # CHANNEL ANALYSIS
     # ═══════════════════════════════════════════════════════════════════════════
     
-    # Get PCR and retail bias
-    if inputs["use_auto_pcr"]:
-        pcr, pcr_status = fetch_pcr_from_polygon(inputs["trading_date"])
-        retail_bias, bias_desc = get_retail_bias(pcr)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # FLOW BIAS - Multi-Signal Detection
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    if inputs["use_auto_flow"]:
+        flow_bias = calculate_flow_bias(
+            current_price,
+            inputs["on_high_price"],
+            inputs["on_low_price"],
+            vix_current,
+            inputs["vix_on_high"],
+            inputs["vix_on_low"],
+            inputs["prior_close"],
+            es_candles
+        )
+        retail_bias, bias_desc = get_retail_bias(flow_bias)
     else:
-        pcr, pcr_status = None, "MANUAL"
         retail_bias = inputs["retail_bias_override"] or "NEUTRAL"
         bias_desc = f"Manual: {retail_bias}"
+        flow_bias = {
+            "bias": retail_bias,
+            "score": 0,
+            "description": bias_desc,
+            "mm_play": "Manual override",
+            "confidence": "N/A",
+            "agreement_pct": 0,
+            "signals": [],
+            "price_position": 50,
+            "vix_position": 50,
+            "gap": 0
+        }
     
     # Run channel analysis
     channel_analysis = analyze_channel(
@@ -1450,9 +1604,9 @@ def main():
             bias_color = "#ffa502"
             bias_icon = "⏳"
         
-        # PCR display
-        pcr_display = f"{pcr:.2f}" if pcr else "N/A"
-        pcr_color = "#00d4aa" if retail_bias == "HEAVY_CALLS" else "#ff4757" if retail_bias == "HEAVY_PUTS" else "#ffa502"
+        # Flow score display
+        flow_score_display = f"{flow_bias['score']:+d}"
+        flow_color = "#00d4aa" if retail_bias == "HEAVY_CALLS" else "#ff4757" if retail_bias == "HEAVY_PUTS" else "#ffa502"
         
         # Format prices safely
         primary_price_str = f"{channel_analysis['primary_target_price']:.2f}" if channel_analysis["primary_target_price"] else "—"
@@ -1468,7 +1622,7 @@ def main():
         breakout_display = inputs["breakout_dir"]
         
         # Build card as single line HTML
-        channel_html = f'<div class="card" style="border-left:4px solid {bias_color}"><div class="card-header"><div class="card-icon" style="background:rgba(168,85,247,0.15)">{bias_icon}</div><div><div class="card-title">MM Hunt Analysis</div><div class="card-subtitle">{channel_display} Channel | Break {breakout_display}</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px"><div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px"><div style="font-size:10px;color:rgba(255,255,255,0.5)">PCR</div><div style="font-family:IBM Plex Mono,monospace;font-size:16px;font-weight:600;color:{pcr_color}">{pcr_display}</div></div><div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px"><div style="font-size:10px;color:rgba(255,255,255,0.5)">Retail Bias</div><div style="font-size:12px;font-weight:600;color:{pcr_color}">{retail_bias_display}</div></div><div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px"><div style="font-size:10px;color:rgba(255,255,255,0.5)">Trade Bias</div><div style="font-size:14px;font-weight:600;color:{bias_color}">{trade_bias_display}</div></div></div><div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.3);border-radius:12px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:#a855f7;font-weight:600;margin-bottom:8px">🎯 PRIMARY TARGET</div><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:14px">{primary_target_name}</span><span style="font-family:IBM Plex Mono,monospace;font-size:18px;font-weight:600;color:{bias_color}">{primary_price_str}</span></div><div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">{primary_action}</div></div><div style="background:rgba(0,212,170,0.1);border:1px solid rgba(0,212,170,0.3);border-radius:12px;padding:12px"><div style="font-size:11px;color:#00d4aa;font-weight:600;margin-bottom:8px">📈 THEN TARGET</div><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:14px">{secondary_target_name}</span><span style="font-family:IBM Plex Mono,monospace;font-size:18px;font-weight:600">{secondary_price_str}</span></div><div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">{secondary_action}</div></div><div style="font-size:12px;color:rgba(255,255,255,0.7);margin-top:12px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px">💡 {analysis_text}</div></div>'
+        channel_html = f'<div class="card" style="border-left:4px solid {bias_color}"><div class="card-header"><div class="card-icon" style="background:rgba(168,85,247,0.15)">{bias_icon}</div><div><div class="card-title">MM Hunt Analysis</div><div class="card-subtitle">{channel_display} Channel | Break {breakout_display}</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px"><div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px"><div style="font-size:10px;color:rgba(255,255,255,0.5)">Flow Score</div><div style="font-family:IBM Plex Mono,monospace;font-size:16px;font-weight:600;color:{flow_color}">{flow_score_display}</div></div><div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px"><div style="font-size:10px;color:rgba(255,255,255,0.5)">Retail Bias</div><div style="font-size:12px;font-weight:600;color:{flow_color}">{retail_bias_display}</div></div><div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px"><div style="font-size:10px;color:rgba(255,255,255,0.5)">Trade Bias</div><div style="font-size:14px;font-weight:600;color:{bias_color}">{trade_bias_display}</div></div></div><div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.3);border-radius:12px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:#a855f7;font-weight:600;margin-bottom:8px">🎯 PRIMARY TARGET</div><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:14px">{primary_target_name}</span><span style="font-family:IBM Plex Mono,monospace;font-size:18px;font-weight:600;color:{bias_color}">{primary_price_str}</span></div><div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">{primary_action}</div></div><div style="background:rgba(0,212,170,0.1);border:1px solid rgba(0,212,170,0.3);border-radius:12px;padding:12px"><div style="font-size:11px;color:#00d4aa;font-weight:600;margin-bottom:8px">📈 THEN TARGET</div><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:14px">{secondary_target_name}</span><span style="font-family:IBM Plex Mono,monospace;font-size:18px;font-weight:600">{secondary_price_str}</span></div><div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">{secondary_action}</div></div><div style="font-size:12px;color:rgba(255,255,255,0.7);margin-top:12px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px">💡 {analysis_text}</div></div>'
         
         st.markdown(channel_html, unsafe_allow_html=True)
     
@@ -1605,7 +1759,7 @@ def main():
     # FOOTER
     # ═══════════════════════════════════════════════════════════════════════════
     
-    st.markdown(f'<div class="app-footer">SPX PROPHET V5.2 | Slope: {SLOPE} | {now_ct.strftime("%H:%M:%S CT")}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="app-footer">SPX PROPHET V5.3 | Slope: {SLOPE} | Multi-Signal Flow | {now_ct.strftime("%H:%M:%S CT")}</div>', unsafe_allow_html=True)
     
     if inputs["auto_refresh"]:
         time_module.sleep(inputs["refresh_sec"])
