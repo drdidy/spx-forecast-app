@@ -857,8 +857,189 @@ def calculate_trade_projections(
     }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PERSISTENCE
+# PUT/CALL RATIO - Retail Bias Detection
 # ═══════════════════════════════════════════════════════════════════════════════
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_spx_pcr() -> Tuple[Optional[float], str]:
+    """
+    Fetch SPX Put/Call Ratio using open interest from yfinance
+    PCR < 0.7 = Heavy CALLS (retail bullish)
+    PCR > 1.0 = Heavy PUTS (retail bearish)
+    """
+    try:
+        spx = yf.Ticker("^SPX")
+        expiries = spx.options
+        
+        if not expiries:
+            # Fallback to SPY if SPX options not available
+            spx = yf.Ticker("SPY")
+            expiries = spx.options
+        
+        if not expiries:
+            return None, "NO_DATA"
+        
+        # Get nearest expiry (0DTE or next)
+        today_str = date.today().strftime("%Y-%m-%d")
+        nearest_expiry = expiries[0]
+        for exp in expiries:
+            if exp >= today_str:
+                nearest_expiry = exp
+                break
+        
+        # Fetch option chain
+        chain = spx.option_chain(nearest_expiry)
+        
+        # Calculate PCR from Open Interest
+        call_oi = chain.calls['openInterest'].sum()
+        put_oi = chain.puts['openInterest'].sum()
+        
+        if call_oi > 0:
+            pcr = put_oi / call_oi
+            return round(pcr, 2), "OK"
+        
+        return None, "NO_OI"
+        
+    except Exception as e:
+        return None, f"ERROR: {str(e)}"
+
+def get_retail_bias(pcr: Optional[float]) -> Tuple[str, str]:
+    """
+    Determine retail bias from PCR
+    Returns: (bias, description)
+    """
+    if pcr is None:
+        return "NEUTRAL", "No PCR data"
+    
+    if pcr < 0.7:
+        return "HEAVY_CALLS", f"PCR {pcr:.2f} - Retail bullish"
+    elif pcr > 1.0:
+        return "HEAVY_PUTS", f"PCR {pcr:.2f} - Retail bearish"
+    else:
+        return "NEUTRAL", f"PCR {pcr:.2f} - Balanced"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CHANNEL ANALYSIS - MM Hunt Detection
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def analyze_channel(
+    channel_type: str,  # "DESCENDING" or "ASCENDING"
+    breakout_direction: str,  # "UP", "DOWN", or "NONE"
+    retail_bias: str,  # "HEAVY_CALLS", "HEAVY_PUTS", or "NEUTRAL"
+    trades: Dict,
+    cones: Dict
+) -> Dict:
+    """
+    Analyze channel breakout and determine MM targets
+    
+    DESCENDING CHANNEL (Ceiling Falling + Floor Falling):
+    - Break UP: Return to Ceiling Falling (or Floor Falling if hunting calls)
+    - Break DOWN: Find bottom at Low Cone Desc, then rally to Ceiling Falling
+    
+    ASCENDING CHANNEL (Floor Rising + Ceiling Rising):
+    - Break DOWN: Return to Floor Rising (or Ceiling Rising if hunting puts)
+    - Break UP: Find top at High Cone Asc, then sell to Floor Rising
+    """
+    
+    result = {
+        "channel": channel_type,
+        "breakout": breakout_direction,
+        "retail_bias": retail_bias,
+        "primary_target": None,
+        "primary_target_price": None,
+        "primary_action": None,
+        "secondary_target": None,
+        "secondary_target_price": None,
+        "secondary_action": None,
+        "analysis": "",
+        "trade_bias": "NEUTRAL"
+    }
+    
+    if channel_type == "UNDETERMINED" or breakout_direction == "NONE":
+        result["analysis"] = "Waiting for channel/breakout confirmation"
+        return result
+    
+    # Get structure levels
+    ceiling_falling = trades["trades"]["ceiling_falling"]["level"]
+    floor_falling = trades["trades"]["floor_falling"]["level"]
+    ceiling_rising = trades["trades"]["ceiling_rising"]["level"]
+    floor_rising = trades["trades"]["floor_rising"]["level"]
+    
+    # Get cone levels
+    high_cone_asc = cones["HIGH"]["asc"]
+    low_cone_desc = cones["LOW"]["desc"]
+    
+    if channel_type == "DESCENDING":
+        if breakout_direction == "UP":
+            # Broke above descending channel
+            if retail_bias == "HEAVY_CALLS":
+                # MM will hunt calls - drop to floor first
+                result["primary_target"] = "Floor Falling"
+                result["primary_target_price"] = floor_falling
+                result["primary_action"] = "WAIT for support"
+                result["secondary_target"] = "Ceiling Falling"
+                result["secondary_target_price"] = ceiling_falling
+                result["secondary_action"] = "BUY to target"
+                result["analysis"] = "Heavy calls → MM drops to Floor Falling first, then buys to Ceiling Falling"
+                result["trade_bias"] = "CALLS"
+            else:
+                # Normal - return to top of channel
+                result["primary_target"] = "Ceiling Falling"
+                result["primary_target_price"] = ceiling_falling
+                result["primary_action"] = "BUY to target"
+                result["secondary_target"] = "Above channel"
+                result["secondary_target_price"] = ceiling_falling + 10
+                result["secondary_action"] = "Continuation"
+                result["analysis"] = "Breakout UP → Return to Ceiling Falling, then higher"
+                result["trade_bias"] = "CALLS"
+                
+        elif breakout_direction == "DOWN":
+            # Broke below descending channel
+            result["primary_target"] = "Low Cone Desc"
+            result["primary_target_price"] = low_cone_desc
+            result["primary_action"] = "WAIT for MM buy"
+            result["secondary_target"] = "Ceiling Falling"
+            result["secondary_target_price"] = ceiling_falling
+            result["secondary_action"] = "BUY to target"
+            result["analysis"] = "Break DOWN → MM buys at Low Cone, rallies to Ceiling Falling to destroy puts"
+            result["trade_bias"] = "CALLS"
+    
+    elif channel_type == "ASCENDING":
+        if breakout_direction == "DOWN":
+            # Broke below ascending channel
+            if retail_bias == "HEAVY_PUTS":
+                # MM will hunt puts - push to ceiling first
+                result["primary_target"] = "Ceiling Rising"
+                result["primary_target_price"] = ceiling_rising
+                result["primary_action"] = "WAIT for resistance"
+                result["secondary_target"] = "Floor Rising"
+                result["secondary_target_price"] = floor_rising
+                result["secondary_action"] = "SELL to target"
+                result["analysis"] = "Heavy puts → MM pushes to Ceiling Rising first, then sells to Floor Rising"
+                result["trade_bias"] = "PUTS"
+            else:
+                # Normal - return to bottom of channel
+                result["primary_target"] = "Floor Rising"
+                result["primary_target_price"] = floor_rising
+                result["primary_action"] = "SELL to target"
+                result["secondary_target"] = "Below channel"
+                result["secondary_target_price"] = floor_rising - 10
+                result["secondary_action"] = "Continuation"
+                result["analysis"] = "Breakout DOWN → Return to Floor Rising, then lower"
+                result["trade_bias"] = "PUTS"
+                
+        elif breakout_direction == "UP":
+            # Broke above ascending channel
+            result["primary_target"] = "High Cone Asc"
+            result["primary_target_price"] = high_cone_asc
+            result["primary_action"] = "WAIT for MM sell"
+            result["secondary_target"] = "Floor Rising"
+            result["secondary_target_price"] = floor_rising
+            result["secondary_action"] = "SELL to target"
+            result["analysis"] = "Break UP → MM sells at High Cone, drops to Floor Rising to destroy calls"
+            result["trade_bias"] = "PUTS"
+    
+    return result
 
 def save_inputs(inputs: Dict):
     try:
@@ -948,6 +1129,38 @@ def render_sidebar() -> Dict:
         prior_close = st.number_input("Close", value=float(saved.get("prior_close", 6045.0)), step=0.5)
         
         st.markdown("---")
+        st.markdown("### 🎯 Channel Analysis")
+        
+        # Channel type
+        channel_type = st.radio(
+            "O/N Channel",
+            ["UNDETERMINED", "DESCENDING", "ASCENDING"],
+            index=0,
+            horizontal=True
+        )
+        
+        # Breakout direction
+        breakout_dir = st.radio(
+            "8:30 AM Breakout",
+            ["NONE", "UP", "DOWN"],
+            index=0,
+            horizontal=True
+        )
+        
+        # Retail bias - auto or manual
+        st.markdown("**Retail Bias**")
+        use_auto_pcr = st.checkbox("Auto PCR", value=True)
+        if not use_auto_pcr:
+            retail_bias_override = st.radio(
+                "Manual Bias",
+                ["NEUTRAL", "HEAVY_CALLS", "HEAVY_PUTS"],
+                index=0,
+                horizontal=True
+            )
+        else:
+            retail_bias_override = None
+        
+        st.markdown("---")
         auto_refresh = st.checkbox("Auto-Refresh", value=False)
         refresh_sec = st.slider("Seconds", 15, 120, 30) if auto_refresh else 30
         show_debug = st.checkbox("Debug", value=False)
@@ -984,6 +1197,10 @@ def render_sidebar() -> Dict:
         "prior_low_time": CT.localize(datetime.combine(prev_day, time(prior_low_hour, prior_low_min))),
         "prior_close": prior_close,
         "prior_close_time": CT.localize(datetime.combine(prev_day, time(15, 0))),
+        "channel_type": channel_type,
+        "breakout_dir": breakout_dir,
+        "retail_bias_override": retail_bias_override,
+        "use_auto_pcr": use_auto_pcr,
         "auto_refresh": auto_refresh,
         "refresh_sec": refresh_sec,
         "show_debug": show_debug
@@ -1135,6 +1352,98 @@ def main():
             <div class="pillar-item"><span class="pillar-name">Position</span><span class="pillar-value">{vix["position_pct"]:.0f}%</span></div>
         </div>
         ''', unsafe_allow_html=True)
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # CHANNEL ANALYSIS
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    # Get PCR and retail bias
+    if inputs["use_auto_pcr"]:
+        pcr, pcr_status = fetch_spx_pcr()
+        retail_bias, bias_desc = get_retail_bias(pcr)
+    else:
+        pcr, pcr_status = None, "MANUAL"
+        retail_bias = inputs["retail_bias_override"] or "NEUTRAL"
+        bias_desc = f"Manual: {retail_bias}"
+    
+    # Run channel analysis
+    channel_analysis = analyze_channel(
+        inputs["channel_type"],
+        inputs["breakout_dir"],
+        retail_bias,
+        all_trades,
+        cones
+    )
+    
+    # Display Channel Analysis Card
+    if inputs["channel_type"] != "UNDETERMINED":
+        st.markdown("### 🎯 Channel Analysis")
+        
+        # Determine colors
+        if channel_analysis["trade_bias"] == "CALLS":
+            bias_color = "#00d4aa"
+            bias_icon = "📈"
+        elif channel_analysis["trade_bias"] == "PUTS":
+            bias_color = "#ff4757"
+            bias_icon = "📉"
+        else:
+            bias_color = "#ffa502"
+            bias_icon = "⏳"
+        
+        # PCR display
+        pcr_display = f"{pcr:.2f}" if pcr else "N/A"
+        pcr_color = "#00d4aa" if retail_bias == "HEAVY_CALLS" else "#ff4757" if retail_bias == "HEAVY_PUTS" else "#ffa502"
+        
+        # Build card
+        channel_html = f'''
+        <div class="card" style="border-left:4px solid {bias_color}">
+            <div class="card-header">
+                <div class="card-icon" style="background:rgba(168,85,247,0.15)">{bias_icon}</div>
+                <div>
+                    <div class="card-title">MM Hunt Analysis</div>
+                    <div class="card-subtitle">{inputs["channel_type"]} Channel | Break {inputs["breakout_dir"]}</div>
+                </div>
+            </div>
+            
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+                <div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px">
+                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">PCR</div>
+                    <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:{pcr_color}">{pcr_display}</div>
+                </div>
+                <div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px">
+                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">Retail Bias</div>
+                    <div style="font-size:12px;font-weight:600;color:{pcr_color}">{retail_bias.replace("_", " ")}</div>
+                </div>
+                <div style="text-align:center;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px">
+                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">Trade Bias</div>
+                    <div style="font-size:14px;font-weight:600;color:{bias_color}">{channel_analysis["trade_bias"]}</div>
+                </div>
+            </div>
+            
+            <div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.3);border-radius:12px;padding:12px;margin-bottom:12px">
+                <div style="font-size:11px;color:#a855f7;font-weight:600;margin-bottom:8px">🎯 PRIMARY TARGET</div>
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <span style="font-size:14px">{channel_analysis["primary_target"] or "—"}</span>
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:{bias_color}">{channel_analysis["primary_target_price"]:.2f if channel_analysis["primary_target_price"] else "—"}</span>
+                </div>
+                <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">{channel_analysis["primary_action"] or ""}</div>
+            </div>
+            
+            <div style="background:rgba(0,212,170,0.1);border:1px solid rgba(0,212,170,0.3);border-radius:12px;padding:12px">
+                <div style="font-size:11px;color:#00d4aa;font-weight:600;margin-bottom:8px">📈 THEN TARGET</div>
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <span style="font-size:14px">{channel_analysis["secondary_target"] or "—"}</span>
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600">{channel_analysis["secondary_target_price"]:.2f if channel_analysis["secondary_target_price"] else "—"}</span>
+                </div>
+                <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">{channel_analysis["secondary_action"] or ""}</div>
+            </div>
+            
+            <div style="font-size:12px;color:rgba(255,255,255,0.7);margin-top:12px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px">
+                💡 {channel_analysis["analysis"]}
+            </div>
+        </div>
+        '''
+        st.markdown(channel_html, unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # ALL 4 TRADES
