@@ -1489,41 +1489,8 @@ def main():
             sig_color = "rgba(255,255,255,0.5)"
         signals_html += f'<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.03)"><span style="color:rgba(255,255,255,0.6)">{sig_name}</span><span style="color:{sig_color};font-size:12px">{sig_detail}</span></div>'
     
-    flow_html = f'''
-    <div class="card" style="border-left:4px solid {flow_color}">
-        <div class="card-header">
-            <div class="card-icon" style="background:rgba(168,85,247,0.15)">{flow_icon}</div>
-            <div>
-                <div class="card-title">Retail Flow Analysis</div>
-                <div class="card-subtitle">{flow_bias["confidence"]} Confidence | {flow_bias["agreement_pct"]:.0f}% Signal Agreement</div>
-            </div>
-        </div>
-        
-        <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
-            <span class="signal-badge {flow_badge_class}">{flow_bias["bias"].replace("_", " ")}</span>
-            <span style="font-family:IBM Plex Mono,monospace;font-size:24px;font-weight:700;color:{flow_color}">{flow_bias["score"]:+d}</span>
-        </div>
-        
-        <div style="margin-bottom:16px">
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:4px">
-                <span>HEAVY PUTS</span>
-                <span>NEUTRAL</span>
-                <span>HEAVY CALLS</span>
-            </div>
-            <div style="height:8px;background:linear-gradient(90deg, #ff4757, #ffa502 50%, #00d4aa);border-radius:4px;position:relative">
-                <div style="position:absolute;left:{meter_position}%;top:-4px;width:4px;height:16px;background:#fff;border-radius:2px;transform:translateX(-50%);box-shadow:0 0 8px rgba(255,255,255,0.5)"></div>
-            </div>
-        </div>
-        
-        <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px;margin-bottom:12px">
-            <div style="font-size:13px;color:rgba(255,255,255,0.9);margin-bottom:8px">{flow_bias["description"]}</div>
-            <div style="font-size:12px;color:{flow_color};font-weight:500">🎯 {flow_bias["mm_play"]}</div>
-        </div>
-        
-        <div style="font-size:11px;color:#a855f7;font-weight:600;margin-bottom:8px">SIGNAL BREAKDOWN</div>
-        {signals_html}
-    </div>
-    '''
+    # Build as single line HTML (required for Streamlit rendering)
+    flow_html = f'<div class="card" style="border-left:4px solid {flow_color}"><div class="card-header"><div class="card-icon" style="background:rgba(168,85,247,0.15)">{flow_icon}</div><div><div class="card-title">Retail Flow Analysis</div><div class="card-subtitle">{flow_bias["confidence"]} Confidence | {flow_bias["agreement_pct"]:.0f}% Signal Agreement</div></div></div><div style="display:flex;align-items:center;gap:16px;margin-bottom:16px"><span class="signal-badge {flow_badge_class}">{flow_bias["bias"].replace("_", " ")}</span><span style="font-family:IBM Plex Mono,monospace;font-size:24px;font-weight:700;color:{flow_color}">{flow_bias["score"]:+d}</span></div><div style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:4px"><span>HEAVY PUTS</span><span>NEUTRAL</span><span>HEAVY CALLS</span></div><div style="height:8px;background:linear-gradient(90deg, #ff4757, #ffa502 50%, #00d4aa);border-radius:4px;position:relative"><div style="position:absolute;left:{meter_position}%;top:-4px;width:4px;height:16px;background:#fff;border-radius:2px;transform:translateX(-50%);box-shadow:0 0 8px rgba(255,255,255,0.5)"></div></div></div><div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:13px;color:rgba(255,255,255,0.9);margin-bottom:8px">{flow_bias["description"]}</div><div style="font-size:12px;color:{flow_color};font-weight:500">🎯 {flow_bias["mm_play"]}</div></div><div style="font-size:11px;color:#a855f7;font-weight:600;margin-bottom:8px">SIGNAL BREAKDOWN</div>{signals_html}</div>'
     
     st.markdown(flow_html, unsafe_allow_html=True)
     
