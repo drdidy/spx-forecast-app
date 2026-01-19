@@ -688,6 +688,64 @@ h3 {
     margin-top: 40px;
 }
 .footer-brand { font-family: 'Space Grotesk', sans-serif; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BRAND HEADER - App Identity
+   ═══════════════════════════════════════════════════════════════════════════ */
+.brand-header {
+    text-align: center;
+    padding: 40px 20px 32px 20px;
+    margin-bottom: 32px;
+    position: relative;
+}
+.brand-header::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--glass-border), transparent);
+}
+.brand-logo {
+    font-size: 64px;
+    margin-bottom: 16px;
+    filter: drop-shadow(0 0 30px rgba(168,85,247,0.5));
+}
+.brand-name {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 42px;
+    font-weight: 700;
+    letter-spacing: -1px;
+    margin: 0;
+    background: linear-gradient(135deg, #c084fc 0%, #22d3ee 50%, #00d4aa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: none;
+}
+.brand-version {
+    display: inline-block;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 12px;
+    letter-spacing: 0.5px;
+}
+.brand-tagline {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 15px;
+    color: var(--text-secondary);
+    margin-top: 16px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    font-weight: 500;
+}
 </style>"""
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2339,6 +2397,15 @@ def main():
         outcome=None
     
     # ═══════════════════════════════════════════════════════════════════════════
+    # BRAND HEADER - App Identity
+    # ═══════════════════════════════════════════════════════════════════════════
+    st.markdown('''<div class="brand-header">
+<div class="brand-logo">🔮</div>
+<h1 class="brand-name">SPX PROPHET</h1>
+<div class="brand-version">V6.2 PREMIUM</div>
+<div class="brand-tagline">Where Structure Becomes Foresight</div>
+</div>''', unsafe_allow_html=True)
+    
     # ═══════════════════════════════════════════════════════════════════════════
     # MEGA STATUS BANNER - The Hero Element
     # ═══════════════════════════════════════════════════════════════════════════
@@ -2690,9 +2757,107 @@ def main():
 </div>''',unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # COMMAND CENTER
+    # TRADE COMMAND CENTER - Premium Design
     # ═══════════════════════════════════════════════════════════════════════════
     st.markdown("### 🎯 Trade Command Center")
+    
+    ch_badge_class = "rising" if channel_type == "RISING" else "falling"
+    ch_icon = "▲" if channel_type == "RISING" else "▼"
+    
+    # Start building the command card HTML
+    cmd_html = f'''<div class="cmd-card">
+<div class="cmd-header">
+<div>
+<div class="cmd-title">{"📜 Historical " if inputs["is_historical"] else ""}Trading Plan</div>
+<div class="cmd-subtitle">{channel_reason}</div>
+</div>
+<div class="cmd-badge {ch_badge_class}">{ch_icon} {channel_type}</div>
+</div>
+<div class="cmd-body">
+<div class="channel-grid">
+<div class="channel-item ceiling">
+<div class="channel-label">Ceiling ({ceil_key or "N/A"})</div>
+<div class="channel-value">{ceiling_spx or "—"}</div>
+<div class="channel-es">ES {ceiling_es or "—"}</div>
+</div>
+<div class="channel-item floor">
+<div class="channel-label">Floor ({floor_key or "N/A"})</div>
+<div class="channel-value">{floor_spx or "—"}</div>
+<div class="channel-es">ES {floor_es or "—"}</div>
+</div>
+</div>'''
+    
+    # Add trade setup if we have a direction
+    if direction in ["PUTS", "CALLS"] and entry_edge_es:
+        entry_spx = round(entry_edge_es - offset, 2)
+        strike = get_strike(entry_spx, "PUT" if direction == "PUTS" else "CALL")
+        entry_price = estimate_prices(entry_spx, strike, "PUT" if direction == "PUTS" else "CALL", vix, hours_to_expiry)
+        exits, _ = estimate_exit_prices(entry_spx, strike, "PUT" if direction == "PUTS" else "CALL", vix, hours_to_expiry, targets)
+        
+        setup_class = "puts" if direction == "PUTS" else "calls"
+        setup_icon = "▼" if direction == "PUTS" else "▲"
+        
+        if direction == "PUTS":
+            entry_rule = "BULLISH candle touches entry level, then closes BELOW it"
+            rule_warning = "If candle breaks >6 pts ABOVE entry but closes below → NO ENTRY (momentum probe)"
+        else:
+            entry_rule = "BEARISH candle touches entry level, then closes ABOVE it"
+            rule_warning = "If candle breaks >6 pts BELOW entry but closes above → NO ENTRY (momentum probe)"
+        
+        # Build targets HTML
+        targets_html = ""
+        for i, t in enumerate(exits):
+            targets_html += f'''<div class="target-row">
+<span class="target-name">{t["target"]}</span>
+<span class="target-level">@ {t["level"]}</span>
+<span class="target-price">${t["price"]} ({t["pct"]:+.0f}%)</span>
+</div>'''
+        
+        cmd_html += f'''
+<div class="setup-box {setup_class}">
+<div class="setup-header">
+<div class="setup-icon">{setup_icon}</div>
+<div class="setup-title">{direction} SETUP</div>
+</div>
+<div class="setup-metrics">
+<div class="setup-metric">
+<div class="setup-metric-label">Entry Window</div>
+<div class="setup-metric-value">8:30 - 11:00</div>
+</div>
+<div class="setup-metric">
+<div class="setup-metric-label">Entry Level</div>
+<div class="setup-metric-value">{entry_spx}</div>
+</div>
+<div class="setup-metric">
+<div class="setup-metric-label">Strike</div>
+<div class="setup-metric-value">{strike}</div>
+</div>
+<div class="setup-metric">
+<div class="setup-metric-label">Est. Premium</div>
+<div class="setup-metric-value">${entry_price:.2f}</div>
+</div>
+</div>
+<div class="entry-rule">
+<div class="entry-rule-title">📋 Entry Confirmation</div>
+<div class="entry-rule-text">{entry_rule}</div>
+<div class="entry-rule-warning">⚠️ {rule_warning}</div>
+</div>
+<div class="targets-box">
+<div class="targets-title">📍 Profit Targets</div>
+{targets_html if targets_html else '<div style="color:var(--text-muted)">No targets in range</div>'}
+</div>
+</div>'''
+    else:
+        # No active setup
+        cmd_html += '''
+<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:32px;text-align:center;margin-top:20px">
+<div style="font-size:48px;margin-bottom:16px;opacity:0.3">⏸</div>
+<div style="font-size:18px;font-weight:600;color:rgba(255,255,255,0.4);margin-bottom:8px">No Active Setup</div>
+<div style="font-size:13px;color:rgba(255,255,255,0.3)">Waiting for 8:30 candle to break channel boundary</div>
+</div>'''
+    
+    cmd_html += "</div></div>"
+    st.markdown(cmd_html, unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # ANALYSIS GRID - 2x2 Layout with Equal Height Cards
