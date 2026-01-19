@@ -3226,14 +3226,28 @@ def main():
     filter_color="#00d4aa" if ema_signals["above_200"] else "#ff4757" if ema_signals["below_200"] else "#ffa502"
     filter_text="ABOVE" if ema_signals["above_200"] else "BELOW" if ema_signals["below_200"] else "AT"
     
+    # Determine EMA alignment status
     if direction=="CALLS" and ema_signals["aligned_calls"]:
-        align_text="✅ ALIGNED";align_color="#00d4aa";align_bg="rgba(0,212,170,0.12)"
+        align_text="✅ ALIGNED FOR CALLS";align_color="#00d4aa";align_bg="rgba(0,212,170,0.12)"
     elif direction=="PUTS" and ema_signals["aligned_puts"]:
-        align_text="✅ ALIGNED";align_color="#00d4aa";align_bg="rgba(0,212,170,0.12)"
+        align_text="✅ ALIGNED FOR PUTS";align_color="#ff4757";align_bg="rgba(255,71,87,0.12)"
     elif direction in ["CALLS","PUTS"]:
+        # Have a direction but EMAs don't support it
         align_text="⚠️ CONFLICT";align_color="#ffa502";align_bg="rgba(255,165,2,0.12)"
+    elif ema_signals["aligned_calls"]:
+        # No direction yet, but EMAs favor CALLS
+        align_text="📈 FAVORS CALLS";align_color="#00d4aa";align_bg="rgba(0,212,170,0.08)"
+    elif ema_signals["aligned_puts"]:
+        # No direction yet, but EMAs favor PUTS
+        align_text="📉 FAVORS PUTS";align_color="#ff4757";align_bg="rgba(255,71,87,0.08)"
+    elif ema_signals["cross_bullish"]:
+        # Bullish cross but not fully aligned (price not above 200)
+        align_text="📈 LEANS CALLS";align_color="#00d4aa";align_bg="rgba(0,212,170,0.05)"
+    elif ema_signals["cross_bearish"]:
+        # Bearish cross but not fully aligned (price not below 200)
+        align_text="📉 LEANS PUTS";align_color="#ff4757";align_bg="rgba(255,71,87,0.05)"
     else:
-        align_text="— N/A";align_color="#666";align_bg="rgba(255,255,255,0.03)"
+        align_text="— NEUTRAL";align_color="#666";align_bg="rgba(255,255,255,0.03)"
     
     flow_color="#00d4aa" if "CALLS" in flow["bias"] else "#ff4757" if "PUTS" in flow["bias"] else "#ffa502"
     meter_pos=(flow["score"]+100)/2
