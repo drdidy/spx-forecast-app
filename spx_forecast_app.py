@@ -101,49 +101,101 @@ STYLES="""<style>
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ANIMATIONS - Premium Motion Design
+   ANIMATIONS - Premium Institutional-Grade Motion Design
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* Fade in and slide up on load */
 @keyframes fadeInUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(30px); filter: blur(4px); }
+    to { opacity: 1; transform: translateY(0); filter: blur(0); }
 }
 
-/* Fade in and scale */
+/* Fade in from left */
+@keyframes fadeInLeft {
+    from { opacity: 0; transform: translateX(-30px); filter: blur(4px); }
+    to { opacity: 1; transform: translateX(0); filter: blur(0); }
+}
+
+/* Fade in from right */
+@keyframes fadeInRight {
+    from { opacity: 0; transform: translateX(30px); filter: blur(4px); }
+    to { opacity: 1; transform: translateX(0); filter: blur(0); }
+}
+
+/* Fade in and scale with blur */
 @keyframes fadeInScale {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
+    from { opacity: 0; transform: scale(0.9); filter: blur(8px); }
+    to { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+
+/* Epic reveal - scale up with glow */
+@keyframes epicReveal {
+    0% { opacity: 0; transform: scale(0.8) translateY(20px); filter: blur(10px); }
+    50% { opacity: 1; transform: scale(1.02) translateY(-5px); filter: blur(0); }
+    100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
 }
 
 /* Pulse glow for active elements */
 @keyframes pulseGlow {
     0%, 100% { box-shadow: 0 0 20px rgba(0,255,136,0.3); }
-    50% { box-shadow: 0 0 40px rgba(0,255,136,0.5), 0 0 60px rgba(0,255,136,0.2); }
+    50% { box-shadow: 0 0 40px rgba(0,255,136,0.6), 0 0 80px rgba(0,255,136,0.3), 0 0 120px rgba(0,255,136,0.1); }
+}
+
+/* Intense pulse glow for critical elements */
+@keyframes intensePulse {
+    0%, 100% { 
+        box-shadow: 0 0 20px rgba(0,255,136,0.4), inset 0 0 20px rgba(0,255,136,0.1);
+        border-color: rgba(0,255,136,0.4);
+    }
+    50% { 
+        box-shadow: 0 0 40px rgba(0,255,136,0.7), 0 0 80px rgba(0,255,136,0.4), inset 0 0 30px rgba(0,255,136,0.2);
+        border-color: rgba(0,255,136,0.8);
+    }
+}
+
+/* Red pulse for PUTS */
+@keyframes pulseRed {
+    0%, 100% { box-shadow: 0 0 20px rgba(255,71,87,0.3); }
+    50% { box-shadow: 0 0 40px rgba(255,71,87,0.6), 0 0 80px rgba(255,71,87,0.3); }
 }
 
 /* Subtle float */
 @keyframes float {
     0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-4px); }
+    50% { transform: translateY(-6px); }
 }
 
-/* Shimmer effect for loading */
+/* Float with rotation */
+@keyframes floatRotate {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    25% { transform: translateY(-4px) rotate(1deg); }
+    50% { transform: translateY(-8px) rotate(0deg); }
+    75% { transform: translateY(-4px) rotate(-1deg); }
+}
+
+/* Shimmer effect for loading and highlights */
 @keyframes shimmer {
     0% { background-position: -200% 0; }
     100% { background-position: 200% 0; }
 }
 
-/* Border glow pulse */
-@keyframes borderPulse {
-    0%, 100% { border-color: rgba(0,255,136,0.3); }
-    50% { border-color: rgba(0,255,136,0.6); }
+/* Scanning shimmer across element */
+@keyframes scanShimmer {
+    0% { left: -100%; }
+    100% { left: 200%; }
 }
 
-/* Number counting effect simulation */
+/* Border glow pulse */
+@keyframes borderPulse {
+    0%, 100% { border-color: rgba(0,255,136,0.3); box-shadow: 0 0 10px rgba(0,255,136,0.1); }
+    50% { border-color: rgba(0,255,136,0.7); box-shadow: 0 0 25px rgba(0,255,136,0.3); }
+}
+
+/* Number reveal - typewriter style */
 @keyframes countUp {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    0% { opacity: 0; transform: translateY(15px) scale(0.9); filter: blur(4px); }
+    60% { opacity: 1; transform: translateY(-3px) scale(1.02); filter: blur(0); }
+    100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
 }
 
 /* Rotate for loading */
@@ -152,10 +204,26 @@ STYLES="""<style>
     to { transform: rotate(360deg); }
 }
 
-/* Scan line effect */
+/* Smooth rotate with glow */
+@keyframes rotateGlow {
+    from { transform: rotate(0deg); filter: drop-shadow(0 0 5px rgba(0,255,136,0.5)); }
+    to { transform: rotate(360deg); filter: drop-shadow(0 0 15px rgba(0,255,136,0.8)); }
+}
+
+/* Scan line effect - terminal style */
 @keyframes scanLine {
-    0% { top: 0%; }
-    100% { top: 100%; }
+    0% { top: -10%; opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { top: 110%; opacity: 0; }
+}
+
+/* Horizontal scan */
+@keyframes scanHorizontal {
+    0% { left: -10%; opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { left: 110%; opacity: 0; }
 }
 
 /* Draw line animation for SVG */
@@ -164,23 +232,93 @@ STYLES="""<style>
     to { stroke-dashoffset: 0; }
 }
 
-/* Blink for live indicators */
-@keyframes blink {
-    0%, 50%, 100% { opacity: 1; }
-    25%, 75% { opacity: 0.4; }
+/* Draw line with glow */
+@keyframes drawLineGlow {
+    from { stroke-dashoffset: 100; filter: drop-shadow(0 0 2px currentColor); }
+    to { stroke-dashoffset: 0; filter: drop-shadow(0 0 8px currentColor); }
 }
 
-/* Gradient shift */
+/* Blink for live indicators */
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* Heartbeat pulse */
+@keyframes heartbeat {
+    0%, 100% { transform: scale(1); }
+    10% { transform: scale(1.15); }
+    20% { transform: scale(1); }
+    30% { transform: scale(1.1); }
+    40% { transform: scale(1); }
+}
+
+/* Gradient shift - animated backgrounds */
 @keyframes gradientShift {
     0% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
     100% { background-position: 0% 50%; }
 }
 
-/* Value change highlight */
+/* Rainbow border */
+@keyframes rainbowBorder {
+    0% { border-color: #00ff88; }
+    25% { border-color: #22d3ee; }
+    50% { border-color: #a855f7; }
+    75% { border-color: #fbbf24; }
+    100% { border-color: #00ff88; }
+}
+
+/* Value change flash */
 @keyframes valueFlash {
-    0% { background-color: rgba(0,255,136,0.3); }
-    100% { background-color: transparent; }
+    0% { background-color: rgba(0,255,136,0.4); transform: scale(1.05); }
+    100% { background-color: transparent; transform: scale(1); }
+}
+
+/* Slide in from bottom with bounce */
+@keyframes slideInBounce {
+    0% { opacity: 0; transform: translateY(50px); }
+    60% { opacity: 1; transform: translateY(-10px); }
+    80% { transform: translateY(5px); }
+    100% { transform: translateY(0); }
+}
+
+/* Pop in with elastic */
+@keyframes popIn {
+    0% { opacity: 0; transform: scale(0.5); }
+    70% { transform: scale(1.1); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+/* Ripple effect */
+@keyframes ripple {
+    0% { transform: scale(0.8); opacity: 1; }
+    100% { transform: scale(2.5); opacity: 0; }
+}
+
+/* Typing cursor */
+@keyframes cursorBlink {
+    0%, 100% { border-right-color: var(--green); }
+    50% { border-right-color: transparent; }
+}
+
+/* Data stream - matrix style */
+@keyframes dataStream {
+    0% { background-position: 0% 0%; }
+    100% { background-position: 0% 100%; }
+}
+
+/* Glow text */
+@keyframes glowText {
+    0%, 100% { text-shadow: 0 0 10px currentColor, 0 0 20px currentColor; }
+    50% { text-shadow: 0 0 20px currentColor, 0 0 40px currentColor, 0 0 60px currentColor; }
+}
+
+/* Status indicator breathing */
+@keyframes breathe {
+    0%, 100% { opacity: 0.6; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.1); }
+}
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -353,69 +491,104 @@ h3 {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   STATUS BANNER - Hero Element with Animations
+   STATUS BANNER - Hero Element with DRAMATIC Animations
    ═══════════════════════════════════════════════════════════════════════════ */
 .mega-status {
-    background: var(--bg-card);
+    background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-card-alt) 100%);
     border: 1px solid var(--border-dim);
-    border-radius: 16px;
-    padding: 28px 32px;
-    margin-bottom: 20px;
+    border-radius: 20px;
+    padding: 32px 36px;
+    margin-bottom: 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    animation: fadeInScale 0.6s ease-out;
-    transition: all 0.3s ease;
+    animation: epicReveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
     position: relative;
     overflow: hidden;
+}
+/* Animated gradient border */
+.mega-status::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border-radius: 20px;
+    padding: 2px;
+    background: linear-gradient(135deg, transparent, rgba(255,255,255,0.1), transparent);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+.mega-status:hover::before {
+    opacity: 1;
 }
 /* Animated scan line for active status */
 .mega-status.go::after {
     content: '';
     position: absolute;
-    left: 0; right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, var(--green), transparent);
-    animation: scanLine 3s linear infinite;
-    opacity: 0.5;
+    left: -100%; right: -100%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--green), var(--green), transparent);
+    animation: scanHorizontal 2s ease-in-out infinite;
+    opacity: 0.8;
+    filter: blur(1px);
+    box-shadow: 0 0 20px var(--green);
 }
 .mega-status.go {
     border-color: var(--green-border);
-    box-shadow: var(--green-glow);
-    animation: fadeInScale 0.6s ease-out, pulseGlow 3s ease-in-out infinite;
+    background: linear-gradient(135deg, rgba(0,255,136,0.03) 0%, var(--bg-card) 50%, rgba(0,255,136,0.02) 100%);
+    animation: epicReveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards, intensePulse 3s ease-in-out infinite;
 }
 .mega-status.wait {
     border-color: var(--amber-border);
-    box-shadow: 0 0 30px rgba(251,191,36,0.2);
+    box-shadow: 0 0 40px rgba(251,191,36,0.2), inset 0 0 60px rgba(251,191,36,0.03);
+    background: linear-gradient(135deg, rgba(251,191,36,0.03) 0%, var(--bg-card) 100%);
 }
 .mega-status.stop {
     border-color: var(--border-dim);
 }
 .mega-status.hist {
     border-color: var(--purple-border);
-    box-shadow: 0 0 30px rgba(168,85,247,0.2);
+    box-shadow: 0 0 40px rgba(168,85,247,0.25), inset 0 0 60px rgba(168,85,247,0.03);
+    background: linear-gradient(135deg, rgba(168,85,247,0.03) 0%, var(--bg-card) 100%);
 }
 
-.mega-left { display: flex; align-items: center; gap: 20px; }
+.mega-left { display: flex; align-items: center; gap: 24px; }
 .mega-icon {
-    width: 56px; height: 56px;
-    border-radius: 14px;
+    width: 64px; height: 64px;
+    border-radius: 16px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 24px;
-    animation: fadeInScale 0.5s ease-out 0.2s both;
-    transition: transform 0.3s ease;
+    font-size: 28px;
+    animation: popIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+}
+.mega-icon::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 20px;
+    background: inherit;
+    opacity: 0.4;
+    filter: blur(10px);
+    z-index: -1;
 }
 .mega-icon:hover {
-    transform: scale(1.1) rotate(5deg);
+    transform: scale(1.15) rotate(5deg);
 }
 .mega-status.go .mega-icon {
     background: linear-gradient(135deg, var(--green-dim), var(--green));
     color: var(--bg-deep);
-    box-shadow: 0 4px 20px rgba(0,255,136,0.4);
+    box-shadow: 0 8px 32px rgba(0,255,136,0.5), inset 0 1px 0 rgba(255,255,255,0.2);
+    animation: popIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both, float 3s ease-in-out infinite;
 }
 .mega-status.wait .mega-icon {
     background: linear-gradient(135deg, #f59e0b, var(--amber));
     color: var(--bg-deep);
+    box-shadow: 0 8px 32px rgba(251,191,36,0.4);
 }
 .mega-status.stop .mega-icon {
     background: var(--bg-elevated);
@@ -424,22 +597,32 @@ h3 {
 .mega-status.hist .mega-icon {
     background: linear-gradient(135deg, var(--purple-dim), var(--purple));
     color: white;
+    box-shadow: 0 8px 32px rgba(168,85,247,0.4);
 }
 
 .mega-title {
-    font-size: 28px;
-    font-weight: 700;
+    font-size: 32px;
+    font-weight: 800;
     letter-spacing: -0.5px;
-    animation: fadeInUp 0.5s ease-out 0.3s both;
+    animation: fadeInLeft 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
 }
-.mega-status.go .mega-title { color: var(--green); }
+.mega-status.go .mega-title { 
+    color: var(--green); 
+    text-shadow: 0 0 30px rgba(0,255,136,0.5);
+    animation: fadeInLeft 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both, glowText 3s ease-in-out infinite;
+}
 .mega-status.wait .mega-title { color: var(--amber); }
 .mega-status.stop .mega-title { color: var(--text-muted); }
 .mega-status.hist .mega-title { color: var(--purple); }
 
-.mega-sub { font-size: 14px; color: var(--text-secondary); margin-top: 4px; animation: fadeInUp 0.5s ease-out 0.4s both; }
+.mega-sub { 
+    font-size: 14px; 
+    color: var(--text-secondary); 
+    margin-top: 6px; 
+    animation: fadeInLeft 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both;
+}
 
-.mega-right { text-align: right; }
+.mega-right { text-align: right; animation: fadeInRight 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both; }
 .mega-price {
     font-family: 'JetBrains Mono', monospace;
     font-size: 36px;
@@ -456,74 +639,102 @@ h3 {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   VALIDATION ROW - Animated Pills
+   VALIDATION ROW - Dramatic Animated Pills
    ═══════════════════════════════════════════════════════════════════════════ */
 .valid-row {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
-    gap: 12px;
-    margin-bottom: 24px;
+    gap: 14px;
+    margin-bottom: 28px;
 }
 .valid-card {
-    background: var(--bg-card);
+    background: linear-gradient(145deg, var(--bg-card) 0%, var(--bg-card-alt) 100%);
     border: 1px solid var(--border-dim);
-    border-radius: 12px;
-    padding: 16px;
+    border-radius: 16px;
+    padding: 20px 16px;
     text-align: center;
-    transition: all 0.3s ease;
-    animation: fadeInUp 0.5s ease-out both;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: slideInBounce 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
     position: relative;
     overflow: hidden;
 }
-.valid-card:nth-child(1) { animation-delay: 0.1s; }
-.valid-card:nth-child(2) { animation-delay: 0.15s; }
-.valid-card:nth-child(3) { animation-delay: 0.2s; }
-.valid-card:nth-child(4) { animation-delay: 0.25s; }
-.valid-card:nth-child(5) { animation-delay: 0.3s; }
+/* Shimmer overlay */
+.valid-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%; right: 0; bottom: 0;
+    width: 50%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+    transform: skewX(-20deg);
+    transition: left 0.6s ease;
+}
+.valid-card:hover::before {
+    left: 150%;
+}
+.valid-card:nth-child(1) { animation-delay: 0.05s; }
+.valid-card:nth-child(2) { animation-delay: 0.1s; }
+.valid-card:nth-child(3) { animation-delay: 0.15s; }
+.valid-card:nth-child(4) { animation-delay: 0.2s; }
+.valid-card:nth-child(5) { animation-delay: 0.25s; }
 
 .valid-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+    transform: translateY(-8px) scale(1.02);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
 }
 .valid-card.pass {
-    background: var(--green-bg);
+    background: linear-gradient(145deg, var(--green-bg) 0%, rgba(0,255,136,0.05) 100%);
     border-color: var(--green-border);
 }
 .valid-card.pass:hover {
-    box-shadow: 0 8px 30px rgba(0,255,136,0.2);
+    box-shadow: 0 20px 50px rgba(0,255,136,0.25), inset 0 0 30px rgba(0,255,136,0.05);
+    border-color: var(--green);
 }
 .valid-card.fail {
-    background: var(--red-bg);
+    background: linear-gradient(145deg, var(--red-bg) 0%, rgba(255,71,87,0.05) 100%);
     border-color: var(--red-border);
 }
 .valid-card.fail:hover {
-    box-shadow: 0 8px 30px rgba(255,71,87,0.2);
+    box-shadow: 0 20px 50px rgba(255,71,87,0.25), inset 0 0 30px rgba(255,71,87,0.05);
+    border-color: var(--red);
 }
 .valid-card.neutral {
-    background: var(--amber-bg);
+    background: linear-gradient(145deg, var(--amber-bg) 0%, rgba(251,191,36,0.05) 100%);
     border-color: var(--amber-border);
+}
+.valid-card.neutral:hover {
+    box-shadow: 0 20px 50px rgba(251,191,36,0.2);
 }
 
 .valid-icon { 
-    font-size: 24px; 
-    margin-bottom: 8px;
-    transition: transform 0.3s ease;
+    font-size: 28px; 
+    margin-bottom: 10px;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    display: inline-block;
 }
 .valid-card:hover .valid-icon {
-    transform: scale(1.2);
+    transform: scale(1.3) rotate(10deg);
+    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.3));
+}
+.valid-card.pass:hover .valid-icon {
+    filter: drop-shadow(0 0 15px rgba(0,255,136,0.6));
+}
+.valid-card.fail:hover .valid-icon {
+    filter: drop-shadow(0 0 15px rgba(255,71,87,0.6));
 }
 .valid-label { 
     font-size: 10px; 
     color: var(--text-muted); 
     text-transform: uppercase; 
-    letter-spacing: 1px; 
-    margin-bottom: 6px;
+    letter-spacing: 1.5px; 
+    margin-bottom: 8px;
+    font-weight: 600;
 }
 .valid-val { 
     font-family: 'JetBrains Mono', monospace; 
-    font-size: 16px; 
+    font-size: 18px; 
     font-weight: 700;
     transition: all 0.3s ease;
+    animation: countUp 0.6s ease-out 0.5s both;
 }
 .valid-card.pass .valid-val { color: var(--green); }
 .valid-card.fail .valid-val { color: var(--red); }
@@ -589,173 +800,332 @@ h3 {
 .session-row {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    margin-bottom: 24px;
+    gap: 14px;
+    margin-bottom: 28px;
 }
 .session-card {
-    background: var(--bg-card);
+    background: linear-gradient(145deg, var(--bg-card) 0%, var(--bg-card-alt) 100%);
     border: 1px solid var(--border-dim);
-    border-radius: 12px;
-    padding: 16px;
-    transition: all 0.3s ease;
-    animation: fadeInUp 0.5s ease-out both;
+    border-radius: 16px;
+    padding: 20px;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    position: relative;
+    overflow: hidden;
+}
+/* Animated border gradient */
+.session-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 3px;
+    background: linear-gradient(90deg, transparent, var(--border-bright), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.5s ease;
+}
+.session-card:hover::before {
+    transform: translateX(100%);
 }
 .session-card:nth-child(1) { animation-delay: 0.1s; }
-.session-card:nth-child(2) { animation-delay: 0.2s; }
-.session-card:nth-child(3) { animation-delay: 0.3s; }
-.session-card:nth-child(4) { animation-delay: 0.4s; }
+.session-card:nth-child(2) { animation-delay: 0.15s; }
+.session-card:nth-child(3) { animation-delay: 0.2s; }
+.session-card:nth-child(4) { animation-delay: 0.25s; }
 
 .session-card:hover {
-    transform: translateY(-4px) scale(1.02);
+    transform: translateY(-8px) scale(1.02);
     border-color: var(--border-normal);
-    box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+    box-shadow: 0 25px 50px rgba(0,0,0,0.5);
 }
-.session-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.session-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
 .session-icon {
-    width: 40px; height: 40px;
-    border-radius: 10px;
+    width: 44px; height: 44px;
+    border-radius: 12px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 18px;
+    font-size: 20px;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+}
+.session-icon::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 14px;
+    background: inherit;
+    opacity: 0.4;
+    filter: blur(8px);
+    z-index: -1;
     transition: all 0.3s ease;
 }
 .session-card:hover .session-icon {
-    transform: scale(1.15) rotate(5deg);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    transform: scale(1.2) rotate(10deg);
 }
-.session-card.sydney .session-icon { background: linear-gradient(135deg, #3b82f6, #60a5fa); }
-.session-card.tokyo .session-icon { background: linear-gradient(135deg, #ef4444, #f87171); }
-.session-card.london .session-icon { background: linear-gradient(135deg, var(--green-dim), var(--green)); }
-.session-card.overnight .session-icon { background: linear-gradient(135deg, var(--purple-dim), var(--purple)); }
+.session-card:hover .session-icon::after {
+    opacity: 0.6;
+    filter: blur(12px);
+}
+.session-card.sydney .session-icon { background: linear-gradient(135deg, #3b82f6, #60a5fa); box-shadow: 0 4px 20px rgba(59,130,246,0.4); }
+.session-card.tokyo .session-icon { background: linear-gradient(135deg, #ef4444, #f87171); box-shadow: 0 4px 20px rgba(239,68,68,0.4); }
+.session-card.london .session-icon { background: linear-gradient(135deg, var(--green-dim), var(--green)); box-shadow: 0 4px 20px rgba(0,255,136,0.4); }
+.session-card.overnight .session-icon { background: linear-gradient(135deg, var(--purple-dim), var(--purple)); box-shadow: 0 4px 20px rgba(168,85,247,0.4); }
 
-.session-name { font-size: 14px; font-weight: 600; color: var(--text-white); }
-.session-data { display: flex; flex-direction: column; gap: 8px; }
+.session-name { font-size: 15px; font-weight: 700; color: var(--text-white); }
+.session-data { display: flex; flex-direction: column; gap: 10px; }
 .session-line {
     display: flex; justify-content: space-between;
     font-size: 13px;
-    transition: all 0.2s ease;
+    transition: all 0.3s ease;
+    padding: 6px 8px;
+    margin: 0 -8px;
+    border-radius: 6px;
 }
 .session-line:hover {
-    background: rgba(255,255,255,0.02);
-    margin: 0 -8px;
-    padding: 4px 8px;
-    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    transform: translateX(4px);
 }
 .session-line .label { color: var(--text-muted); }
 .session-line .value { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
-.session-line .value.high { color: var(--green); }
-.session-line .value.low { color: var(--red); }
+.session-line .value.high { color: var(--green); text-shadow: 0 0 20px rgba(0,255,136,0.4); }
+.session-line .value.low { color: var(--red); text-shadow: 0 0 20px rgba(255,71,87,0.4); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   COMMAND CENTER - Premium Card with Animations
+   COMMAND CENTER - Premium Card with DRAMATIC Animations
    ═══════════════════════════════════════════════════════════════════════════ */
 .cmd-card {
-    background: var(--bg-card);
+    background: linear-gradient(145deg, var(--bg-card) 0%, rgba(17,17,17,0.95) 50%, var(--bg-card-alt) 100%);
     border: 1px solid var(--border-dim);
-    border-radius: 16px;
-    padding: 24px;
-    margin-bottom: 24px;
-    animation: fadeInScale 0.6s ease-out;
-    transition: all 0.3s ease;
+    border-radius: 20px;
+    padding: 28px;
+    margin-bottom: 28px;
+    animation: epicReveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+}
+/* Animated corner accents */
+.cmd-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 60px; height: 60px;
+    background: linear-gradient(135deg, rgba(0,255,136,0.15), transparent);
+    border-radius: 20px 0 0 0;
+}
+.cmd-card::after {
+    content: '';
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 60px; height: 60px;
+    background: linear-gradient(315deg, rgba(0,255,136,0.1), transparent);
+    border-radius: 0 0 20px 0;
 }
 .cmd-card:hover {
     border-color: var(--border-normal);
+    box-shadow: 0 30px 60px rgba(0,0,0,0.4);
+    transform: translateY(-4px);
 }
 .cmd-header {
     display: flex; justify-content: space-between; align-items: flex-start;
-    margin-bottom: 20px;
-    padding-bottom: 16px;
+    margin-bottom: 24px;
+    padding-bottom: 20px;
     border-bottom: 1px solid var(--border-dim);
+    position: relative;
 }
-.cmd-title { font-size: 18px; font-weight: 700; color: var(--text-white); }
-.cmd-subtitle { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+/* Animated underline */
+.cmd-header::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; left: 0;
+    width: 0; height: 2px;
+    background: linear-gradient(90deg, var(--green), var(--cyan));
+    transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cmd-card:hover .cmd-header::after {
+    width: 100%;
+}
+.cmd-title { font-size: 20px; font-weight: 800; color: var(--text-white); animation: fadeInLeft 0.5s ease-out 0.2s both; }
+.cmd-subtitle { font-size: 13px; color: var(--text-muted); margin-top: 4px; animation: fadeInLeft 0.5s ease-out 0.3s both; }
 .cmd-badge {
-    padding: 6px 14px;
-    border-radius: 8px;
+    padding: 8px 16px;
+    border-radius: 10px;
     font-size: 12px;
     font-weight: 700;
     font-family: 'JetBrains Mono', monospace;
-    animation: fadeInScale 0.4s ease-out 0.3s both;
+    animation: popIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both;
     transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+.cmd-badge::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    transition: left 0.5s ease;
+}
+.cmd-badge:hover::before {
+    left: 100%;
 }
 .cmd-badge:hover {
-    transform: scale(1.05);
+    transform: scale(1.08);
 }
-.cmd-badge.rising { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
-.cmd-badge.falling { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
+.cmd-badge.rising { 
+    background: linear-gradient(135deg, var(--green-bg), rgba(0,255,136,0.15)); 
+    color: var(--green); 
+    border: 1px solid var(--green-border);
+    box-shadow: 0 4px 20px rgba(0,255,136,0.2);
+}
+.cmd-badge.falling { 
+    background: linear-gradient(135deg, var(--red-bg), rgba(255,71,87,0.15)); 
+    color: var(--red); 
+    border: 1px solid var(--red-border);
+    box-shadow: 0 4px 20px rgba(255,71,87,0.2);
+}
 
 .channel-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 20px;
+    gap: 16px;
+    margin-bottom: 24px;
 }
 .channel-item {
-    background: var(--bg-card-alt);
+    background: linear-gradient(145deg, var(--bg-card-alt) 0%, var(--bg-card) 100%);
     border: 1px solid var(--border-dim);
-    border-radius: 10px;
-    padding: 16px;
+    border-radius: 14px;
+    padding: 20px;
     text-align: center;
-    animation: fadeInUp 0.5s ease-out both;
+    animation: slideInBounce 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+}
+/* Glow effect at border */
+.channel-item::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    width: 4px;
     transition: all 0.3s ease;
 }
-.channel-item:first-child { animation-delay: 0.1s; }
-.channel-item:last-child { animation-delay: 0.2s; }
-.channel-item:hover {
-    transform: translateY(-2px);
-    background: var(--bg-elevated);
+.channel-item.ceiling::before { 
+    background: linear-gradient(180deg, var(--green), rgba(0,255,136,0.3));
+    box-shadow: 0 0 20px rgba(0,255,136,0.5);
 }
-.channel-item.ceiling { border-left: 3px solid var(--green); }
-.channel-item.floor { border-left: 3px solid var(--red); }
-.channel-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+.channel-item.floor::before { 
+    background: linear-gradient(180deg, var(--red), rgba(255,71,87,0.3));
+    box-shadow: 0 0 20px rgba(255,71,87,0.5);
+}
+.channel-item:first-child { animation-delay: 0.15s; }
+.channel-item:last-child { animation-delay: 0.25s; }
+.channel-item:hover {
+    transform: translateY(-6px) scale(1.02);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+}
+.channel-item.ceiling:hover { border-color: var(--green-border); }
+.channel-item.floor:hover { border-color: var(--red-border); }
+.channel-item.ceiling { border-left: none; border-radius: 14px; }
+.channel-item.floor { border-left: none; border-radius: 14px; }
+.channel-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px; font-weight: 600; }
 .channel-value { 
     font-family: 'JetBrains Mono', monospace; 
-    font-size: 24px; 
+    font-size: 28px; 
     font-weight: 700; 
     color: var(--text-white);
     transition: all 0.3s ease;
+    animation: countUp 0.7s ease-out 0.5s both;
 }
 .channel-item:hover .channel-value {
-    transform: scale(1.05);
+    transform: scale(1.08);
 }
-.channel-es { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.channel-item.ceiling:hover .channel-value { text-shadow: 0 0 30px rgba(0,255,136,0.5); }
+.channel-item.floor:hover .channel-value { text-shadow: 0 0 30px rgba(255,71,87,0.5); }
+.channel-es { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
 
 .setup-box {
-    background: var(--bg-elevated);
-    border-radius: 12px;
-    padding: 20px;
-    margin-top: 16px;
-    animation: fadeInUp 0.6s ease-out 0.3s both;
+    background: linear-gradient(145deg, var(--bg-elevated) 0%, var(--bg-card) 100%);
+    border-radius: 20px;
+    padding: 24px;
+    margin-top: 20px;
+    animation: epicReveal 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
+    position: relative;
+    overflow: hidden;
 }
-.setup-box.puts { border: 1px solid var(--red-border); }
-.setup-box.calls { border: 1px solid var(--green-border); }
+/* Animated gradient border */
+.setup-box::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 20px;
+    padding: 2px;
+    background: linear-gradient(135deg, transparent 30%, var(--green) 50%, transparent 70%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    background-size: 200% 200%;
+    animation: gradientShift 3s ease-in-out infinite;
+    opacity: 0.5;
+}
+.setup-box.puts::before {
+    background: linear-gradient(135deg, transparent 30%, var(--red) 50%, transparent 70%);
+    background-size: 200% 200%;
+}
+.setup-box.puts { 
+    border: 1px solid var(--red-border);
+    box-shadow: 0 10px 40px rgba(255,71,87,0.15), inset 0 0 60px rgba(255,71,87,0.03);
+}
+.setup-box.calls { 
+    border: 1px solid var(--green-border);
+    box-shadow: 0 10px 40px rgba(0,255,136,0.15), inset 0 0 60px rgba(0,255,136,0.03);
+}
 
-.setup-header { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.setup-header { display: flex; align-items: center; gap: 20px; margin-bottom: 20px; }
 .setup-icon {
-    width: 48px; height: 48px;
-    border-radius: 12px;
+    width: 56px; height: 56px;
+    border-radius: 16px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 24px; font-weight: 700;
-    animation: float 3s ease-in-out infinite;
+    font-size: 28px; font-weight: 700;
+    animation: floatRotate 4s ease-in-out infinite;
+    position: relative;
 }
-.setup-box.puts .setup-icon { background: var(--red-bg); color: var(--red); }
-.setup-box.calls .setup-icon { background: var(--green-bg); color: var(--green); }
-.setup-title { font-size: 20px; font-weight: 700; }
-.setup-box.puts .setup-title { color: var(--red); }
-.setup-box.calls .setup-title { color: var(--green); }
+.setup-icon::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 20px;
+    background: inherit;
+    opacity: 0.4;
+    filter: blur(12px);
+    z-index: -1;
+}
+.setup-box.puts .setup-icon { 
+    background: linear-gradient(135deg, rgba(255,71,87,0.2), rgba(255,71,87,0.1)); 
+    color: var(--red);
+    box-shadow: 0 8px 30px rgba(255,71,87,0.3);
+}
+.setup-box.calls .setup-icon { 
+    background: linear-gradient(135deg, rgba(0,255,136,0.2), rgba(0,255,136,0.1)); 
+    color: var(--green);
+    box-shadow: 0 8px 30px rgba(0,255,136,0.3);
+}
+.setup-title { font-size: 24px; font-weight: 800; animation: fadeInLeft 0.5s ease-out 0.4s both; }
+.setup-box.puts .setup-title { color: var(--red); text-shadow: 0 0 30px rgba(255,71,87,0.4); }
+.setup-box.calls .setup-title { color: var(--green); text-shadow: 0 0 30px rgba(0,255,136,0.4); }
 
 .setup-metrics {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    margin-bottom: 16px;
+    gap: 14px;
+    margin-bottom: 20px;
 }
 .setup-metric {
-    background: var(--bg-card);
-    border-radius: 8px;
-    padding: 12px;
+    background: linear-gradient(145deg, var(--bg-card) 0%, var(--bg-card-alt) 100%);
+    border: 1px solid var(--border-dim);
+    border-radius: 12px;
+    padding: 16px;
     text-align: center;
-    transition: all 0.3s ease;
-    animation: fadeInUp 0.4s ease-out both;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: slideInBounce 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .setup-metric:nth-child(1) { animation-delay: 0.1s; }
 .setup-metric:nth-child(2) { animation-delay: 0.15s; }
@@ -763,19 +1133,38 @@ h3 {
 .setup-metric:nth-child(4) { animation-delay: 0.25s; }
 .setup-metric:hover {
     background: var(--bg-elevated);
-    transform: translateY(-2px);
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: 0 15px 30px rgba(0,0,0,0.3);
+    border-color: var(--border-normal);
 }
-.setup-metric-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
-.setup-metric-value { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 700; color: var(--text-white); }
+.setup-metric-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; font-weight: 600; }
+.setup-metric-value { 
+    font-family: 'JetBrains Mono', monospace; 
+    font-size: 18px; 
+    font-weight: 700; 
+    color: var(--text-white);
+    animation: countUp 0.6s ease-out 0.5s both;
+}
 
 .entry-rule {
-    background: var(--amber-bg);
+    background: linear-gradient(145deg, var(--amber-bg) 0%, rgba(251,191,36,0.05) 100%);
     border: 1px solid var(--amber-border);
-    border-radius: 10px;
-    padding: 14px;
-    margin-bottom: 16px;
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 20px;
     animation: fadeInUp 0.5s ease-out 0.4s both;
     transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+.entry-rule::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: linear-gradient(180deg, var(--amber), rgba(251,191,36,0.3));
+    border-radius: 4px 0 0 4px;
+}
 }
 .entry-rule:hover {
     background: rgba(251,191,36,0.12);
@@ -3024,9 +3413,103 @@ def main():
         }
     
     # Validation - 8:30 candle determines position by breaking ceiling/floor
+    # In planning mode (no 8:30 candle), project likely setup based on O/N position
     if candle_830 and ceiling_es and floor_es:
         validation=validate_830_candle(candle_830,ceiling_es,floor_es)
         position=validation.get("position","UNKNOWN")
+    elif inputs.get("is_planning") and ceiling_es and floor_es and on_high and on_low:
+        # PLANNING MODE: Project setup based on O/N position relative to channel
+        # Determine where overnight is trading relative to the channel
+        on_mid = (on_high + on_low) / 2
+        channel_mid = (ceiling_es + floor_es) / 2
+        
+        # Calculate O/N position percentages
+        on_near_ceiling = on_high >= ceiling_es or (ceiling_es - on_high) < 5
+        on_near_floor = on_low <= floor_es or (on_low - floor_es) < 5
+        on_above_channel = on_low > ceiling_es
+        on_below_channel = on_high < floor_es
+        
+        # Gap direction (from prior close to current O/N position)
+        pc = prior_close or ceiling_es
+        gap_down = on_mid < pc - 20
+        gap_up = on_mid > pc + 20
+        
+        if on_below_channel:
+            # O/N entirely below channel = strong PUTS setup
+            validation = {
+                "status": "PROJECTED",
+                "message": f"📊 PROJECTED: O/N trading below channel floor ({on_high:.0f} < {floor_es:.0f})",
+                "setup": "PUTS",
+                "position": "BELOW",
+                "edge": floor_es,
+                "projected": True
+            }
+            position = "BELOW"
+        elif on_above_channel:
+            # O/N entirely above channel = strong CALLS setup
+            validation = {
+                "status": "PROJECTED", 
+                "message": f"📊 PROJECTED: O/N trading above channel ceiling ({on_low:.0f} > {ceiling_es:.0f})",
+                "setup": "CALLS",
+                "position": "ABOVE",
+                "edge": ceiling_es,
+                "projected": True
+            }
+            position = "ABOVE"
+        elif on_near_floor and not on_near_ceiling:
+            # O/N near floor = likely PUTS if it breaks
+            validation = {
+                "status": "PROJECTED",
+                "message": f"📊 PROJECTED: O/N testing floor ({on_low:.0f} near {floor_es:.0f}) - PUTS if breaks",
+                "setup": "PUTS",
+                "position": "INSIDE",
+                "edge": floor_es,
+                "projected": True
+            }
+            position = "INSIDE"
+        elif on_near_ceiling and not on_near_floor:
+            # O/N near ceiling = likely CALLS if it breaks
+            validation = {
+                "status": "PROJECTED",
+                "message": f"📊 PROJECTED: O/N testing ceiling ({on_high:.0f} near {ceiling_es:.0f}) - CALLS if breaks",
+                "setup": "CALLS",
+                "position": "INSIDE",
+                "edge": ceiling_es,
+                "projected": True
+            }
+            position = "INSIDE"
+        elif gap_down:
+            # Gap down but inside channel = lean PUTS
+            validation = {
+                "status": "PROJECTED",
+                "message": f"📊 PROJECTED: Gap down inside channel - lean PUTS",
+                "setup": "PUTS",
+                "position": "INSIDE",
+                "edge": floor_es,
+                "projected": True
+            }
+            position = "INSIDE"
+        elif gap_up:
+            # Gap up but inside channel = lean CALLS
+            validation = {
+                "status": "PROJECTED",
+                "message": f"📊 PROJECTED: Gap up inside channel - lean CALLS",
+                "setup": "CALLS",
+                "position": "INSIDE",
+                "edge": ceiling_es,
+                "projected": True
+            }
+            position = "INSIDE"
+        else:
+            # Neutral - inside channel, no clear bias
+            validation = {
+                "status": "PROJECTED",
+                "message": f"📊 PROJECTED: O/N inside channel - wait for 8:30 break",
+                "setup": "NEUTRAL",
+                "position": "INSIDE",
+                "projected": True
+            }
+            position = "INSIDE"
     else:
         validation={"status":"AWAITING","message":"Waiting for data","setup":"WAIT","position":"UNKNOWN"}
         position="UNKNOWN"
@@ -3048,6 +3531,8 @@ def main():
         pos_dist=0
     
     # Direction & targets based on validation
+    is_projected = validation.get("projected", False)
+    
     if validation["setup"]=="PUTS":
         direction="PUTS"
         entry_edge_es=validation.get("edge",floor_es)
@@ -3058,6 +3543,14 @@ def main():
         entry_edge_es=validation.get("edge",ceiling_es)
         entry_edge_spx=round(entry_edge_es-offset,2) if entry_edge_es else ceiling_spx
         targets=find_targets(entry_edge_spx,cones_spx,"CALLS") if entry_edge_spx else []
+    elif validation["setup"]=="NEUTRAL" and is_projected:
+        # Neutral in planning mode - show both potential setups
+        direction="NEUTRAL"
+        entry_edge_es=None
+        targets=[]
+        # Calculate both directions for display
+        puts_targets = find_targets(floor_spx, cones_spx, "PUTS") if floor_spx else []
+        calls_targets = find_targets(ceiling_spx, cones_spx, "CALLS") if ceiling_spx else []
     else:
         direction="WAIT"
         entry_edge_es=None
@@ -3143,6 +3636,28 @@ def main():
         status_icon = "📜"
         status_title = "HISTORICAL ANALYSIS"
         status_sub = f"Reviewing {inputs['trading_date'].strftime('%A, %B %d, %Y')}"
+    elif inputs["is_planning"] and is_projected:
+        # Planning mode with projected setup
+        if direction == "PUTS":
+            status_class = "mega-status go"
+            status_icon = "▼"
+            status_title = "PROJECTED PUTS"
+            status_sub = validation["message"]
+        elif direction == "CALLS":
+            status_class = "mega-status go"
+            status_icon = "▲"
+            status_title = "PROJECTED CALLS"
+            status_sub = validation["message"]
+        elif direction == "NEUTRAL":
+            status_class = "mega-status wait"
+            status_icon = "⚖️"
+            status_title = "NEUTRAL - WATCH BOTH"
+            status_sub = "O/N inside channel - direction at 8:30"
+        else:
+            status_class = "mega-status hist"
+            status_icon = "📋"
+            status_title = "PLANNING MODE"
+            status_sub = f"Preparing for {inputs['trading_date'].strftime('%A, %B %d, %Y')}"
     elif inputs["is_planning"]:
         status_class = "mega-status hist"
         status_icon = "📋"
@@ -3516,36 +4031,59 @@ def main():
 </div>'''
     
     # Add trade setup if we have a direction
-    if direction in ["PUTS", "CALLS"] and entry_edge_es:
-        entry_spx = round(entry_edge_es - offset, 2)
-        strike = get_strike(entry_spx, "PUT" if direction == "PUTS" else "CALL")
-        entry_price = estimate_prices(entry_spx, strike, "PUT" if direction == "PUTS" else "CALL", vix, hours_to_expiry)
-        exits, _ = estimate_exit_prices(entry_spx, strike, "PUT" if direction == "PUTS" else "CALL", vix, hours_to_expiry, targets)
-        
-        setup_class = "puts" if direction == "PUTS" else "calls"
-        setup_icon = "▼" if direction == "PUTS" else "▲"
-        
-        if direction == "PUTS":
-            entry_rule = "BULLISH candle touches entry level, then closes BELOW it"
-            rule_warning = "If candle breaks >6 pts ABOVE entry but closes below → NO ENTRY (momentum probe)"
-        else:
-            entry_rule = "BEARISH candle touches entry level, then closes ABOVE it"
-            rule_warning = "If candle breaks >6 pts BELOW entry but closes above → NO ENTRY (momentum probe)"
-        
-        # Build targets HTML
-        targets_html = ""
-        for i, t in enumerate(exits):
-            targets_html += f'''<div class="target-row">
+    if direction in ["PUTS", "CALLS"]:
+        # For projected setups, use the appropriate edge even if validation didn't set entry_edge
+        if entry_edge_es is None and is_projected:
+            entry_edge_es = floor_es if direction == "PUTS" else ceiling_es
+            
+        if entry_edge_es:
+            entry_spx = round(entry_edge_es - offset, 2)
+            strike = get_strike(entry_spx, "PUT" if direction == "PUTS" else "CALL")
+            entry_price = estimate_prices(entry_spx, strike, "PUT" if direction == "PUTS" else "CALL", vix, hours_to_expiry)
+            
+            # Get targets - recalculate if needed
+            if not targets:
+                targets = find_targets(entry_spx, cones_spx, direction) if entry_spx else []
+            exits, _ = estimate_exit_prices(entry_spx, strike, "PUT" if direction == "PUTS" else "CALL", vix, hours_to_expiry, targets)
+            
+            setup_class = "puts" if direction == "PUTS" else "calls"
+            setup_icon = "▼" if direction == "PUTS" else "▲"
+            
+            # Different messaging for projected vs confirmed
+            if is_projected:
+                setup_label = f"PROJECTED {direction}"
+                setup_status = "📊 PLANNING MODE"
+            else:
+                setup_label = f"{direction} SETUP"
+                setup_status = "✅ CONFIRMED"
+            
+            if direction == "PUTS":
+                entry_rule = "BULLISH candle touches entry level, then closes BELOW it"
+                rule_warning = "If candle breaks >6 pts ABOVE entry but closes below → NO ENTRY (momentum probe)"
+            else:
+                entry_rule = "BEARISH candle touches entry level, then closes ABOVE it"
+                rule_warning = "If candle breaks >6 pts BELOW entry but closes above → NO ENTRY (momentum probe)"
+            
+            # Build targets HTML
+            targets_html = ""
+            for i, t in enumerate(exits):
+                targets_html += f'''<div class="target-row">
 <span class="target-name">{t["target"]}</span>
 <span class="target-level">@ {t["level"]}</span>
 <span class="target-price">${t["price"]} ({t["pct"]:+.0f}%)</span>
 </div>'''
-        
-        cmd_html += f'''
+            
+            # Add projected badge styling
+            projected_badge = f'<div style="font-size:10px;color:var(--amber);margin-top:4px;font-weight:600">{setup_status}</div>' if is_projected else ''
+            
+            cmd_html += f'''
 <div class="setup-box {setup_class}">
 <div class="setup-header">
 <div class="setup-icon">{setup_icon}</div>
-<div class="setup-title">{direction} SETUP</div>
+<div>
+<div class="setup-title">{setup_label}</div>
+{projected_badge}
+</div>
 </div>
 <div class="setup-metrics">
 <div class="setup-metric">
@@ -3566,7 +4104,7 @@ def main():
 </div>
 </div>
 <div class="entry-rule">
-<div class="entry-rule-title">📋 Entry Confirmation</div>
+<div class="entry-rule-title">📋 Entry Confirmation {"(Projected)" if is_projected else ""}</div>
 <div class="entry-rule-text">{entry_rule}</div>
 <div class="entry-rule-warning">⚠️ {rule_warning}</div>
 </div>
@@ -3575,13 +4113,42 @@ def main():
 {targets_html if targets_html else '<div style="color:var(--text-muted)">No targets in range</div>'}
 </div>
 </div>'''
+        else:
+            # Have direction but no entry edge - shouldn't happen but fallback
+            cmd_html += '''
+<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:32px;text-align:center;margin-top:20px">
+<div style="font-size:48px;margin-bottom:16px;opacity:0.3">⚠️</div>
+<div style="font-size:18px;font-weight:600;color:rgba(255,255,255,0.4);margin-bottom:8px">Setup Incomplete</div>
+<div style="font-size:13px;color:rgba(255,255,255,0.3)">Missing entry edge data</div>
+</div>'''
+    elif direction == "NEUTRAL" and is_projected:
+        # Neutral in planning mode - show BOTH potential setups
+        cmd_html += f'''
+<div style="margin-top:16px">
+<div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);border-radius:12px;padding:16px;margin-bottom:12px;text-align:center">
+<div style="font-size:14px;color:var(--amber);font-weight:600;margin-bottom:8px">📊 NEUTRAL - Watch for 8:30 Break</div>
+<div style="font-size:12px;color:rgba(255,255,255,0.6)">O/N trading inside channel. Direction determined at 8:30 AM by which boundary breaks first.</div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+<div style="background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.3);border-radius:12px;padding:16px">
+<div style="font-size:14px;font-weight:700;color:var(--red);margin-bottom:8px">▼ IF PUTS</div>
+<div style="font-size:12px;color:rgba(255,255,255,0.6);margin-bottom:8px">8:30 breaks below {floor_spx}</div>
+<div style="font-size:11px;color:rgba(255,255,255,0.4)">Entry at Floor: ES {floor_es:.2f}</div>
+</div>
+<div style="background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.3);border-radius:12px;padding:16px">
+<div style="font-size:14px;font-weight:700;color:var(--green);margin-bottom:8px">▲ IF CALLS</div>
+<div style="font-size:12px;color:rgba(255,255,255,0.6);margin-bottom:8px">8:30 breaks above {ceiling_spx}</div>
+<div style="font-size:11px;color:rgba(255,255,255,0.4)">Entry at Ceiling: ES {ceiling_es:.2f}</div>
+</div>
+</div>
+</div>'''
     else:
         # No active setup
         cmd_html += '''
 <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:32px;text-align:center;margin-top:20px">
 <div style="font-size:48px;margin-bottom:16px;opacity:0.3">⏸</div>
 <div style="font-size:18px;font-weight:600;color:rgba(255,255,255,0.4);margin-bottom:8px">No Active Setup</div>
-<div style="font-size:13px;color:rgba(255,255,255,0.3)">Waiting for 8:30 candle to break channel boundary</div>
+<div style="font-size:13px;color:rgba(255,255,255,0.3)">Waiting for market data to determine setup</div>
 </div>'''
     
     cmd_html += "</div></div>"
