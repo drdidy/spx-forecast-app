@@ -447,12 +447,12 @@ h3 {
 .ladder-visual {
     position: relative;
     height: 280px;
-    display: flex;
-    margin: 0 60px;
+    margin: 0 80px;
 }
 .ladder-track {
     position: relative;
     width: 100%;
+    height: 100%;
     background: linear-gradient(180deg, 
         var(--signal-go-muted) 0%, 
         var(--surface-2) 30%, 
@@ -465,11 +465,11 @@ h3 {
 
 .ladder-level {
     position: absolute;
-    left: -60px;
-    right: -60px;
+    left: -80px;
+    right: -80px;
     display: flex;
     align-items: center;
-    height: 0;
+    height: 2px;
 }
 .ladder-level-line {
     flex: 1;
@@ -489,11 +489,6 @@ h3 {
     height: 1px;
     opacity: 0.6;
 }
-.ladder-level.entry .ladder-level-line { 
-    background: var(--accent);
-    height: 2px;
-    stroke-dasharray: 4 4;
-}
 
 .ladder-price {
     font-family: var(--font-mono);
@@ -502,6 +497,8 @@ h3 {
     white-space: nowrap;
     padding: 4px 8px;
     border-radius: var(--radius-sm);
+    min-width: 70px;
+    text-align: center;
 }
 .ladder-level.ceiling .ladder-price { 
     background: var(--signal-go-muted); 
@@ -516,16 +513,14 @@ h3 {
     color: var(--signal-wait);
     font-size: 11px;
 }
-.ladder-level.entry .ladder-price { 
-    background: var(--accent-muted); 
-    color: var(--accent); 
-}
 
 .ladder-label {
     font-size: 10px;
     color: var(--text-tertiary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    min-width: 60px;
+    text-align: center;
 }
 
 .ladder-current {
@@ -555,6 +550,7 @@ h3 {
     border-radius: var(--radius-sm);
     margin-top: 8px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    white-space: nowrap;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1179,9 +1175,7 @@ h3 {
 .mono { font-family: var(--font-mono) !important; }
 .font-display { font-family: var(--font-display) !important; }
 
-/* Hide default Streamlit elements */
-#MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
+/* Note: Do NOT hide MainMenu - user needs access to theme settings */
 .stDeployButton { display: none; }
 </style>"""
 
@@ -1327,6 +1321,14 @@ def calculate_countdown(target_time, now_time):
 def render_status_banner(validation, direction, current_spx, current_es, is_historical, is_planning, trading_date):
     """Render the main status banner - the most important UI element"""
     
+    # Handle None values for prices
+    spx_display = f"{current_spx:,.2f}" if current_spx else "—"
+    es_display = f"{current_es:,.2f}" if current_es else "—"
+    
+    # Ensure validation is a dict
+    if not validation:
+        validation = {"setup": "WAIT", "status": "AWAITING", "message": "Waiting for data"}
+    
     if is_historical:
         status_class = "historical"
         status_icon = "📜"
@@ -1337,22 +1339,22 @@ def render_status_banner(validation, direction, current_spx, current_es, is_hist
         status_icon = "📋"
         status_title = "PLANNING MODE"
         status_reason = f"Preparing for {trading_date.strftime('%A, %B %d, %Y')}"
-    elif validation["setup"] == "PUTS":
+    elif validation.get("setup") == "PUTS":
         status_class = "go"
         status_icon = "🔴"
         status_title = "PUTS SETUP ACTIVE"
-        status_reason = validation["message"]
-    elif validation["setup"] == "CALLS":
+        status_reason = validation.get("message", "")
+    elif validation.get("setup") == "CALLS":
         status_class = "go"
         status_icon = "🟢"
         status_title = "CALLS SETUP ACTIVE"
-        status_reason = validation["message"]
-    elif validation["status"] == "INSIDE":
+        status_reason = validation.get("message", "")
+    elif validation.get("status") == "INSIDE":
         status_class = "wait"
         status_icon = "⏸"
         status_title = "WAITING FOR BREAK"
-        status_reason = validation["message"]
-    elif validation["status"] == "AWAITING":
+        status_reason = validation.get("message", "")
+    elif validation.get("status") == "AWAITING":
         status_class = "wait"
         status_icon = "⏳"
         status_title = "AWAITING 8:30 CANDLE"
@@ -1364,17 +1366,17 @@ def render_status_banner(validation, direction, current_spx, current_es, is_hist
         status_reason = validation.get("message", "Setup conditions not met")
     
     return f'''<div class="status-banner {status_class}">
-    <div class="status-main">
-        <div class="status-indicator">{status_icon}</div>
-        <div class="status-content">
-            <h1>{status_title}</h1>
-            <p class="status-reason">{status_reason}</p>
-        </div>
-    </div>
-    <div class="status-meta">
-        <div class="status-price">{current_spx:,.2f}</div>
-        <div class="status-sublabel">SPX • ES {current_es:,.2f}</div>
-    </div>
+<div class="status-main">
+<div class="status-indicator">{status_icon}</div>
+<div class="status-content">
+<h1>{status_title}</h1>
+<p class="status-reason">{status_reason}</p>
+</div>
+</div>
+<div class="status-meta">
+<div class="status-price">{spx_display}</div>
+<div class="status-sublabel">SPX • ES {es_display}</div>
+</div>
 </div>'''
 
 def render_countdown_bar(now_time, trading_date, is_historical=False):
@@ -1455,11 +1457,23 @@ def render_session_timeline(now_time, is_historical=False):
 def render_price_ladder(current_spx, ceiling_spx, floor_spx, targets, direction, channel_type):
     """Render the visual price ladder showing position within channel"""
     
-    if not ceiling_spx or not floor_spx:
+    # Handle None values
+    if current_spx is None or ceiling_spx is None or floor_spx is None:
+        return ""
+    
+    # Ensure we have valid numbers
+    try:
+        current_spx = float(current_spx)
+        ceiling_spx = float(ceiling_spx)
+        floor_spx = float(floor_spx)
+    except (TypeError, ValueError):
         return ""
     
     # Calculate the visual range (add padding above ceiling and below floor)
     channel_range = ceiling_spx - floor_spx
+    if channel_range <= 0:
+        return ""
+    
     padding = channel_range * 0.3
     visual_top = ceiling_spx + padding
     visual_bottom = floor_spx - padding
@@ -1483,57 +1497,48 @@ def render_price_ladder(current_spx, ceiling_spx, floor_spx, targets, direction,
     channel_class = "rising" if channel_type == "RISING" else "falling"
     channel_icon = "▲" if channel_type == "RISING" else "▼"
     
-    # Build level lines
-    levels_html = f'''
-        <div class="ladder-level ceiling" style="bottom: {ceiling_pct}%">
-            <span class="ladder-price">{ceiling_spx:.2f}</span>
-            <div class="ladder-level-line"></div>
-            <span class="ladder-label">CEILING</span>
-        </div>
-        <div class="ladder-level floor" style="bottom: {floor_pct}%">
-            <span class="ladder-price">{floor_spx:.2f}</span>
-            <div class="ladder-level-line"></div>
-            <span class="ladder-label">FLOOR</span>
-        </div>
-    '''
+    # Build level lines HTML
+    levels_html = f'''<div class="ladder-level ceiling" style="bottom:{ceiling_pct:.1f}%"><span class="ladder-price">{ceiling_spx:.2f}</span><div class="ladder-level-line"></div><span class="ladder-label">CEILING</span></div>
+<div class="ladder-level floor" style="bottom:{floor_pct:.1f}%"><span class="ladder-price">{floor_spx:.2f}</span><div class="ladder-level-line"></div><span class="ladder-label">FLOOR</span></div>'''
     
     # Add target levels (max 3)
-    for i, tgt in enumerate(targets[:3]):
-        tgt_pct = price_to_percent(tgt["level"])
-        if 5 < tgt_pct < 95:  # Only show if in visible range
-            levels_html += f'''
-                <div class="ladder-level target" style="bottom: {tgt_pct}%">
-                    <span class="ladder-price">{tgt["level"]:.2f}</span>
-                    <div class="ladder-level-line"></div>
-                    <span class="ladder-label">T{i+1}</span>
-                </div>
-            '''
+    if targets:
+        for i, tgt in enumerate(targets[:3]):
+            if tgt and "level" in tgt:
+                tgt_pct = price_to_percent(tgt["level"])
+                if 5 < tgt_pct < 95:  # Only show if in visible range
+                    levels_html += f'''<div class="ladder-level target" style="bottom:{tgt_pct:.1f}%"><span class="ladder-price">{tgt["level"]:.2f}</span><div class="ladder-level-line"></div><span class="ladder-label">T{i+1}</span></div>'''
     
     # Current price marker
-    current_html = f'''
-        <div class="ladder-current" style="bottom: {current_pct}%">
-            <div class="ladder-current-dot"></div>
-            <div class="ladder-current-price">{current_spx:.2f}</div>
-        </div>
-    '''
+    current_html = f'''<div class="ladder-current" style="bottom:{current_pct:.1f}%"><div class="ladder-current-dot"></div><div class="ladder-current-price">{current_spx:.2f}</div></div>'''
     
     return f'''<div class="price-ladder">
-    <div class="price-ladder-header">
-        <span class="price-ladder-title">Price Position</span>
-        <span class="price-ladder-channel {channel_class}">{channel_icon} {channel_type}</span>
-    </div>
-    <div class="ladder-visual">
-        <div class="ladder-track">
-            {levels_html}
-            {current_html}
-        </div>
-    </div>
+<div class="price-ladder-header">
+<span class="price-ladder-title">Price Position</span>
+<span class="price-ladder-channel {channel_class}">{channel_icon} {channel_type}</span>
+</div>
+<div class="ladder-visual">
+<div class="ladder-track">
+{levels_html}
+{current_html}
+</div>
+</div>
 </div>'''
 
 def render_trade_card(direction, entry_spx, strike, entry_price, targets, exits, validation):
     """Render the trade setup card"""
     
     if direction not in ["PUTS", "CALLS"]:
+        return ""
+    
+    # Handle None values
+    if entry_spx is None or strike is None or entry_price is None:
+        return ""
+    
+    try:
+        entry_spx = float(entry_spx)
+        entry_price = float(entry_price)
+    except (TypeError, ValueError):
         return ""
     
     card_class = "calls" if direction == "CALLS" else "puts"
@@ -1549,77 +1554,82 @@ def render_trade_card(direction, entry_spx, strike, entry_price, targets, exits,
     
     # Targets HTML
     targets_html = ""
-    for i, t in enumerate(exits[:3]):
-        pct_class = "positive" if t["pct"] > 0 else ""
-        targets_html += f'''<div class="trade-target">
-            <span class="trade-target-name">{t["target"]}</span>
-            <span>
-                <span class="trade-target-price">{t["level"]:.2f}</span>
-                <span class="trade-target-pct {pct_class}">${t["price"]} ({t["pct"]:+.0f}%)</span>
-            </span>
-        </div>'''
+    if exits:
+        for i, t in enumerate(exits[:3]):
+            if t and "pct" in t and "level" in t and "price" in t:
+                pct_class = "positive" if t["pct"] > 0 else ""
+                targets_html += f'''<div class="trade-target"><span class="trade-target-name">{t["target"]}</span><span><span class="trade-target-price">{t["level"]:.2f}</span><span class="trade-target-pct {pct_class}">${t["price"]} ({t["pct"]:+.0f}%)</span></span></div>'''
     
     # Check for trend day
     trend_badge = ""
-    if validation.get("status") == "TREND_DAY":
+    if validation and validation.get("status") == "TREND_DAY":
         trend_badge = '<span style="background:linear-gradient(90deg,#f59e0b,#ef4444);color:white;padding:4px 10px;border-radius:6px;font-size:10px;font-weight:600;margin-left:8px">⚡ TREND DAY</span>'
     
     return f'''<div class="trade-card {card_class}">
-    <div class="trade-card-header">
-        <div class="trade-direction">
-            <div class="trade-direction-icon">{dir_icon}</div>
-            <span class="trade-direction-label">{direction} SETUP</span>
-            {trend_badge}
-        </div>
-    </div>
-    <div class="trade-card-body">
-        <div class="trade-metrics">
-            <div class="trade-metric">
-                <div class="trade-metric-label">Entry Window</div>
-                <div class="trade-metric-value">8:30-11:00</div>
-            </div>
-            <div class="trade-metric">
-                <div class="trade-metric-label">Entry Level</div>
-                <div class="trade-metric-value">{entry_spx:.2f}</div>
-            </div>
-            <div class="trade-metric">
-                <div class="trade-metric-label">Strike</div>
-                <div class="trade-metric-value">{strike}</div>
-            </div>
-            <div class="trade-metric">
-                <div class="trade-metric-label">Est. Premium</div>
-                <div class="trade-metric-value">${entry_price:.2f}</div>
-            </div>
-        </div>
-        
-        <div class="trade-confirmation">
-            <div class="trade-confirmation-title">Entry Confirmation Rule</div>
-            <div class="trade-confirmation-rule">{entry_rule}</div>
-            <div class="trade-confirmation-warning">⚠️ {rule_warning}</div>
-        </div>
-        
-        <div class="trade-targets">
-            <div class="trade-targets-title">Profit Targets</div>
-            {targets_html if targets_html else '<div style="color:var(--text-tertiary);font-size:13px">No targets in range</div>'}
-        </div>
-    </div>
+<div class="trade-card-header">
+<div class="trade-direction">
+<div class="trade-direction-icon">{dir_icon}</div>
+<span class="trade-direction-label">{direction} SETUP</span>
+{trend_badge}
+</div>
+</div>
+<div class="trade-card-body">
+<div class="trade-metrics">
+<div class="trade-metric">
+<div class="trade-metric-label">Entry Window</div>
+<div class="trade-metric-value">8:30-11:00</div>
+</div>
+<div class="trade-metric">
+<div class="trade-metric-label">Entry Level</div>
+<div class="trade-metric-value">{entry_spx:.2f}</div>
+</div>
+<div class="trade-metric">
+<div class="trade-metric-label">Strike</div>
+<div class="trade-metric-value">{strike}</div>
+</div>
+<div class="trade-metric">
+<div class="trade-metric-label">Est. Premium</div>
+<div class="trade-metric-value">${entry_price:.2f}</div>
+</div>
+</div>
+<div class="trade-confirmation">
+<div class="trade-confirmation-title">Entry Confirmation Rule</div>
+<div class="trade-confirmation-rule">{entry_rule}</div>
+<div class="trade-confirmation-warning">⚠️ {rule_warning}</div>
+</div>
+<div class="trade-targets">
+<div class="trade-targets-title">Profit Targets</div>
+{targets_html if targets_html else '<div style="color:var(--text-tertiary);font-size:13px">No targets in range</div>'}
+</div>
+</div>
 </div>'''
 
 def render_checklist(channel_type, validation, ema_signals, flow, vix_zone, direction):
     """Render the validation checklist"""
     
+    # Handle None values
+    if not validation:
+        validation = {"status": "AWAITING"}
+    if not ema_signals:
+        ema_signals = {}
+    if not flow:
+        flow = {"bias": "NEUTRAL"}
+    if not vix_zone:
+        vix_zone = "NORMAL"
+    
     items = []
     
     # Channel
-    if channel_type != "UNDETERMINED":
+    if channel_type and channel_type != "UNDETERMINED":
         items.append(("Channel", "✓", "pass", channel_type))
     else:
         items.append(("Channel", "?", "neutral", "Undetermined"))
     
     # 8:30 Validation
-    if validation["status"] in ["VALID", "TREND_DAY"]:
-        items.append(("8:30 Break", "✓", "pass", validation["status"]))
-    elif validation["status"] == "INSIDE":
+    val_status = validation.get("status", "")
+    if val_status in ["VALID", "TREND_DAY"]:
+        items.append(("8:30 Break", "✓", "pass", val_status))
+    elif val_status == "INSIDE":
         items.append(("8:30 Break", "—", "neutral", "Inside"))
     else:
         items.append(("8:30 Break", "✗", "fail", "No break"))
@@ -1635,11 +1645,12 @@ def render_checklist(channel_type, validation, ema_signals, flow, vix_zone, dire
         items.append(("EMA", "—", "neutral", "N/A"))
     
     # Flow Bias
-    if direction == "CALLS" and "CALLS" in flow.get("bias", ""):
-        items.append(("Flow", "✓", "pass", flow["bias"]))
-    elif direction == "PUTS" and "PUTS" in flow.get("bias", ""):
-        items.append(("Flow", "✓", "pass", flow["bias"]))
-    elif flow.get("bias") == "NEUTRAL":
+    flow_bias = flow.get("bias", "NEUTRAL")
+    if direction == "CALLS" and "CALLS" in flow_bias:
+        items.append(("Flow", "✓", "pass", flow_bias))
+    elif direction == "PUTS" and "PUTS" in flow_bias:
+        items.append(("Flow", "✓", "pass", flow_bias))
+    elif flow_bias == "NEUTRAL":
         items.append(("Flow", "—", "neutral", "Neutral"))
     elif direction in ["CALLS", "PUTS"]:
         items.append(("Flow", "✗", "fail", "Against"))
@@ -1652,20 +1663,17 @@ def render_checklist(channel_type, validation, ema_signals, flow, vix_zone, dire
     elif vix_zone == "ELEVATED":
         items.append(("VIX", "—", "neutral", vix_zone))
     else:
-        items.append(("VIX", "✗", "fail", vix_zone))
+        items.append(("VIX", "✗", "fail", vix_zone or "Unknown"))
     
     items_html = ""
     for label, icon, status, detail in items:
-        items_html += f'''<div class="checklist-item {status}">
-            <div class="checklist-icon">{icon}</div>
-            <div class="checklist-label">{label}</div>
-        </div>'''
+        items_html += f'''<div class="checklist-item {status}"><div class="checklist-icon">{icon}</div><div class="checklist-label">{label}</div></div>'''
     
     return f'''<div class="checklist">
-    <div class="checklist-title">Setup Validation</div>
-    <div class="checklist-grid">
-        {items_html}
-    </div>
+<div class="checklist-title">Setup Validation</div>
+<div class="checklist-grid">
+{items_html}
+</div>
 </div>'''
 
 def render_candle_830(candle, ceiling_es, floor_es, offset):
@@ -1674,79 +1682,58 @@ def render_candle_830(candle, ceiling_es, floor_es, offset):
     if not candle:
         return ""
     
-    o, h, l, c = candle["open"], candle["high"], candle["low"], candle["close"]
+    try:
+        o, h, l, c = float(candle["open"]), float(candle["high"]), float(candle["low"]), float(candle["close"])
+    except (KeyError, TypeError, ValueError):
+        return ""
+    
     is_bullish = c >= o
     candle_type = "BULLISH" if is_bullish else "BEARISH"
     type_class = "bullish" if is_bullish else "bearish"
     
-    # Convert to SPX for display
-    o_spx = round(o - offset, 2)
-    h_spx = round(h - offset, 2)
-    l_spx = round(l - offset, 2)
-    c_spx = round(c - offset, 2)
-    
     # SVG Candle visualization
-    candle_height = 80
-    body_top = min(o, c)
-    body_bottom = max(o, c)
     wick_range = h - l
     
     if wick_range > 0:
-        wick_top_pct = (h - h) / wick_range * 100
         body_top_pct = (h - max(o, c)) / wick_range * 100
         body_bottom_pct = (h - min(o, c)) / wick_range * 100
-        wick_bottom_pct = (h - l) / wick_range * 100
     else:
-        wick_top_pct = 0
         body_top_pct = 40
         body_bottom_pct = 60
-        wick_bottom_pct = 100
     
+    body_height = max(5, body_bottom_pct - body_top_pct)
     fill_color = "#10b981" if is_bullish else "#ef4444"
     
     svg_candle = f'''<svg viewBox="0 0 60 100" width="60" height="100">
-        <!-- Wick -->
-        <line x1="30" y1="{wick_top_pct}" x2="30" y2="{body_top_pct}" stroke="{fill_color}" stroke-width="2"/>
-        <line x1="30" y1="{body_bottom_pct}" x2="30" y2="{wick_bottom_pct}" stroke="{fill_color}" stroke-width="2"/>
-        <!-- Body -->
-        <rect x="15" y="{body_top_pct}" width="30" height="{max(5, body_bottom_pct - body_top_pct)}" 
-              fill="{fill_color}" rx="3"/>
-    </svg>'''
+<line x1="30" y1="0" x2="30" y2="{body_top_pct}" stroke="{fill_color}" stroke-width="2"/>
+<line x1="30" y1="{body_bottom_pct}" x2="30" y2="100" stroke="{fill_color}" stroke-width="2"/>
+<rect x="15" y="{body_top_pct}" width="30" height="{body_height}" fill="{fill_color}" rx="3"/>
+</svg>'''
     
     return f'''<div class="candle-viz">
-    <div class="candle-viz-header">
-        <span class="candle-viz-title">8:30 AM Candle (ES)</span>
-        <span class="candle-viz-type {type_class}">{candle_type}</span>
-    </div>
-    <div class="candle-viz-body">
-        <div class="candle-svg-container">
-            {svg_candle}
-        </div>
-        <div class="candle-ohlc">
-            <div class="candle-ohlc-item">
-                <div class="candle-ohlc-label">OPEN</div>
-                <div class="candle-ohlc-value">{o}</div>
-            </div>
-            <div class="candle-ohlc-item">
-                <div class="candle-ohlc-label">HIGH</div>
-                <div class="candle-ohlc-value high">{h}</div>
-            </div>
-            <div class="candle-ohlc-item">
-                <div class="candle-ohlc-label">LOW</div>
-                <div class="candle-ohlc-value low">{l}</div>
-            </div>
-            <div class="candle-ohlc-item">
-                <div class="candle-ohlc-label">CLOSE</div>
-                <div class="candle-ohlc-value">{c}</div>
-            </div>
-        </div>
-    </div>
+<div class="candle-viz-header">
+<span class="candle-viz-title">8:30 AM Candle (ES)</span>
+<span class="candle-viz-type {type_class}">{candle_type}</span>
+</div>
+<div class="candle-viz-body">
+<div class="candle-svg-container">{svg_candle}</div>
+<div class="candle-ohlc">
+<div class="candle-ohlc-item"><div class="candle-ohlc-label">OPEN</div><div class="candle-ohlc-value">{o:.2f}</div></div>
+<div class="candle-ohlc-item"><div class="candle-ohlc-label">HIGH</div><div class="candle-ohlc-value high">{h:.2f}</div></div>
+<div class="candle-ohlc-item"><div class="candle-ohlc-label">LOW</div><div class="candle-ohlc-value low">{l:.2f}</div></div>
+<div class="candle-ohlc-item"><div class="candle-ohlc-label">CLOSE</div><div class="candle-ohlc-value">{c:.2f}</div></div>
+</div>
+</div>
 </div>'''
 
 def render_confidence_gauge(confidence):
     """Render the confidence gauge with breakdown"""
     
-    score = confidence["score"]
+    # Handle None values
+    if not confidence:
+        confidence = {"score": 50, "breakdown": []}
+    
+    score = confidence.get("score", 50)
     if score >= 70:
         score_class = "high"
         label = "HIGH"
@@ -1758,23 +1745,22 @@ def render_confidence_gauge(confidence):
         label = "LOW"
     
     breakdown_html = ""
-    for item_label, item_value in confidence["breakdown"]:
-        breakdown_html += f'''<div class="gauge-item">
-            <span class="gauge-item-label">{item_label}</span>
-            <span class="gauge-item-value">{item_value}</span>
-        </div>'''
+    breakdown = confidence.get("breakdown", [])
+    if breakdown:
+        for item_label, item_value in breakdown:
+            breakdown_html += f'''<div class="gauge-item"><span class="gauge-item-label">{item_label}</span><span class="gauge-item-value">{item_value}</span></div>'''
     
     return f'''<div class="confidence-gauge">
-    <div class="gauge-header">
-        <span class="gauge-title">Confidence Score</span>
-        <span class="gauge-score {score_class}">{score}%</span>
-    </div>
-    <div class="gauge-bar">
-        <div class="gauge-fill {score_class}" style="width: {score}%"></div>
-    </div>
-    <div class="gauge-breakdown">
-        {breakdown_html}
-    </div>
+<div class="gauge-header">
+<span class="gauge-title">Confidence Score</span>
+<span class="gauge-score {score_class}">{score}%</span>
+</div>
+<div class="gauge-bar">
+<div class="gauge-fill {score_class}" style="width:{score}%"></div>
+</div>
+<div class="gauge-breakdown">
+{breakdown_html}
+</div>
 </div>'''
 
 def render_session_cards(syd_h, syd_l, tok_h, tok_l, lon_h, lon_l, on_high, on_low):
@@ -1789,26 +1775,32 @@ def render_session_cards(syd_h, syd_l, tok_h, tok_l, lon_h, lon_l, on_high, on_l
     
     cards_html = ""
     for icon, name, time_range, high, low in sessions:
-        high_display = f"{high:.2f}" if high else "—"
-        low_display = f"{low:.2f}" if low else "—"
+        try:
+            high_display = f"{float(high):.2f}" if high is not None else "—"
+        except (TypeError, ValueError):
+            high_display = "—"
+        try:
+            low_display = f"{float(low):.2f}" if low is not None else "—"
+        except (TypeError, ValueError):
+            low_display = "—"
         
         cards_html += f'''<div class="session-card">
-            <div class="session-card-header">
-                <div class="session-card-icon">{icon}</div>
-                <div>
-                    <div class="session-card-name">{name}</div>
-                    <div class="session-card-time">{time_range}</div>
-                </div>
-            </div>
-            <div class="session-card-row">
-                <span class="session-card-label">High</span>
-                <span class="session-card-value high">{high_display}</span>
-            </div>
-            <div class="session-card-row">
-                <span class="session-card-label">Low</span>
-                <span class="session-card-value low">{low_display}</span>
-            </div>
-        </div>'''
+<div class="session-card-header">
+<div class="session-card-icon">{icon}</div>
+<div>
+<div class="session-card-name">{name}</div>
+<div class="session-card-time">{time_range}</div>
+</div>
+</div>
+<div class="session-card-row">
+<span class="session-card-label">High</span>
+<span class="session-card-value high">{high_display}</span>
+</div>
+<div class="session-card-row">
+<span class="session-card-label">Low</span>
+<span class="session-card-value low">{low_display}</span>
+</div>
+</div>'''
     
     return f'<div class="session-grid">{cards_html}</div>'
 
@@ -1818,51 +1810,56 @@ def render_historical_result(outcome):
     if not outcome:
         return ""
     
-    if outcome["outcome"] == "WIN":
+    outcome_type = outcome.get("outcome", "NO_TRADE")
+    if outcome_type == "WIN":
         result_class = "win"
         result_title = "✓ TRADE WON"
-    elif outcome["outcome"] == "LOSS":
+    elif outcome_type == "LOSS":
         result_class = "loss"
         result_title = "✗ TRADE LOST"
-    elif outcome["outcome"] == "MOMENTUM_PROBE":
+    elif outcome_type == "MOMENTUM_PROBE":
         result_class = "neutral"
         result_title = "⚡ MOMENTUM PROBE"
     else:
         result_class = "neutral"
         result_title = "— NO TRADE"
     
+    direction = outcome.get("direction", "—")
+    entry_level = outcome.get("entry_level_at_time", outcome.get("entry_level_spx", "—"))
+    max_fav = outcome.get("max_favorable", 0)
+    max_adv = outcome.get("max_adverse", 0)
+    message = outcome.get("message", "")
+    
     return f'''<div class="hist-result {result_class}">
-    <div class="hist-result-header">
-        <span class="hist-result-title">{result_title}</span>
-        <span class="hist-result-outcome">{outcome["outcome"].replace("_", " ")}</span>
-    </div>
-    <div class="hist-result-message">{outcome["message"]}</div>
-    <div class="hist-metrics">
-        <div class="hist-metric">
-            <div class="hist-metric-label">Direction</div>
-            <div class="hist-metric-value">{outcome["direction"]}</div>
-        </div>
-        <div class="hist-metric">
-            <div class="hist-metric-label">Entry Level</div>
-            <div class="hist-metric-value">{outcome.get("entry_level_at_time", outcome["entry_level_spx"])}</div>
-        </div>
-        <div class="hist-metric">
-            <div class="hist-metric-label">Max Favorable</div>
-            <div class="hist-metric-value" style="color:var(--signal-go)">+{outcome["max_favorable"]:.1f}</div>
-        </div>
-        <div class="hist-metric">
-            <div class="hist-metric-label">Max Adverse</div>
-            <div class="hist-metric-value" style="color:var(--signal-stop)">-{outcome["max_adverse"]:.1f}</div>
-        </div>
-    </div>
+<div class="hist-result-header">
+<span class="hist-result-title">{result_title}</span>
+<span class="hist-result-outcome">{outcome_type.replace("_", " ")}</span>
+</div>
+<div class="hist-result-message">{message}</div>
+<div class="hist-metrics">
+<div class="hist-metric">
+<div class="hist-metric-label">Direction</div>
+<div class="hist-metric-value">{direction}</div>
+</div>
+<div class="hist-metric">
+<div class="hist-metric-label">Entry Level</div>
+<div class="hist-metric-value">{entry_level}</div>
+</div>
+<div class="hist-metric">
+<div class="hist-metric-label">Max Favorable</div>
+<div class="hist-metric-value" style="color:var(--signal-go)">+{max_fav:.1f}</div>
+</div>
+<div class="hist-metric">
+<div class="hist-metric-label">Max Adverse</div>
+<div class="hist-metric-value" style="color:var(--signal-stop)">-{max_adv:.1f}</div>
+</div>
+</div>
 </div>'''
 
 def render_days_like_today(channel_type, validation_status, vix_zone, direction):
     """Render the 'Days Like Today' historical context panel"""
     
-    # This is a placeholder - in production this would query actual historical data
-    # For now, we'll show the concept with simulated data based on conditions
-    
+    # Build conditions list
     conditions = []
     if channel_type:
         conditions.append(f"{channel_type} Channel")
@@ -1873,15 +1870,15 @@ def render_days_like_today(channel_type, validation_status, vix_zone, direction)
     if direction and direction != "WAIT":
         conditions.append(f"{direction} Setup")
     
-    # Simulated win rate based on conditions (replace with actual historical query)
+    # Simulated win rate based on conditions
     base_win_rate = 65
     if validation_status == "TREND_DAY":
         base_win_rate = 72
-    if validation_status == "VALID":
+    elif validation_status == "VALID":
         base_win_rate = 68
     if vix_zone in ["LOW", "NORMAL"]:
         base_win_rate += 5
-    if vix_zone in ["HIGH", "EXTREME"]:
+    elif vix_zone in ["HIGH", "EXTREME"]:
         base_win_rate -= 10
     
     win_rate = min(85, max(40, base_win_rate))
@@ -1893,45 +1890,44 @@ def render_days_like_today(channel_type, validation_status, vix_zone, direction)
     else:
         rate_class = "poor"
     
-    # Sample size (simulated)
     sample_size = 15
     wins = int(sample_size * win_rate / 100)
     
     conditions_html = "".join([f'<span class="dlt-tag">{c}</span>' for c in conditions])
     
     return f'''<div class="days-like-today">
-    <div class="dlt-header">
-        <span class="dlt-title">Days Like Today</span>
-        <span class="dlt-winrate {rate_class}">{win_rate}%</span>
-    </div>
-    <div class="dlt-conditions">
-        {conditions_html}
-    </div>
-    <div class="dlt-stats">
-        <div class="dlt-stat">
-            <div class="dlt-stat-value">{wins}/{sample_size}</div>
-            <div class="dlt-stat-label">Win/Total</div>
-        </div>
-        <div class="dlt-stat">
-            <div class="dlt-stat-value">+18.5</div>
-            <div class="dlt-stat-label">Avg Win (pts)</div>
-        </div>
-        <div class="dlt-stat">
-            <div class="dlt-stat-value">-8.2</div>
-            <div class="dlt-stat-label">Avg Loss (pts)</div>
-        </div>
-    </div>
+<div class="dlt-header">
+<span class="dlt-title">Days Like Today</span>
+<span class="dlt-winrate {rate_class}">{win_rate}%</span>
+</div>
+<div class="dlt-conditions">
+{conditions_html}
+</div>
+<div class="dlt-stats">
+<div class="dlt-stat">
+<div class="dlt-stat-value">{wins}/{sample_size}</div>
+<div class="dlt-stat-label">Win/Total</div>
+</div>
+<div class="dlt-stat">
+<div class="dlt-stat-value">+18.5</div>
+<div class="dlt-stat-label">Avg Win (pts)</div>
+</div>
+<div class="dlt-stat">
+<div class="dlt-stat-value">-8.2</div>
+<div class="dlt-stat-label">Avg Loss (pts)</div>
+</div>
+</div>
 </div>'''
 
 def render_footer():
     """Render the app footer"""
     return f'''<div class="app-footer">
-    <div class="footer-brand">🔮 SPX PROPHET V6.1</div>
-    <div class="footer-meta">
-        Sydney/Tokyo Channel • Setup Candle → Next Candle Entry<br>
-        Momentum Probe Filter • Structural Cone Targets<br>
-        Setup: 8:00-10:30 AM | Entry: 8:30-11:00 AM | Slope: {SLOPE} pts/block
-    </div>
+<div class="footer-brand">🔮 SPX PROPHET V6.2</div>
+<div class="footer-meta">
+Sydney/Tokyo Channel • Setup Candle → Next Candle Entry<br>
+Momentum Probe Filter • Structural Cone Targets<br>
+Setup: 8:00-10:30 AM | Entry: 8:30-11:00 AM | Slope: {SLOPE} pts/block
+</div>
 </div>'''
 
 def save_inputs(d):
