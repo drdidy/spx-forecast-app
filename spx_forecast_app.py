@@ -3584,40 +3584,46 @@ def main():
         # For a gap DOWN: O/N high is near prior close, but low is much lower
         # For a gap UP: O/N low is near prior close, but high is much higher
         
-        # DEBUG: Show what values we're working with
-        st.caption(f"🔍 Debug: O/N High={on_h:.1f}, O/N Low={on_l:.1f}, Prior Close={pc:.1f}")
-        st.caption(f"🔍 Gap Analysis: High vs PC = {gap_from_high:+.0f}, Low vs PC = {gap_from_low:+.0f}")
+        # DEBUG: Show what values we're working with (only if debug enabled)
+        if inputs.get("debug"):
+            st.caption(f"🔍 Debug: O/N High={on_h:.1f}, O/N Low={on_l:.1f}, Prior Close={pc:.1f}")
+            st.caption(f"🔍 Gap Analysis: High vs PC = {gap_from_high:+.0f}, Low vs PC = {gap_from_low:+.0f}")
         
         # Detect gap scenarios
         if gap_from_low < -30:
             # O/N LOW is 30+ points BELOW prior close = Significant Gap Down
             # Current price is likely near the O/N low
             flow_price = on_l + (on_h - on_l) * 0.3  # Estimate 30% from low
-            st.caption(f"🔍 GAP DOWN detected ({gap_from_low:.0f} pts)! flow_price={flow_price:.1f}")
+            if inputs.get("debug"):
+                st.caption(f"🔍 GAP DOWN detected ({gap_from_low:.0f} pts)! flow_price={flow_price:.1f}")
         elif gap_from_high > 30:
             # O/N HIGH is 30+ points ABOVE prior close = Significant Gap Up
             # Current price is likely near the O/N high
             flow_price = on_l + (on_h - on_l) * 0.7  # Estimate 70% from low
-            st.caption(f"🔍 GAP UP detected (+{gap_from_high:.0f} pts)! flow_price={flow_price:.1f}")
+            if inputs.get("debug"):
+                st.caption(f"🔍 GAP UP detected (+{gap_from_high:.0f} pts)! flow_price={flow_price:.1f}")
         elif gap_from_low < -10:
             # Moderate gap down
             flow_price = on_l + (on_h - on_l) * 0.4
-            st.caption(f"🔍 Moderate gap down ({gap_from_low:.0f} pts), flow_price={flow_price:.1f}")
+            if inputs.get("debug"):
+                st.caption(f"🔍 Moderate gap down ({gap_from_low:.0f} pts), flow_price={flow_price:.1f}")
         elif gap_from_high > 10:
             # Moderate gap up
             flow_price = on_l + (on_h - on_l) * 0.6
-            st.caption(f"🔍 Moderate gap up (+{gap_from_high:.0f} pts), flow_price={flow_price:.1f}")
+            if inputs.get("debug"):
+                st.caption(f"🔍 Moderate gap up (+{gap_from_high:.0f} pts), flow_price={flow_price:.1f}")
         else:
             # No significant gap - use midpoint
             flow_price = (on_h + on_l) / 2
-            st.caption(f"🔍 No significant gap, using midpoint: flow_price={flow_price:.1f}")
+            if inputs.get("debug"):
+                st.caption(f"🔍 No significant gap, using midpoint: flow_price={flow_price:.1f}")
     else:
         flow_price = current_es
     
     flow=calculate_flow_bias(flow_price,on_high,on_low,vix,vix_high,vix_low,prior_close)
     
-    # Debug: Show what prior_close is being used for gap
-    if inputs.get("is_planning"):
+    # Debug: Show what prior_close is being used for gap (only if debug enabled)
+    if inputs.get("debug") and inputs.get("is_planning"):
         gap_used = flow_price - prior_close if prior_close else 0
         st.caption(f"💡 Flow Calc: flow_price={flow_price:.1f}, prior_close={prior_close:.1f}, GAP = {gap_used:+.1f} pts")
     
@@ -4181,12 +4187,19 @@ def main():
         # Neutral in planning mode - show BOTH potential setups with conflict info
         # Check what's causing the conflict
         ema_info = ""
-        if ema_signals.get("aligned_puts") or ema_signals.get("cross_bearish"):
+        if ema_signals.get("aligned_puts") or ema_signals.get("cross") == "BEARISH":
             ema_info = "EMA favors PUTS (bearish cross, below 200)"
-        elif ema_signals.get("aligned_calls") or ema_signals.get("cross_bullish"):
+        elif ema_signals.get("aligned_calls") or ema_signals.get("cross") == "BULLISH":
             ema_info = "EMA favors CALLS (bullish cross, above 200)"
         
         conflict_msg = validation.get("message", "O/N trading inside channel")
+        
+        # Calculate strikes and premiums for both setups
+        puts_strike = get_strike(floor_spx, "PUT") if floor_spx else 0
+        puts_premium = estimate_prices(floor_spx, puts_strike, "PUT", vix, hours_to_expiry) if floor_spx else 0
+        
+        calls_strike = get_strike(ceiling_spx, "CALL") if ceiling_spx else 0
+        calls_premium = estimate_prices(ceiling_spx, calls_strike, "CALL", vix, hours_to_expiry) if ceiling_spx else 0
         
         cmd_html += f'''
 <div style="margin-top:16px">
@@ -4204,8 +4217,12 @@ def main():
 <span style="font-family:monospace;font-weight:600">{floor_spx}</span>
 </div>
 <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.1)">
-<span style="color:rgba(255,255,255,0.5)">ES Level</span>
-<span style="font-family:monospace;font-weight:600">{floor_es:.2f}</span>
+<span style="color:rgba(255,255,255,0.5)">Strike</span>
+<span style="font-family:monospace;font-weight:600;color:var(--red)">{puts_strike}</span>
+</div>
+<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.1)">
+<span style="color:rgba(255,255,255,0.5)">Est. Premium</span>
+<span style="font-family:monospace;font-weight:600">${puts_premium:.2f}</span>
 </div>
 <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.1)">
 <span style="color:rgba(255,255,255,0.5)">EMA Aligned?</span>
@@ -4220,8 +4237,12 @@ def main():
 <span style="font-family:monospace;font-weight:600">{ceiling_spx}</span>
 </div>
 <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.1)">
-<span style="color:rgba(255,255,255,0.5)">ES Level</span>
-<span style="font-family:monospace;font-weight:600">{ceiling_es:.2f}</span>
+<span style="color:rgba(255,255,255,0.5)">Strike</span>
+<span style="font-family:monospace;font-weight:600;color:var(--green)">{calls_strike}</span>
+</div>
+<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.1)">
+<span style="color:rgba(255,255,255,0.5)">Est. Premium</span>
+<span style="font-family:monospace;font-weight:600">${calls_premium:.2f}</span>
 </div>
 <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.1)">
 <span style="color:rgba(255,255,255,0.5)">EMA Aligned?</span>
