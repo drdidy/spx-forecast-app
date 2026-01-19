@@ -3438,8 +3438,15 @@ def main():
     if prior_close_time is None:prior_close_time=CT.localize(datetime.combine(prior_rth_day,time(15,0)))
     
     # Manual VIX override for premium calculation
+    # First ensure vix exists
+    if 'vix' not in dir() or vix is None:
+        vix = 16.0  # Default fallback
+    
     if inputs.get("override_vix") and inputs.get("manual_vix"):
-        vix = inputs["manual_vix"]
+        vix = float(inputs["manual_vix"])
+        st.success(f"✅ Using manual VIX: {vix}")
+    else:
+        st.caption(f"📊 VIX: {vix:.1f} (enable Override VIX to change)")
     
     current_spx=round(current_es-offset,2)
     
