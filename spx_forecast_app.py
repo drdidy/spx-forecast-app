@@ -2860,22 +2860,67 @@ def get_strike(entry_level,opt_type):
     return int(round((entry_level-20)/5)*5)
 
 def estimate_prices(entry_level,strike,opt_type,vix,hours):
-    iv=vix/100
-    T=max(0.001,hours/(365*24))
-    entry=black_scholes(entry_level,strike,T,0.05,iv,opt_type)
-    return round(entry,2)
+    """
+    Estimate 0DTE option premium using Black-Scholes with realistic adjustments.
+    
+    For 0DTE SPX options:
+    - Typical ATM premiums: $8-15 with 5-6 hours left
+    - Typical 20pt OTM premiums: $3-8 with 5-6 hours left
+    - Typical 50pt OTM premiums: $1-4 with 5-6 hours left
+    """
+    # 0DTE IV is elevated but not as extreme as some think
+    # VIX 16 → effective 0DTE IV around 25-35%
+    iv_multiplier = 2.0 if hours < 3 else 1.8 if hours < 5 else 1.5
+    iv = (vix / 100) * iv_multiplier
+    
+    # Minimum IV floor for 0DTE
+    iv = max(iv, 0.20)
+    
+    # Time in years
+    T = max(0.0001, hours / (365 * 24))
+    
+    # Risk-free rate
+    r = 0.05
+    
+    entry = black_scholes(entry_level, strike, T, r, iv, opt_type)
+    
+    # Minimum premium
+    entry = max(entry, 0.05)
+    
+    return round(entry, 2)
 
 def estimate_exit_prices(entry_level,strike,opt_type,vix,hours,targets):
-    iv=vix/100
-    entry_T=max(0.001,hours/(365*24))
-    entry_price=black_scholes(entry_level,strike,entry_T,0.05,iv,opt_type)
-    results=[]
-    for i,tgt in enumerate(targets[:3]):
-        exit_T=max(0.001,(hours-1-i*0.5)/(365*24))
-        exit_price=black_scholes(tgt["level"],strike,exit_T,0.05,iv,opt_type)
-        pct=(exit_price-entry_price)/entry_price*100 if entry_price>0 else 0
-        results.append({"target":tgt["name"],"level":tgt["level"],"price":round(exit_price,2),"pct":round(pct,0)})
-    return results,round(entry_price,2)
+    """
+    Estimate exit prices at each target level with time decay.
+    """
+    iv_multiplier = 2.0 if hours < 3 else 1.8 if hours < 5 else 1.5
+    iv = (vix / 100) * iv_multiplier
+    iv = max(iv, 0.20)
+    
+    r = 0.05
+    entry_T = max(0.0001, hours / (365 * 24))
+    entry_price = black_scholes(entry_level, strike, entry_T, r, iv, opt_type)
+    entry_price = max(entry_price, 0.05)
+    
+    results = []
+    for i, tgt in enumerate(targets[:3]):
+        # Each target takes roughly 30-60 mins
+        hours_elapsed = 0.5 + (i * 0.5)
+        exit_hours = max(0.1, hours - hours_elapsed)
+        exit_T = max(0.0001, exit_hours / (365 * 24))
+        
+        exit_price = black_scholes(tgt["level"], strike, exit_T, r, iv, opt_type)
+        exit_price = max(exit_price, 0.05)
+        
+        pct = (exit_price - entry_price) / entry_price * 100 if entry_price > 0.05 else 0
+        results.append({
+            "target": tgt["name"],
+            "level": tgt["level"],
+            "price": round(exit_price, 2),
+            "pct": round(pct, 0)
+        })
+    
+    return results, round(entry_price, 2)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIDENCE
@@ -3111,6 +3156,7 @@ def render_sidebar():
                 "offset":offset,
                 "manual_es":manual_es,
                 "on_high":on_high,"on_low":on_low,
+                "on_prior_close":on_prior_close,
                 "vix_high":vix_high,"vix_low":vix_low,
                 "prior_high":prior_high,"prior_low":prior_low,"prior_close":prior_close
             })
