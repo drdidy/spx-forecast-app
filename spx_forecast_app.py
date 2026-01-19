@@ -223,30 +223,94 @@ h3 {
     animation: fadeInUp 0.8s ease-out;
 }
 .brand-logo-box {
-    width: 72px; height: 72px;
-    background: linear-gradient(135deg, var(--green-dim), var(--green));
-    border-radius: 18px;
+    width: 80px; height: 80px;
+    background: linear-gradient(135deg, #0d3320, #0a2818, #061510);
+    border-radius: 20px;
     display: inline-flex; align-items: center; justify-content: center;
     margin-bottom: 24px;
-    box-shadow: var(--green-glow), 0 8px 32px rgba(0,255,136,0.25);
+    box-shadow: 
+        0 0 40px rgba(0,255,136,0.3),
+        0 0 80px rgba(0,255,136,0.15),
+        inset 0 1px 0 rgba(255,255,255,0.1),
+        0 10px 40px rgba(0,0,0,0.5);
     position: relative;
-    animation: float 4s ease-in-out infinite, pulseGlow 3s ease-in-out infinite;
+    animation: float 4s ease-in-out infinite;
+    border: 1px solid rgba(0,255,136,0.3);
+}
+.brand-logo-box::before {
+    content: '';
+    position: absolute;
+    top: -2px; left: -2px; right: -2px; bottom: -2px;
+    background: linear-gradient(135deg, var(--green), transparent, var(--green));
+    border-radius: 22px;
+    z-index: -1;
+    opacity: 0.5;
+    animation: rotate 8s linear infinite;
 }
 .brand-logo-box svg {
-    width: 40px;
-    height: 40px;
+    width: 48px;
+    height: 48px;
     fill: none;
-    stroke: var(--bg-deep);
-    stroke-width: 2.5;
+    stroke: var(--green);
     stroke-linecap: round;
     stroke-linejoin: round;
+    filter: drop-shadow(0 0 8px rgba(0,255,136,0.5));
 }
-.brand-logo-box svg path {
-    stroke-dasharray: 100;
-    animation: drawLine 2s ease-out forwards;
+/* Pyramid outline */
+.brand-logo-box svg path:first-of-type {
+    stroke-dasharray: 120;
+    stroke-dashoffset: 120;
+    animation: drawPyramid 1.5s ease-out 0.3s forwards;
 }
+/* Three pillars with staggered animation */
+.brand-logo-box svg line:nth-of-type(1) {
+    stroke-dasharray: 20;
+    stroke-dashoffset: 20;
+    animation: drawPillar 0.6s ease-out 1s forwards;
+}
+.brand-logo-box svg line:nth-of-type(2) {
+    stroke-dasharray: 30;
+    stroke-dashoffset: 30;
+    animation: drawPillar 0.6s ease-out 1.2s forwards;
+}
+.brand-logo-box svg line:nth-of-type(3) {
+    stroke-dasharray: 20;
+    stroke-dashoffset: 20;
+    animation: drawPillar 0.6s ease-out 1.4s forwards;
+}
+/* Eye at apex - pulse */
+.brand-logo-box svg circle:first-of-type {
+    animation: eyePulse 2s ease-in-out 1.8s infinite;
+    fill: rgba(0,255,136,0.2);
+}
+.brand-logo-box svg circle:nth-of-type(2) {
+    fill: var(--green);
+    animation: eyeGlow 2s ease-in-out 1.8s infinite;
+}
+/* Connection beam */
+.brand-logo-box svg line:nth-of-type(4) {
+    stroke-dasharray: 30;
+    stroke-dashoffset: 30;
+    animation: drawPillar 0.4s ease-out 1.6s forwards;
+}
+
+@keyframes drawPyramid {
+    to { stroke-dashoffset: 0; }
+}
+@keyframes drawPillar {
+    to { stroke-dashoffset: 0; }
+}
+@keyframes eyePulse {
+    0%, 100% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.1); opacity: 1; }
+}
+@keyframes eyeGlow {
+    0%, 100% { filter: drop-shadow(0 0 4px var(--green)); }
+    50% { filter: drop-shadow(0 0 12px var(--green)) drop-shadow(0 0 20px var(--green)); }
+}
+
 .brand-name {
-    font-size: 36px;
+    font-size: 38px;
     font-weight: 800;
     letter-spacing: -1px;
     margin: 0;
@@ -2598,11 +2662,14 @@ def render_sidebar():
             on_low=c1.number_input("O/N Low (ES)",value=safe_float(saved.get("on_low"),6040.0),step=0.5,label_visibility="collapsed")
             on_low_time_str=c2.selectbox("Time",time_options,index=time_options.index("02:00") if "02:00" in time_options else 0,key="onlt",label_visibility="collapsed")
             
+            st.markdown("**Prior RTH Close** *(Friday's close for gap calculation)*")
+            on_prior_close=st.number_input("Prior Close (ES)",value=safe_float(saved.get("on_prior_close"),6040.0),step=0.5,key="onpc",label_visibility="collapsed")
+            
             # Parse times
             on_high_hr,on_high_mn=int(on_high_time_str.split(":")[0]),int(on_high_time_str.split(":")[1])
             on_low_hr,on_low_mn=int(on_low_time_str.split(":")[0]),int(on_low_time_str.split(":")[1])
         else:
-            on_high=on_low=None
+            on_high=on_low=on_prior_close=None
             on_high_hr=on_high_mn=on_low_hr=on_low_mn=None
         
         st.markdown("")
@@ -2674,6 +2741,7 @@ def render_sidebar():
         # O/N overrides
         "override_on":override_on,
         "on_high":on_high,"on_low":on_low,
+        "on_prior_close":on_prior_close if override_on else None,
         "on_high_time":(on_high_hr,on_high_mn) if override_on else None,
         "on_low_time":(on_low_hr,on_low_mn) if override_on else None,
         # Prior RTH overrides
@@ -2885,8 +2953,11 @@ def main():
         syd_l=on_low
         tok_h=on_high-1
         tok_l=on_low
+        # Also use the on_prior_close for gap calculation if provided
+        if inputs.get("on_prior_close"):
+            prior_close = inputs["on_prior_close"]
     
-    # Prior RTH Override
+    # Prior RTH Override (full override with high/low/close and times)
     if inputs["override_prior"] and inputs["prior_high"] is not None:
         prior_high_wick=inputs["prior_high"]
         prior_high_close=inputs["prior_high"]  # Manual mode uses same for wick and close
@@ -3005,17 +3076,24 @@ def main():
         on_l = on_low or 6000
         pc = prior_close or 6050
         
+        # DEBUG: Show what values we're working with
+        st.caption(f"🔍 Debug: O/N High={on_h:.1f}, O/N Low={on_l:.1f}, Prior Close={pc:.1f}")
+        st.caption(f"🔍 Gap Down Check: |{on_h:.0f}-{pc:.0f}|={abs(on_h-pc):.0f} (<15?), Drop={pc-on_l:.0f} (>30?)")
+        
         if abs(on_h - pc) < 15 and (pc - on_l) > 30:
             # Gap DOWN scenario: O/N opened near prior close, dropped significantly
             # Estimate current price near the O/N low (20% up from low)
             flow_price = on_l + (on_h - on_l) * 0.2
+            st.caption(f"🔍 Gap DOWN detected! flow_price={flow_price:.1f}")
         elif abs(on_l - pc) < 15 and (on_h - pc) > 30:
             # Gap UP scenario: O/N opened near prior close, rallied significantly
             # Estimate current price near the O/N high (80% up from low)
             flow_price = on_l + (on_h - on_l) * 0.8
+            st.caption(f"🔍 Gap UP detected! flow_price={flow_price:.1f}")
         else:
             # Use midpoint
             flow_price = (on_h + on_l) / 2
+            st.caption(f"🔍 No clear gap, using midpoint: flow_price={flow_price:.1f}")
     else:
         flow_price = current_es
     
@@ -3037,19 +3115,22 @@ def main():
     st.markdown('''<div class="brand-header">
 <div class="brand-logo-box">
 <svg viewBox="0 0 40 40">
-<!-- Crystal ball base -->
-<circle cx="20" cy="22" r="14" stroke-width="2.5"/>
-<!-- Prediction line going up -->
-<path d="M10 28 L16 22 L22 25 L28 15" stroke-width="2.5"/>
-<!-- Sparkle/insight dots -->
-<circle cx="28" cy="15" r="2" fill="#0a0a0a" stroke="none"/>
-<circle cx="12" cy="14" r="1.5" fill="#0a0a0a" stroke="none"/>
-<!-- Stand -->
-<path d="M12 36 L20 32 L28 36" stroke-width="2"/>
+<!-- 3-Pillar Pyramid with Eye of Insight -->
+<!-- Outer pyramid frame -->
+<path d="M20 4 L36 34 L4 34 Z" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<!-- Three pillars rising from base -->
+<line x1="11" y1="34" x2="11" y2="22" stroke-width="2.5" stroke-linecap="round"/>
+<line x1="20" y1="34" x2="20" y2="14" stroke-width="2.5" stroke-linecap="round"/>
+<line x1="29" y1="34" x2="29" y2="22" stroke-width="2.5" stroke-linecap="round"/>
+<!-- Glowing eye/insight at apex -->
+<circle cx="20" cy="11" r="3.5" fill="#0a0a0a" stroke-width="1.5"/>
+<circle cx="20" cy="11" r="1.5" fill="#0a0a0a" stroke-width="2"/>
+<!-- Horizontal connection beam -->
+<line x1="11" y1="22" x2="29" y2="22" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
 </svg>
 </div>
 <h1 class="brand-name"><span>SPX</span> <span>Prophet</span></h1>
-<div class="brand-tagline">Where Structure Becomes Foresight</div>
+<div class="brand-tagline">Three Pillars. One Vision. Total Clarity.</div>
 <div class="brand-live"><span>STRUCTURE-BASED 0DTE FORECASTING</span></div>
 </div>''', unsafe_allow_html=True)
     
