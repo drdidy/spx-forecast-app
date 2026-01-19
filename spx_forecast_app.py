@@ -1889,72 +1889,40 @@ def calculate_flow_bias(price, on_high, on_low, vix, vix_high, vix_low, prior_cl
             signals.append(("VIX Level", "NEUTRAL", f"Normal ({vix:.1f})", 0))
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # PILLAR 3: Overnight Gap & Direction (±15 pts)
-    # Compare: Where is price NOW vs where did overnight SESSION start?
-    # If O/N High > Prior Close AND price near O/N Low = Gap filled, bearish
-    # If O/N Low < Prior Close AND price near O/N High = Gap filled, bullish
+    # PILLAR 3: Gap from Prior Close (±15 pts)
+    # Gap = Current Price - Prior RTH Close
+    # This is the classic "gap up" or "gap down" measure
     # ═══════════════════════════════════════════════════════════════════════════
     
-    # Calculate gap from prior close to overnight range
-    on_high_gap = on_high - prior_close if prior_close and on_high else 0  # How much O/N pushed above prior close
-    on_low_gap = on_low - prior_close if prior_close and on_low else 0     # How much O/N pushed below prior close
-    current_gap = price - prior_close if prior_close else 0                 # Where price is now vs prior close
+    gap = price - prior_close if prior_close else 0
+    details["gap"] = f"{gap:+.1f}"
     
-    # Determine overnight character
-    if on_high_gap > 10 and on_low_gap > -5:
-        # Overnight gapped UP and held (bullish overnight)
-        if current_gap > on_high_gap * 0.7:
-            pts = 15
-            score += pts
-            signals.append(("O/N Gap", "CALLS", f"Gap Up Holding (+{current_gap:.0f})", pts))
-        elif current_gap > 5:
-            pts = 8
-            score += pts
-            signals.append(("O/N Gap", "CALLS", f"Gap Up Fading (+{current_gap:.0f})", pts))
-        else:
-            pts = -5
-            score += pts
-            signals.append(("O/N Gap", "PUTS", f"Gap Up Filled ({current_gap:+.0f})", pts))
-    elif on_low_gap < -10 and on_high_gap < 5:
-        # Overnight gapped DOWN and held (bearish overnight)
-        if current_gap < on_low_gap * 0.7:
-            pts = -15
-            score += pts
-            signals.append(("O/N Gap", "PUTS", f"Gap Down Holding ({current_gap:.0f})", pts))
-        elif current_gap < -5:
-            pts = -8
-            score += pts
-            signals.append(("O/N Gap", "PUTS", f"Gap Down Fading ({current_gap:.0f})", pts))
-        else:
-            pts = 5
-            score += pts
-            signals.append(("O/N Gap", "CALLS", f"Gap Down Filled ({current_gap:+.0f})", pts))
-    elif abs(on_high_gap) > 15 or abs(on_low_gap) > 15:
-        # Wide overnight range - volatile
-        if current_gap > 10:
-            pts = 10
-            score += pts
-            signals.append(("O/N Gap", "CALLS", f"Volatile, Near High (+{current_gap:.0f})", pts))
-        elif current_gap < -10:
-            pts = -10
-            score += pts
-            signals.append(("O/N Gap", "PUTS", f"Volatile, Near Low ({current_gap:.0f})", pts))
-        else:
-            signals.append(("O/N Gap", "NEUTRAL", f"Volatile, Mid ({current_gap:+.0f})", 0))
+    if gap > 20:
+        pts = 15
+        score += pts
+        signals.append(("Gap", "CALLS", f"Large Gap Up (+{gap:.0f})", pts))
+    elif gap > 10:
+        pts = 10
+        score += pts
+        signals.append(("Gap", "CALLS", f"Gap Up (+{gap:.0f})", pts))
+    elif gap > 5:
+        pts = 5
+        score += pts
+        signals.append(("Gap", "CALLS", f"Small Gap Up (+{gap:.0f})", pts))
+    elif gap < -20:
+        pts = -15
+        score += pts
+        signals.append(("Gap", "PUTS", f"Large Gap Down ({gap:.0f})", pts))
+    elif gap < -10:
+        pts = -10
+        score += pts
+        signals.append(("Gap", "PUTS", f"Gap Down ({gap:.0f})", pts))
+    elif gap < -5:
+        pts = -5
+        score += pts
+        signals.append(("Gap", "PUTS", f"Small Gap Down ({gap:.0f})", pts))
     else:
-        # Tight overnight range
-        if current_gap > 7:
-            pts = 8
-            score += pts
-            signals.append(("O/N Gap", "CALLS", f"Slight Gap Up (+{current_gap:.0f})", pts))
-        elif current_gap < -7:
-            pts = -8
-            score += pts
-            signals.append(("O/N Gap", "PUTS", f"Slight Gap Down ({current_gap:.0f})", pts))
-        else:
-            signals.append(("O/N Gap", "NEUTRAL", f"Flat Open ({current_gap:+.0f})", 0))
-    
-    details["gap"] = f"{current_gap:+.1f}"
+        signals.append(("Gap", "NEUTRAL", f"Flat ({gap:+.0f})", 0))
     
     # ═══════════════════════════════════════════════════════════════════════════
     # PILLAR 4: VVIX - Volatility of Volatility (±10 pts)
@@ -2592,8 +2560,23 @@ def main():
         es_price = inputs["manual_es"]
         st.success(f"✅ Using manual ES: {es_price}")
     elif es_price is None:
-        st.warning("⚠️ **Could not fetch live ES price.** Enable 'Override Current ES' in sidebar to enter manually.")
-        es_price = 6050  # Fallback
+        # If O/N override is set, estimate current price from O/N data
+        if inputs.get("override_on") and inputs.get("on_low"):
+            # Use midpoint of O/N range as estimate, biased toward recent action
+            on_h = inputs.get("on_high", 6050)
+            on_l = inputs.get("on_low", 6000)
+            # Estimate current near the low if it's a down session (high near prior close)
+            prior_c = inputs.get("prior_close") if inputs.get("override_prior") else 6050
+            if on_h and prior_c and abs(on_h - prior_c) < 10:
+                # O/N high near prior close = gapped down, likely near low now
+                es_price = on_l + (on_h - on_l) * 0.2  # Estimate 20% from low
+                st.info(f"📊 Estimating current ES near O/N low: {es_price:.2f} (enable 'Override Current ES' for exact value)")
+            else:
+                es_price = (on_h + on_l) / 2
+                st.info(f"📊 Estimating current ES at O/N midpoint: {es_price:.2f} (enable 'Override Current ES' for exact value)")
+        else:
+            st.warning("⚠️ **Could not fetch live ES price.** Enable 'Override Current ES' in sidebar to enter manually.")
+            es_price = 6050  # Fallback
     
     offset=inputs["offset"]
     
