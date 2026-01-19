@@ -1698,40 +1698,392 @@ def analyze_historical_outcome(hist_data, validation, ceiling_es, floor_es, targ
     return result
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FLOW BIAS
+# ENHANCED FLOW BIAS - Real Market Data Integration
+# Uses: VVIX, VIX Term Structure, Put/Call Ratio, Breadth, Risk On/Off
 # ═══════════════════════════════════════════════════════════════════════════════
-def calculate_flow_bias(price,on_high,on_low,vix,vix_high,vix_low,prior_close,es_candles=None):
-    signals=[]
-    score=0
-    on_range=on_high-on_low
+
+def fetch_market_flow_data():
+    """
+    Fetch real market flow data from free sources.
+    Returns dict with all available flow indicators.
+    """
+    flow_data = {
+        "vvix": None,
+        "vvix_change": None,
+        "vix_term_structure": None,  # VIX3M - VIX (positive = contango = bullish)
+        "put_call_ratio": None,
+        "breadth_ratio": None,  # RSP/SPY ratio
+        "risk_on_off": None,  # XLK vs XLU relative strength
+        "data_fresh": False
+    }
     
-    price_pos=(price-on_low)/on_range*100 if on_range>0 else 50
-    if price>on_high:score+=30;signals.append(("Price","CALLS",f"+{price-on_high:.0f}"))
-    elif price<on_low:score-=30;signals.append(("Price","PUTS",f"{price-on_low:.0f}"))
-    elif price_pos>75:score+=15;signals.append(("Price","CALLS",f"{price_pos:.0f}%"))
-    elif price_pos<25:score-=15;signals.append(("Price","PUTS",f"{price_pos:.0f}%"))
-    else:signals.append(("Price","NEUTRAL",f"{price_pos:.0f}%"))
+    try:
+        import yfinance as yf
+        
+        # 1. VVIX - Volatility of Volatility
+        # High VVIX = uncertainty/fear, Low VVIX = complacency
+        try:
+            vvix = yf.Ticker("^VVIX")
+            vvix_hist = vvix.history(period="5d")
+            if len(vvix_hist) >= 2:
+                flow_data["vvix"] = round(vvix_hist['Close'].iloc[-1], 2)
+                flow_data["vvix_change"] = round(vvix_hist['Close'].iloc[-1] - vvix_hist['Close'].iloc[-2], 2)
+        except:
+            pass
+        
+        # 2. VIX Term Structure (VIX vs VIX3M)
+        # Contango (VIX3M > VIX) = normal/bullish
+        # Backwardation (VIX > VIX3M) = fear/bearish
+        try:
+            vix = yf.Ticker("^VIX")
+            vix3m = yf.Ticker("^VIX3M")
+            vix_hist = vix.history(period="2d")
+            vix3m_hist = vix3m.history(period="2d")
+            if len(vix_hist) > 0 and len(vix3m_hist) > 0:
+                vix_val = vix_hist['Close'].iloc[-1]
+                vix3m_val = vix3m_hist['Close'].iloc[-1]
+                flow_data["vix_term_structure"] = round(vix3m_val - vix_val, 2)
+        except:
+            pass
+        
+        # 3. Market Breadth - RSP/SPY Ratio
+        # Rising ratio = broad participation = healthy rally
+        # Falling ratio = narrow leadership = weak rally
+        try:
+            spy = yf.Ticker("SPY")
+            rsp = yf.Ticker("RSP")
+            spy_hist = spy.history(period="5d")
+            rsp_hist = rsp.history(period="5d")
+            if len(spy_hist) >= 2 and len(rsp_hist) >= 2:
+                current_ratio = rsp_hist['Close'].iloc[-1] / spy_hist['Close'].iloc[-1]
+                prev_ratio = rsp_hist['Close'].iloc[-2] / spy_hist['Close'].iloc[-2]
+                flow_data["breadth_ratio"] = round((current_ratio / prev_ratio - 1) * 100, 3)
+        except:
+            pass
+        
+        # 4. Risk On/Off - XLK (Tech) vs XLU (Utilities)
+        # XLK outperforming = risk on = bullish
+        # XLU outperforming = risk off = bearish
+        try:
+            xlk = yf.Ticker("XLK")
+            xlu = yf.Ticker("XLU")
+            xlk_hist = xlk.history(period="2d")
+            xlu_hist = xlu.history(period="2d")
+            if len(xlk_hist) >= 2 and len(xlu_hist) >= 2:
+                xlk_ret = (xlk_hist['Close'].iloc[-1] / xlk_hist['Close'].iloc[-2] - 1) * 100
+                xlu_ret = (xlu_hist['Close'].iloc[-1] / xlu_hist['Close'].iloc[-2] - 1) * 100
+                flow_data["risk_on_off"] = round(xlk_ret - xlu_ret, 2)
+        except:
+            pass
+        
+        # 5. Put/Call Ratio from CBOE (using equity P/C)
+        # High P/C (>1.0) = bearish sentiment (contrarian bullish)
+        # Low P/C (<0.7) = bullish sentiment (contrarian bearish)
+        try:
+            # Try to get P/C ratio - this may not work on all systems
+            # Alternative: calculate from SPY options volume
+            spy = yf.Ticker("SPY")
+            opt_chain = spy.options
+            if len(opt_chain) > 0:
+                nearest_exp = opt_chain[0]
+                calls = spy.option_chain(nearest_exp).calls
+                puts = spy.option_chain(nearest_exp).puts
+                call_vol = calls['volume'].sum() if 'volume' in calls.columns else 0
+                put_vol = puts['volume'].sum() if 'volume' in puts.columns else 0
+                if call_vol > 0:
+                    flow_data["put_call_ratio"] = round(put_vol / call_vol, 2)
+        except:
+            pass
+        
+        # Check if we got any real data
+        real_data_count = sum(1 for v in [flow_data["vvix"], flow_data["vix_term_structure"], 
+                                           flow_data["breadth_ratio"], flow_data["risk_on_off"]] if v is not None)
+        flow_data["data_fresh"] = real_data_count >= 2
+        
+    except ImportError:
+        pass  # yfinance not available
+    except Exception as e:
+        pass  # Network or other error
     
-    vix_range=vix_high-vix_low
-    vix_pos=(vix-vix_low)/vix_range*100 if vix_range>0 else 50
-    if vix>vix_high:score-=25;signals.append(("VIX","PUTS",f"{vix:.1f}"))
-    elif vix<vix_low:score+=25;signals.append(("VIX","CALLS",f"{vix:.1f}"))
-    elif vix_pos>70:score-=12;signals.append(("VIX","PUTS",f"{vix_pos:.0f}%"))
-    elif vix_pos<30:score+=12;signals.append(("VIX","CALLS",f"{vix_pos:.0f}%"))
-    else:signals.append(("VIX","NEUTRAL",f"{vix_pos:.0f}%"))
+    return flow_data
+
+
+def calculate_flow_bias(price, on_high, on_low, vix, vix_high, vix_low, prior_close, es_candles=None):
+    """
+    Enhanced Flow Bias calculation using multiple data sources.
     
-    gap=price-prior_close
-    if gap>10:score+=25;signals.append(("Gap","CALLS",f"+{gap:.0f}"))
-    elif gap<-10:score-=25;signals.append(("Gap","PUTS",f"{gap:.0f}"))
-    elif gap>5:score+=12;signals.append(("Gap","CALLS",f"+{gap:.0f}"))
-    elif gap<-5:score-=12;signals.append(("Gap","PUTS",f"{gap:.0f}"))
-    else:signals.append(("Gap","NEUTRAL",f"{gap:+.0f}"))
+    Scoring System (-100 to +100):
+    - Positive = CALLS bias (bullish flow)
+    - Negative = PUTS bias (bearish flow)
     
-    if score>=30:bias="HEAVY_CALLS"
-    elif score<=-30:bias="HEAVY_PUTS"
-    else:bias="NEUTRAL"
+    Data Sources (when available):
+    1. Price Position in O/N Range (±20 pts)
+    2. VIX Level & Change (±15 pts)
+    3. Gap from Prior Close (±15 pts)
+    4. VVIX - Volatility of VIX (±10 pts)
+    5. VIX Term Structure (±15 pts)
+    6. Market Breadth (±10 pts)
+    7. Risk On/Off Rotation (±10 pts)
+    8. Put/Call Ratio (±10 pts) - contrarian
+    """
+    signals = []
+    score = 0
+    details = {}
     
-    return {"bias":bias,"score":score,"signals":signals}
+    # Fetch real market flow data
+    flow_data = fetch_market_flow_data()
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PILLAR 1: Price Position in Overnight Range (±20 pts)
+    # ═══════════════════════════════════════════════════════════════════════════
+    on_range = on_high - on_low
+    if on_range > 0:
+        price_pos = (price - on_low) / on_range * 100
+        details["price_pos"] = f"{price_pos:.0f}%"
+        
+        if price > on_high:
+            pts = 20
+            score += pts
+            signals.append(("O/N Position", "CALLS", f"Above High (+{price-on_high:.0f})", pts))
+        elif price < on_low:
+            pts = -20
+            score += pts
+            signals.append(("O/N Position", "PUTS", f"Below Low ({price-on_low:.0f})", pts))
+        elif price_pos > 75:
+            pts = 12
+            score += pts
+            signals.append(("O/N Position", "CALLS", f"Upper 25% ({price_pos:.0f}%)", pts))
+        elif price_pos < 25:
+            pts = -12
+            score += pts
+            signals.append(("O/N Position", "PUTS", f"Lower 25% ({price_pos:.0f}%)", pts))
+        else:
+            signals.append(("O/N Position", "NEUTRAL", f"Mid-Range ({price_pos:.0f}%)", 0))
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PILLAR 2: VIX Level (±15 pts)
+    # ═══════════════════════════════════════════════════════════════════════════
+    vix_range = vix_high - vix_low if vix_high and vix_low else 0
+    if vix_range > 0:
+        vix_pos = (vix - vix_low) / vix_range * 100
+        details["vix_pos"] = f"{vix_pos:.0f}%"
+        
+        if vix > vix_high:
+            pts = -15
+            score += pts
+            signals.append(("VIX Level", "PUTS", f"Elevated ({vix:.1f})", pts))
+        elif vix < vix_low:
+            pts = 15
+            score += pts
+            signals.append(("VIX Level", "CALLS", f"Compressed ({vix:.1f})", pts))
+        elif vix_pos > 70:
+            pts = -8
+            score += pts
+            signals.append(("VIX Level", "PUTS", f"High ({vix:.1f})", pts))
+        elif vix_pos < 30:
+            pts = 8
+            score += pts
+            signals.append(("VIX Level", "CALLS", f"Low ({vix:.1f})", pts))
+        else:
+            signals.append(("VIX Level", "NEUTRAL", f"Normal ({vix:.1f})", 0))
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PILLAR 3: Gap from Prior Close (±15 pts)
+    # ═══════════════════════════════════════════════════════════════════════════
+    gap = price - prior_close if prior_close else 0
+    details["gap"] = f"{gap:+.1f}"
+    
+    if gap > 15:
+        pts = 15
+        score += pts
+        signals.append(("Gap", "CALLS", f"Large Gap Up (+{gap:.0f})", pts))
+    elif gap < -15:
+        pts = -15
+        score += pts
+        signals.append(("Gap", "PUTS", f"Large Gap Down ({gap:.0f})", pts))
+    elif gap > 7:
+        pts = 8
+        score += pts
+        signals.append(("Gap", "CALLS", f"Gap Up (+{gap:.0f})", pts))
+    elif gap < -7:
+        pts = -8
+        score += pts
+        signals.append(("Gap", "PUTS", f"Gap Down ({gap:.0f})", pts))
+    else:
+        signals.append(("Gap", "NEUTRAL", f"Flat ({gap:+.0f})", 0))
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PILLAR 4: VVIX - Volatility of Volatility (±10 pts)
+    # High VVIX (>100) = uncertainty, usually precedes moves
+    # Low VVIX (<85) = complacency
+    # ═══════════════════════════════════════════════════════════════════════════
+    if flow_data["vvix"] is not None:
+        vvix = flow_data["vvix"]
+        vvix_chg = flow_data["vvix_change"] or 0
+        details["vvix"] = f"{vvix:.1f}"
+        
+        # VVIX rising sharply = fear increasing = bearish
+        # VVIX falling = fear decreasing = bullish
+        if vvix > 110 and vvix_chg > 3:
+            pts = -10
+            score += pts
+            signals.append(("VVIX", "PUTS", f"Spiking ({vvix:.0f}, +{vvix_chg:.1f})", pts))
+        elif vvix > 100:
+            pts = -5
+            score += pts
+            signals.append(("VVIX", "PUTS", f"Elevated ({vvix:.0f})", pts))
+        elif vvix < 85 and vvix_chg < -2:
+            pts = 8
+            score += pts
+            signals.append(("VVIX", "CALLS", f"Calm ({vvix:.0f}, {vvix_chg:.1f})", pts))
+        elif vvix < 90:
+            pts = 5
+            score += pts
+            signals.append(("VVIX", "CALLS", f"Low ({vvix:.0f})", pts))
+        else:
+            signals.append(("VVIX", "NEUTRAL", f"Normal ({vvix:.0f})", 0))
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PILLAR 5: VIX Term Structure (±15 pts)
+    # Contango (VIX3M > VIX) = normal, bullish
+    # Backwardation (VIX > VIX3M) = fear, bearish
+    # ═══════════════════════════════════════════════════════════════════════════
+    if flow_data["vix_term_structure"] is not None:
+        term = flow_data["vix_term_structure"]
+        details["term_structure"] = f"{term:+.2f}"
+        
+        if term > 3:
+            pts = 15
+            score += pts
+            signals.append(("Term Structure", "CALLS", f"Steep Contango (+{term:.1f})", pts))
+        elif term > 0:
+            pts = 8
+            score += pts
+            signals.append(("Term Structure", "CALLS", f"Contango (+{term:.1f})", pts))
+        elif term < -2:
+            pts = -15
+            score += pts
+            signals.append(("Term Structure", "PUTS", f"Backwardation ({term:.1f})", pts))
+        elif term < 0:
+            pts = -8
+            score += pts
+            signals.append(("Term Structure", "PUTS", f"Slight Inversion ({term:.1f})", pts))
+        else:
+            signals.append(("Term Structure", "NEUTRAL", f"Flat ({term:.1f})", 0))
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PILLAR 6: Market Breadth - RSP/SPY Change (±10 pts)
+    # Improving breadth = healthy = bullish
+    # Deteriorating breadth = narrow = bearish
+    # ═══════════════════════════════════════════════════════════════════════════
+    if flow_data["breadth_ratio"] is not None:
+        breadth = flow_data["breadth_ratio"]
+        details["breadth"] = f"{breadth:+.2f}%"
+        
+        if breadth > 0.3:
+            pts = 10
+            score += pts
+            signals.append(("Breadth", "CALLS", f"Improving (+{breadth:.2f}%)", pts))
+        elif breadth > 0.1:
+            pts = 5
+            score += pts
+            signals.append(("Breadth", "CALLS", f"Positive (+{breadth:.2f}%)", pts))
+        elif breadth < -0.3:
+            pts = -10
+            score += pts
+            signals.append(("Breadth", "PUTS", f"Deteriorating ({breadth:.2f}%)", pts))
+        elif breadth < -0.1:
+            pts = -5
+            score += pts
+            signals.append(("Breadth", "PUTS", f"Negative ({breadth:.2f}%)", pts))
+        else:
+            signals.append(("Breadth", "NEUTRAL", f"Flat ({breadth:+.2f}%)", 0))
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PILLAR 7: Risk On/Off Rotation (±10 pts)
+    # Tech > Utilities = Risk On = Bullish
+    # Utilities > Tech = Risk Off = Bearish
+    # ═══════════════════════════════════════════════════════════════════════════
+    if flow_data["risk_on_off"] is not None:
+        risk = flow_data["risk_on_off"]
+        details["risk_rotation"] = f"{risk:+.2f}%"
+        
+        if risk > 1.0:
+            pts = 10
+            score += pts
+            signals.append(("Risk Rotation", "CALLS", f"Risk ON (+{risk:.1f}%)", pts))
+        elif risk > 0.3:
+            pts = 5
+            score += pts
+            signals.append(("Risk Rotation", "CALLS", f"Slight Risk ON (+{risk:.1f}%)", pts))
+        elif risk < -1.0:
+            pts = -10
+            score += pts
+            signals.append(("Risk Rotation", "PUTS", f"Risk OFF ({risk:.1f}%)", pts))
+        elif risk < -0.3:
+            pts = -5
+            score += pts
+            signals.append(("Risk Rotation", "PUTS", f"Slight Risk OFF ({risk:.1f}%)", pts))
+        else:
+            signals.append(("Risk Rotation", "NEUTRAL", f"Balanced ({risk:+.1f}%)", 0))
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PILLAR 8: Put/Call Ratio - CONTRARIAN (±10 pts)
+    # High P/C (>1.0) = bearish sentiment = contrarian BULLISH
+    # Low P/C (<0.7) = bullish sentiment = contrarian BEARISH
+    # ═══════════════════════════════════════════════════════════════════════════
+    if flow_data["put_call_ratio"] is not None:
+        pc = flow_data["put_call_ratio"]
+        details["put_call"] = f"{pc:.2f}"
+        
+        if pc > 1.2:
+            pts = 10  # Contrarian bullish
+            score += pts
+            signals.append(("Put/Call", "CALLS", f"High Fear ({pc:.2f}) - Contrarian Bull", pts))
+        elif pc > 1.0:
+            pts = 5
+            score += pts
+            signals.append(("Put/Call", "CALLS", f"Elevated ({pc:.2f})", pts))
+        elif pc < 0.6:
+            pts = -10  # Contrarian bearish
+            score += pts
+            signals.append(("Put/Call", "PUTS", f"Complacency ({pc:.2f}) - Contrarian Bear", pts))
+        elif pc < 0.75:
+            pts = -5
+            score += pts
+            signals.append(("Put/Call", "PUTS", f"Low ({pc:.2f})", pts))
+        else:
+            signals.append(("Put/Call", "NEUTRAL", f"Normal ({pc:.2f})", 0))
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # FINAL BIAS DETERMINATION
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Clamp score to -100 to +100
+    score = max(-100, min(100, score))
+    
+    if score >= 40:
+        bias = "STRONG_CALLS"
+    elif score >= 20:
+        bias = "CALLS"
+    elif score <= -40:
+        bias = "STRONG_PUTS"
+    elif score <= -20:
+        bias = "PUTS"
+    else:
+        bias = "NEUTRAL"
+    
+    # Count how many real data sources we used
+    real_sources = sum(1 for k in ["vvix", "vix_term_structure", "breadth_ratio", "risk_on_off", "put_call_ratio"] 
+                       if flow_data.get(k) is not None)
+    
+    return {
+        "bias": bias,
+        "score": score,
+        "signals": signals,
+        "details": details,
+        "real_data_sources": real_sources,
+        "data_fresh": flow_data["data_fresh"]
+    }
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MOMENTUM & MA
@@ -1894,11 +2246,11 @@ def calculate_confidence(channel_type,validation,direction,ema_signals,flow,vix_
     else:
         breakdown.append(("8/21 Cross","N/A"))
     
-    # Flow bias (+10)
-    if direction=="PUTS" and flow["bias"] in ["HEAVY_PUTS","MODERATE_PUTS"]:
+    # Flow bias (+10) - Updated for new naming
+    if direction=="PUTS" and flow["bias"] in ["STRONG_PUTS","PUTS"]:
         score+=10
         breakdown.append(("Flow","+10"))
-    elif direction=="CALLS" and flow["bias"] in ["HEAVY_CALLS","MODERATE_CALLS"]:
+    elif direction=="CALLS" and flow["bias"] in ["STRONG_CALLS","CALLS"]:
         score+=10
         breakdown.append(("Flow","+10"))
     elif flow["bias"]=="NEUTRAL":
@@ -2887,6 +3239,19 @@ def main():
     meter_pos=(flow["score"]+100)/2
     flow_label=flow["bias"].replace("_"," ")
     
+    # Build flow signals breakdown HTML
+    flow_signals_html = ""
+    for sig in flow.get("signals", []):
+        if len(sig) >= 4:
+            name, direction_sig, detail, pts = sig
+            sig_color = "#00d4aa" if pts > 0 else "#ff4757" if pts < 0 else "#666"
+            pts_str = f"+{pts}" if pts > 0 else str(pts)
+            flow_signals_html += f'<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.04)"><span style="color:rgba(255,255,255,0.6)">{name}</span><span style="color:{sig_color};font-weight:500">{pts_str}</span></div>'
+        elif len(sig) == 3:
+            name, direction_sig, detail = sig
+            sig_color = "#00d4aa" if direction_sig == "CALLS" else "#ff4757" if direction_sig == "PUTS" else "#666"
+            flow_signals_html += f'<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.04)"><span style="color:rgba(255,255,255,0.6)">{name}</span><span style="color:{sig_color}">{detail}</span></div>'
+    
     mom_color="#00d4aa" if "BULL" in momentum["signal"] else "#ff4757" if "BEAR" in momentum["signal"] else "#ffa502"
     vix_color="#00d4aa" if vix_zone in ["LOW","NORMAL"] else "#ffa502" if vix_zone=="ELEVATED" else "#ff4757"
     
@@ -2938,27 +3303,25 @@ def main():
 
 <!-- ROW 2: Flow Bias + Market Context -->
 <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:20px;min-height:220px;display:flex;flex-direction:column">
-<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
 <div style="display:flex;align-items:center;gap:12px">
 <div style="width:44px;height:44px;background:rgba(34,211,238,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px">🌊</div>
 <div><div style="font-family:Space Grotesk,sans-serif;font-size:15px;font-weight:600">Flow Bias</div>
-<div style="font-size:11px;color:rgba(255,255,255,0.5)">Institutional positioning</div></div>
+<div style="font-size:11px;color:rgba(255,255,255,0.5)">{flow.get("real_data_sources", 0)} live sources</div></div>
 </div>
 <div style="text-align:right">
 <div style="font-family:IBM Plex Mono,monospace;font-size:28px;font-weight:700;color:{flow_color}">{flow["score"]:+d}</div>
 <div style="font-size:10px;font-weight:600;color:{flow_color}">{flow_label}</div>
 </div>
 </div>
-<div style="flex:1;display:flex;flex-direction:column;justify-content:center">
-<div style="display:flex;justify-content:space-between;font-size:9px;color:rgba(255,255,255,0.4);margin-bottom:6px">
-<span>HEAVY PUTS</span><span>NEUTRAL</span><span>HEAVY CALLS</span>
+<div style="display:flex;justify-content:space-between;font-size:9px;color:rgba(255,255,255,0.4);margin-bottom:4px">
+<span>STRONG PUTS</span><span>NEUTRAL</span><span>STRONG CALLS</span>
 </div>
-<div style="height:10px;background:linear-gradient(90deg,#ff4757,#ffa502 50%,#00d4aa);border-radius:5px;position:relative">
+<div style="height:10px;background:linear-gradient(90deg,#ff4757,#ffa502 50%,#00d4aa);border-radius:5px;position:relative;margin-bottom:12px">
 <div style="position:absolute;top:-4px;left:{meter_pos}%;width:6px;height:18px;background:#fff;border-radius:3px;transform:translateX(-50%);box-shadow:0 0 8px rgba(255,255,255,0.5)"></div>
 </div>
-<div style="display:flex;justify-content:space-between;font-size:9px;color:rgba(255,255,255,0.3);margin-top:6px">
-<span>-100</span><span>0</span><span>+100</span>
-</div>
+<div style="flex:1;overflow-y:auto;max-height:100px">
+{flow_signals_html}
 </div>
 </div>
 
