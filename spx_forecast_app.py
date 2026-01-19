@@ -3342,9 +3342,6 @@ def main():
         syd_l=on_low
         tok_h=on_high-1
         tok_l=on_low
-        # Also use the on_prior_close for gap calculation if provided
-        if inputs.get("on_prior_close"):
-            prior_close = inputs["on_prior_close"]
     
     # Prior RTH Override (full override with high/low/close and times)
     if inputs["override_prior"] and inputs["prior_high"] is not None:
@@ -3360,6 +3357,11 @@ def main():
         prior_high_close_time=prior_high_wick_time
         prior_low_close_time=CT.localize(datetime.combine(prior_rth_day,time(pl_hr,pl_mn)))
         prior_close_time=CT.localize(datetime.combine(prior_rth_day,time(pc_hr,pc_mn)))
+    
+    # IMPORTANT: on_prior_close from O/N Override takes FINAL precedence for gap calculation
+    # This allows user to set prior close specifically for gap without full Prior RTH override
+    if inputs.get("override_on") and inputs.get("on_prior_close"):
+        prior_close = inputs["on_prior_close"]
     
     # ─────────────────────────────────────────────────────────────────────────
     # FALLBACKS - Fill any remaining None values
@@ -3533,16 +3535,36 @@ def main():
     # Direction & targets based on validation
     is_projected = validation.get("projected", False)
     
+    # Check for EMA conflict - if projected setup conflicts with EMA, we should show both
+    ema_favors_calls = ema_signals.get("aligned_calls", False) or ema_signals.get("cross_bullish", False)
+    ema_favors_puts = ema_signals.get("aligned_puts", False) or ema_signals.get("cross_bearish", False)
+    
     if validation["setup"]=="PUTS":
         direction="PUTS"
         entry_edge_es=validation.get("edge",floor_es)
         entry_edge_spx=round(entry_edge_es-offset,2) if entry_edge_es else floor_spx
         targets=find_targets(entry_edge_spx,cones_spx,"PUTS") if entry_edge_spx else []
+        
+        # Check for conflict with EMA
+        if is_projected and ema_favors_calls and not ema_favors_puts:
+            # EMA says CALLS but projection says PUTS - show as CONFLICT/NEUTRAL
+            direction = "NEUTRAL"
+            validation["setup"] = "NEUTRAL"
+            validation["message"] = f"⚠️ CONFLICT: Structure suggests PUTS but EMA favors CALLS"
+            
     elif validation["setup"]=="CALLS":
         direction="CALLS"
         entry_edge_es=validation.get("edge",ceiling_es)
         entry_edge_spx=round(entry_edge_es-offset,2) if entry_edge_es else ceiling_spx
         targets=find_targets(entry_edge_spx,cones_spx,"CALLS") if entry_edge_spx else []
+        
+        # Check for conflict with EMA
+        if is_projected and ema_favors_puts and not ema_favors_calls:
+            # EMA says PUTS but projection says CALLS - show as CONFLICT/NEUTRAL
+            direction = "NEUTRAL"
+            validation["setup"] = "NEUTRAL"
+            validation["message"] = f"⚠️ CONFLICT: Structure suggests CALLS but EMA favors PUTS"
+            
     elif validation["setup"]=="NEUTRAL" and is_projected:
         # Neutral in planning mode - show both potential setups
         direction="NEUTRAL"
@@ -3560,37 +3582,62 @@ def main():
     is_trend_day=validation["status"]=="TREND_DAY"
     
     # Flow & momentum - use 8:30 candle open for flow bias calculation
-    # In planning mode with O/N override, estimate current price near O/N low if it's a gap down
+    # In planning mode with O/N override, we need to carefully estimate flow_price AND detect gaps
     if candle_830:
         flow_price = candle_830["open"]
     elif inputs.get("is_planning") and inputs.get("override_on"):
-        # Smart estimate: if O/N high is near prior close but O/N low is much lower = gap down session
+        # Get the values we'll use
         on_h = on_high or 6050
         on_l = on_low or 6000
         pc = prior_close or 6050
         
+        # Calculate gap: difference between O/N range and prior close
+        # If O/N LOW is below prior close = gap down
+        # If O/N HIGH is above prior close = gap up
+        gap_from_high = on_h - pc  # Positive = O/N traded above prior close
+        gap_from_low = on_l - pc   # Negative = O/N traded below prior close
+        
+        # The "true gap" is where the overnight session opened/traded relative to prior close
+        # For a gap DOWN: O/N high is near prior close, but low is much lower
+        # For a gap UP: O/N low is near prior close, but high is much higher
+        
         # DEBUG: Show what values we're working with
         st.caption(f"🔍 Debug: O/N High={on_h:.1f}, O/N Low={on_l:.1f}, Prior Close={pc:.1f}")
-        st.caption(f"🔍 Gap Down Check: |{on_h:.0f}-{pc:.0f}|={abs(on_h-pc):.0f} (<15?), Drop={pc-on_l:.0f} (>30?)")
+        st.caption(f"🔍 Gap Analysis: High vs PC = {gap_from_high:+.0f}, Low vs PC = {gap_from_low:+.0f}")
         
-        if abs(on_h - pc) < 15 and (pc - on_l) > 30:
-            # Gap DOWN scenario: O/N opened near prior close, dropped significantly
-            # Estimate current price near the O/N low (20% up from low)
-            flow_price = on_l + (on_h - on_l) * 0.2
-            st.caption(f"🔍 Gap DOWN detected! flow_price={flow_price:.1f}")
-        elif abs(on_l - pc) < 15 and (on_h - pc) > 30:
-            # Gap UP scenario: O/N opened near prior close, rallied significantly
-            # Estimate current price near the O/N high (80% up from low)
-            flow_price = on_l + (on_h - on_l) * 0.8
-            st.caption(f"🔍 Gap UP detected! flow_price={flow_price:.1f}")
+        # Detect gap scenarios
+        if gap_from_low < -30:
+            # O/N LOW is 30+ points BELOW prior close = Significant Gap Down
+            # Current price is likely near the O/N low
+            flow_price = on_l + (on_h - on_l) * 0.3  # Estimate 30% from low
+            st.caption(f"🔍 GAP DOWN detected ({gap_from_low:.0f} pts)! flow_price={flow_price:.1f}")
+        elif gap_from_high > 30:
+            # O/N HIGH is 30+ points ABOVE prior close = Significant Gap Up
+            # Current price is likely near the O/N high
+            flow_price = on_l + (on_h - on_l) * 0.7  # Estimate 70% from low
+            st.caption(f"🔍 GAP UP detected (+{gap_from_high:.0f} pts)! flow_price={flow_price:.1f}")
+        elif gap_from_low < -10:
+            # Moderate gap down
+            flow_price = on_l + (on_h - on_l) * 0.4
+            st.caption(f"🔍 Moderate gap down ({gap_from_low:.0f} pts), flow_price={flow_price:.1f}")
+        elif gap_from_high > 10:
+            # Moderate gap up
+            flow_price = on_l + (on_h - on_l) * 0.6
+            st.caption(f"🔍 Moderate gap up (+{gap_from_high:.0f} pts), flow_price={flow_price:.1f}")
         else:
-            # Use midpoint
+            # No significant gap - use midpoint
             flow_price = (on_h + on_l) / 2
-            st.caption(f"🔍 No clear gap, using midpoint: flow_price={flow_price:.1f}")
+            st.caption(f"🔍 No significant gap, using midpoint: flow_price={flow_price:.1f}")
     else:
         flow_price = current_es
     
     flow=calculate_flow_bias(flow_price,on_high,on_low,vix,vix_high,vix_low,prior_close)
+    
+    # Debug: Show what prior_close is being used for gap
+    if inputs.get("is_planning"):
+        gap_used = flow_price - prior_close if prior_close else 0
+        st.caption(f"💡 Flow Calc: flow_price={flow_price:.1f}, prior_close={prior_close:.1f}, GAP = {gap_used:+.1f} pts")
+    
     momentum=calculate_momentum(es_candles)
     ema_signals=calculate_ema_signals(es_candles,current_es)
     vix_zone=get_vix_zone(vix)
@@ -4122,23 +4169,55 @@ def main():
 <div style="font-size:13px;color:rgba(255,255,255,0.3)">Missing entry edge data</div>
 </div>'''
     elif direction == "NEUTRAL" and is_projected:
-        # Neutral in planning mode - show BOTH potential setups
+        # Neutral in planning mode - show BOTH potential setups with conflict info
+        # Check what's causing the conflict
+        ema_info = ""
+        if ema_signals.get("aligned_puts") or ema_signals.get("cross_bearish"):
+            ema_info = "EMA favors PUTS (bearish cross, below 200)"
+        elif ema_signals.get("aligned_calls") or ema_signals.get("cross_bullish"):
+            ema_info = "EMA favors CALLS (bullish cross, above 200)"
+        
+        conflict_msg = validation.get("message", "O/N trading inside channel")
+        
         cmd_html += f'''
 <div style="margin-top:16px">
-<div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);border-radius:12px;padding:16px;margin-bottom:12px;text-align:center">
-<div style="font-size:14px;color:var(--amber);font-weight:600;margin-bottom:8px">📊 NEUTRAL - Watch for 8:30 Break</div>
-<div style="font-size:12px;color:rgba(255,255,255,0.6)">O/N trading inside channel. Direction determined at 8:30 AM by which boundary breaks first.</div>
+<div style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.4);border-radius:16px;padding:20px;margin-bottom:16px">
+<div style="font-size:16px;color:var(--amber);font-weight:700;margin-bottom:10px">⚠️ CONFLICTING SIGNALS - WATCH BOTH SETUPS</div>
+<div style="font-size:13px;color:rgba(255,255,255,0.7);margin-bottom:8px">{conflict_msg}</div>
+<div style="font-size:12px;color:rgba(255,255,255,0.5)">{ema_info}</div>
 </div>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-<div style="background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.3);border-radius:12px;padding:16px">
-<div style="font-size:14px;font-weight:700;color:var(--red);margin-bottom:8px">▼ IF PUTS</div>
-<div style="font-size:12px;color:rgba(255,255,255,0.6);margin-bottom:8px">8:30 breaks below {floor_spx}</div>
-<div style="font-size:11px;color:rgba(255,255,255,0.4)">Entry at Floor: ES {floor_es:.2f}</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+<div style="background:linear-gradient(145deg, rgba(255,71,87,0.1), rgba(255,71,87,0.05));border:1px solid rgba(255,71,87,0.4);border-radius:16px;padding:20px">
+<div style="font-size:18px;font-weight:800;color:var(--red);margin-bottom:12px">▼ PUTS SETUP</div>
+<div style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:12px">If 8:30 breaks below floor</div>
+<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.1)">
+<span style="color:rgba(255,255,255,0.5)">Entry Level</span>
+<span style="font-family:monospace;font-weight:600">{floor_spx}</span>
 </div>
-<div style="background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.3);border-radius:12px;padding:16px">
-<div style="font-size:14px;font-weight:700;color:var(--green);margin-bottom:8px">▲ IF CALLS</div>
-<div style="font-size:12px;color:rgba(255,255,255,0.6);margin-bottom:8px">8:30 breaks above {ceiling_spx}</div>
-<div style="font-size:11px;color:rgba(255,255,255,0.4)">Entry at Ceiling: ES {ceiling_es:.2f}</div>
+<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.1)">
+<span style="color:rgba(255,255,255,0.5)">ES Level</span>
+<span style="font-family:monospace;font-weight:600">{floor_es:.2f}</span>
+</div>
+<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.1)">
+<span style="color:rgba(255,255,255,0.5)">EMA Aligned?</span>
+<span style="color:{'var(--green)' if ema_signals.get('aligned_puts') else 'var(--red)'};font-weight:600">{'✓ YES' if ema_signals.get('aligned_puts') else '✗ NO'}</span>
+</div>
+</div>
+<div style="background:linear-gradient(145deg, rgba(0,255,136,0.1), rgba(0,255,136,0.05));border:1px solid rgba(0,255,136,0.4);border-radius:16px;padding:20px">
+<div style="font-size:18px;font-weight:800;color:var(--green);margin-bottom:12px">▲ CALLS SETUP</div>
+<div style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:12px">If 8:30 breaks above ceiling</div>
+<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.1)">
+<span style="color:rgba(255,255,255,0.5)">Entry Level</span>
+<span style="font-family:monospace;font-weight:600">{ceiling_spx}</span>
+</div>
+<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.1)">
+<span style="color:rgba(255,255,255,0.5)">ES Level</span>
+<span style="font-family:monospace;font-weight:600">{ceiling_es:.2f}</span>
+</div>
+<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid rgba(255,255,255,0.1)">
+<span style="color:rgba(255,255,255,0.5)">EMA Aligned?</span>
+<span style="color:{'var(--green)' if ema_signals.get('aligned_calls') else 'var(--red)'};font-weight:600">{'✓ YES' if ema_signals.get('aligned_calls') else '✗ NO'}</span>
+</div>
 </div>
 </div>
 </div>'''
