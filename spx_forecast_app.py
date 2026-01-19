@@ -3075,11 +3075,15 @@ def render_sidebar():
         # VIX Override
         override_vix=st.checkbox("Override VIX",value=False,key="ovix")
         if override_vix:
+            st.markdown("**VIX Range** *(for flow bias)*")
             c1,c2=st.columns(2)
             vix_high=c1.number_input("VIX High",value=safe_float(saved.get("vix_high"),18.0),step=0.1)
             vix_low=c2.number_input("VIX Low",value=safe_float(saved.get("vix_low"),15.0),step=0.1)
+            st.markdown("**Current VIX** *(for premium calculation)*")
+            manual_vix=st.number_input("VIX Level",value=safe_float(saved.get("manual_vix"),16.0),step=0.1,key="mvix")
         else:
             vix_high=vix_low=None
+            manual_vix=None
         
         st.markdown("")
         
@@ -3158,6 +3162,7 @@ def render_sidebar():
                 "on_high":on_high,"on_low":on_low,
                 "on_prior_close":on_prior_close,
                 "vix_high":vix_high,"vix_low":vix_low,
+                "manual_vix":manual_vix,
                 "prior_high":prior_high,"prior_low":prior_low,"prior_close":prior_close
             })
             st.success("✅ Saved")
@@ -3173,6 +3178,7 @@ def render_sidebar():
         # VIX overrides
         "override_vix":override_vix,
         "vix_high":vix_high,"vix_low":vix_low,
+        "manual_vix":manual_vix,
         # O/N overrides
         "override_on":override_on,
         "on_high":on_high,"on_low":on_low,
@@ -3430,6 +3436,10 @@ def main():
     if prior_high_close_time is None:prior_high_close_time=CT.localize(datetime.combine(prior_rth_day,time(10,0)))
     if prior_low_close_time is None:prior_low_close_time=CT.localize(datetime.combine(prior_rth_day,time(14,0)))
     if prior_close_time is None:prior_close_time=CT.localize(datetime.combine(prior_rth_day,time(15,0)))
+    
+    # Manual VIX override for premium calculation
+    if inputs.get("override_vix") and inputs.get("manual_vix"):
+        vix = inputs["manual_vix"]
     
     current_spx=round(current_es-offset,2)
     
