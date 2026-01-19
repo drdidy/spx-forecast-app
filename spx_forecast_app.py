@@ -2996,7 +2996,29 @@ def main():
     is_trend_day=validation["status"]=="TREND_DAY"
     
     # Flow & momentum - use 8:30 candle open for flow bias calculation
-    flow_price=candle_830["open"] if candle_830 else current_es
+    # In planning mode with O/N override, estimate current price near O/N low if it's a gap down
+    if candle_830:
+        flow_price = candle_830["open"]
+    elif inputs.get("is_planning") and inputs.get("override_on"):
+        # Smart estimate: if O/N high is near prior close but O/N low is much lower = gap down session
+        on_h = on_high or 6050
+        on_l = on_low or 6000
+        pc = prior_close or 6050
+        
+        if abs(on_h - pc) < 15 and (pc - on_l) > 30:
+            # Gap DOWN scenario: O/N opened near prior close, dropped significantly
+            # Estimate current price near the O/N low (20% up from low)
+            flow_price = on_l + (on_h - on_l) * 0.2
+        elif abs(on_l - pc) < 15 and (on_h - pc) > 30:
+            # Gap UP scenario: O/N opened near prior close, rallied significantly
+            # Estimate current price near the O/N high (80% up from low)
+            flow_price = on_l + (on_h - on_l) * 0.8
+        else:
+            # Use midpoint
+            flow_price = (on_h + on_l) / 2
+    else:
+        flow_price = current_es
+    
     flow=calculate_flow_bias(flow_price,on_high,on_low,vix,vix_high,vix_low,prior_close)
     momentum=calculate_momentum(es_candles)
     ema_signals=calculate_ema_signals(es_candles,current_es)
