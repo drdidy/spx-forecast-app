@@ -49,1134 +49,266 @@ SAVE_FILE="spx_prophet_v6_inputs.json"
 VIX_ZONES={"EXTREME_LOW":(0,12),"LOW":(12,16),"NORMAL":(16,20),"ELEVATED":(20,25),"HIGH":(25,35),"EXTREME":(35,100)}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CSS - INSTITUTIONAL GRADE UI v2.0
-# 60-30-10 Rule | Grayscale-First Hierarchy | Progressive Disclosure
+# CSS - PROFESSIONAL TRADING UI
 # ═══════════════════════════════════════════════════════════════════════════════
 STYLES="""<style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   DESIGN SYSTEM - 60/30/10 Color Rule
-   60% - Neutral backgrounds (#08080c, #0d0d12)
-   30% - Card surfaces, secondary elements
-   10% - Signal colors (green/red/amber for decisions ONLY)
-   ═══════════════════════════════════════════════════════════════════════════ */
 :root {
-    /* 60% - Primary backgrounds */
-    --bg-primary: #08080c;
-    --bg-secondary: #0d0d12;
-    --bg-tertiary: #111116;
-    
-    /* 30% - Surfaces & borders */
-    --surface-1: rgba(255,255,255,0.02);
-    --surface-2: rgba(255,255,255,0.04);
-    --surface-3: rgba(255,255,255,0.06);
-    --border-subtle: rgba(255,255,255,0.06);
-    --border-default: rgba(255,255,255,0.10);
-    --border-strong: rgba(255,255,255,0.15);
-    
-    /* Text hierarchy */
-    --text-primary: rgba(255,255,255,0.95);
-    --text-secondary: rgba(255,255,255,0.60);
-    --text-tertiary: rgba(255,255,255,0.40);
-    --text-muted: rgba(255,255,255,0.25);
-    
-    /* 10% - Signal colors (ONLY for actionable information) */
-    --signal-go: #10b981;
-    --signal-go-muted: rgba(16,185,129,0.15);
-    --signal-stop: #ef4444;
-    --signal-stop-muted: rgba(239,68,68,0.15);
-    --signal-wait: #f59e0b;
-    --signal-wait-muted: rgba(245,158,11,0.15);
-    --signal-info: #6366f1;
-    --signal-info-muted: rgba(99,102,241,0.15);
-    
-    /* Accent (sparingly) */
-    --accent: #818cf8;
-    --accent-muted: rgba(129,140,248,0.12);
-    
-    /* Spacing system */
-    --space-xs: 4px;
-    --space-sm: 8px;
-    --space-md: 16px;
-    --space-lg: 24px;
-    --space-xl: 32px;
-    --space-2xl: 48px;
-    
-    /* Typography */
-    --font-display: 'Space Grotesk', -apple-system, sans-serif;
-    --font-body: 'Inter', -apple-system, sans-serif;
-    --font-mono: 'IBM Plex Mono', monospace;
-    
-    /* Radius */
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 14px;
-    --radius-xl: 20px;
-    
-    /* Transitions */
-    --transition-fast: 150ms ease;
-    --transition-base: 250ms ease;
+    --bg: #0a0a0f;
+    --bg2: #12121a;
+    --card: rgba(255,255,255,0.03);
+    --border: rgba(255,255,255,0.08);
+    --text: #fff;
+    --text2: rgba(255,255,255,0.6);
+    --text3: rgba(255,255,255,0.4);
+    --green: #10b981;
+    --green-dim: rgba(16,185,129,0.15);
+    --red: #ef4444;
+    --red-dim: rgba(239,68,68,0.15);
+    --amber: #f59e0b;
+    --amber-dim: rgba(245,158,11,0.15);
+    --purple: #a855f7;
+    --cyan: #22d3ee;
+    --blue: #6366f1;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   BASE STYLES
-   ═══════════════════════════════════════════════════════════════════════════ */
-.stApp {
-    background: var(--bg-primary);
-    font-family: var(--font-body);
-    color: var(--text-primary);
-}
+/* Base */
+.stApp { background: linear-gradient(180deg, var(--bg), var(--bg2)); font-family: 'Inter', sans-serif; }
 .stApp > header { background: transparent !important; }
-
-/* Sidebar */
-[data-testid="stSidebar"] {
-    background: var(--bg-secondary) !important;
-    border-right: 1px solid var(--border-subtle) !important;
-}
-[data-testid="stSidebar"] * { color: var(--text-primary) !important; }
-[data-testid="stSidebar"] .stSelectbox label,
-[data-testid="stSidebar"] .stNumberInput label,
-[data-testid="stSidebar"] .stCheckbox label {
-    font-size: 13px !important;
-    font-weight: 500 !important;
-    color: var(--text-secondary) !important;
-}
-
-/* Section headers */
-h3 {
-    font-family: var(--font-display) !important;
-    font-size: 13px !important;
-    font-weight: 600 !important;
-    color: var(--text-tertiary) !important;
-    text-transform: uppercase !important;
-    letter-spacing: 1.5px !important;
-    margin: var(--space-xl) 0 var(--space-md) 0 !important;
-    padding: 0 !important;
-    border: none !important;
-}
-
-/* Expanders */
-.stExpander {
-    border: 1px solid var(--border-subtle) !important;
-    border-radius: var(--radius-md) !important;
-    background: var(--surface-1) !important;
-}
-.stExpander:hover {
-    border-color: var(--border-default) !important;
-}
+[data-testid="stSidebar"] { background: rgba(10,10,15,0.98) !important; border-right: 1px solid var(--border); }
+[data-testid="stSidebar"] * { color: var(--text) !important; }
+h3 { font-family: 'Space Grotesk', sans-serif !important; font-size: 13px !important; font-weight: 600 !important; 
+     color: var(--text3) !important; text-transform: uppercase !important; letter-spacing: 1.2px !important;
+     margin: 32px 0 16px 0 !important; padding: 0 !important; border: none !important; }
+.stExpander { border: 1px solid var(--border) !important; border-radius: 12px !important; background: var(--card) !important; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   STATUS BANNER - The most important element
+   STATUS BANNER - Giant GO/NO-GO indicator
    ═══════════════════════════════════════════════════════════════════════════ */
-.status-banner {
-    position: relative;
-    border-radius: var(--radius-xl);
-    padding: var(--space-lg) var(--space-xl);
-    margin-bottom: var(--space-lg);
+.status-go {
+    background: linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.06));
+    border: 2px solid var(--green);
+    border-radius: 20px;
+    padding: 24px 32px;
+    margin-bottom: 20px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    overflow: hidden;
+    box-shadow: 0 0 60px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.05);
 }
-.status-banner::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    opacity: 0.03;
-    background: radial-gradient(ellipse at top right, currentColor, transparent 70%);
+.status-wait {
+    background: linear-gradient(135deg, rgba(245,158,11,0.12), rgba(245,158,11,0.06));
+    border: 2px solid var(--amber);
+    border-radius: 20px;
+    padding: 24px 32px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 0 60px rgba(245,158,11,0.15), inset 0 1px 0 rgba(255,255,255,0.05);
 }
-.status-banner.go {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--signal-go);
-    box-shadow: 0 0 40px var(--signal-go-muted), inset 0 1px 0 rgba(255,255,255,0.05);
-}
-.status-banner.wait {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--signal-wait);
-    box-shadow: 0 0 40px var(--signal-wait-muted), inset 0 1px 0 rgba(255,255,255,0.05);
-}
-.status-banner.no-trade {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-default);
+.status-no {
+    background: linear-gradient(135deg, rgba(239,68,68,0.08), rgba(239,68,68,0.04));
+    border: 2px solid rgba(239,68,68,0.5);
+    border-radius: 20px;
+    padding: 24px 32px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
 }
-.status-banner.historical {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--signal-info);
-    box-shadow: 0 0 40px var(--signal-info-muted), inset 0 1px 0 rgba(255,255,255,0.05);
-}
-
-.status-main {
+.status-hist {
+    background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(99,102,241,0.06));
+    border: 2px solid var(--blue);
+    border-radius: 20px;
+    padding: 24px 32px;
+    margin-bottom: 20px;
     display: flex;
     align-items: center;
-    gap: var(--space-lg);
-    z-index: 1;
-}
-.status-indicator {
-    width: 56px;
-    height: 56px;
-    border-radius: var(--radius-lg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 24px;
-    font-weight: 700;
-    font-family: var(--font-mono);
-}
-.status-banner.go .status-indicator {
-    background: var(--signal-go-muted);
-    color: var(--signal-go);
-    box-shadow: 0 0 20px var(--signal-go-muted);
-}
-.status-banner.wait .status-indicator {
-    background: var(--signal-wait-muted);
-    color: var(--signal-wait);
-}
-.status-banner.no-trade .status-indicator {
-    background: var(--surface-2);
-    color: var(--text-tertiary);
-}
-.status-banner.historical .status-indicator {
-    background: var(--signal-info-muted);
-    color: var(--signal-info);
-}
-
-.status-content h1 {
-    font-family: var(--font-display);
-    font-size: 28px;
-    font-weight: 700;
-    margin: 0 0 4px 0;
-    letter-spacing: -0.5px;
-}
-.status-banner.go .status-content h1 { color: var(--signal-go); }
-.status-banner.wait .status-content h1 { color: var(--signal-wait); }
-.status-banner.no-trade .status-content h1 { color: var(--text-secondary); }
-.status-banner.historical .status-content h1 { color: var(--signal-info); }
-
-.status-reason {
-    font-size: 14px;
-    color: var(--text-secondary);
-    margin: 0;
-}
-
-.status-meta {
-    text-align: right;
-    z-index: 1;
-}
-.status-price {
-    font-family: var(--font-mono);
-    font-size: 36px;
-    font-weight: 600;
-    color: var(--text-primary);
-    letter-spacing: -1px;
-}
-.status-sublabel {
-    font-size: 12px;
-    color: var(--text-tertiary);
-    margin-top: 2px;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   COUNTDOWN TIMERS
-   ═══════════════════════════════════════════════════════════════════════════ */
-.countdown-bar {
-    display: flex;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-lg);
-}
-.countdown-item {
-    flex: 1;
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    padding: var(--space-md);
-    text-align: center;
-    transition: var(--transition-fast);
-}
-.countdown-item:hover {
-    background: var(--surface-2);
-    border-color: var(--border-default);
-}
-.countdown-item.active {
-    border-color: var(--signal-go);
-    background: var(--signal-go-muted);
-}
-.countdown-item.past {
-    opacity: 0.4;
-}
-.countdown-label {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: var(--space-xs);
-}
-.countdown-value {
-    font-family: var(--font-mono);
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-.countdown-item.active .countdown-value {
-    color: var(--signal-go);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   SESSION TIMELINE
-   ═══════════════════════════════════════════════════════════════════════════ */
-.session-timeline {
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: var(--space-lg);
-    margin-bottom: var(--space-lg);
-}
-.timeline-track {
-    display: flex;
-    align-items: center;
-    position: relative;
-    height: 48px;
-}
-.timeline-segment {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    position: relative;
-}
-.timeline-segment::before {
-    content: '';
-    position: absolute;
-    top: 12px;
-    left: 0;
-    right: 0;
-    height: 4px;
-    background: var(--border-subtle);
-    z-index: 0;
-}
-.timeline-segment:first-child::before { left: 50%; }
-.timeline-segment:last-child::before { right: 50%; }
-.timeline-segment.completed::before { background: var(--signal-go); }
-.timeline-segment.active::before { 
-    background: linear-gradient(90deg, var(--signal-go) 0%, var(--signal-go) 50%, var(--border-subtle) 50%);
-}
-
-.timeline-dot {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: var(--bg-secondary);
-    border: 3px solid var(--border-default);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    z-index: 1;
-    transition: var(--transition-base);
-}
-.timeline-segment.completed .timeline-dot {
-    background: var(--signal-go);
-    border-color: var(--signal-go);
-    color: white;
-}
-.timeline-segment.active .timeline-dot {
-    background: var(--bg-secondary);
-    border-color: var(--signal-go);
-    box-shadow: 0 0 0 4px var(--signal-go-muted);
-    animation: pulse 2s infinite;
-}
-@keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 4px var(--signal-go-muted); }
-    50% { box-shadow: 0 0 0 8px transparent; }
-}
-
-.timeline-label {
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--text-tertiary);
-    margin-top: var(--space-sm);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-.timeline-segment.active .timeline-label,
-.timeline-segment.completed .timeline-label {
-    color: var(--text-secondary);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   PRICE LADDER - Visual Channel Position
-   ═══════════════════════════════════════════════════════════════════════════ */
-.price-ladder {
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: var(--space-xl);
-    margin-bottom: var(--space-lg);
-}
-.price-ladder-header {
-    display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-lg);
+    box-shadow: 0 0 60px rgba(99,102,241,0.15), inset 0 1px 0 rgba(255,255,255,0.05);
 }
-.price-ladder-title {
-    font-family: var(--font-display);
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-primary);
+.status-left { display: flex; align-items: center; gap: 20px; }
+.status-icon { 
+    width: 64px; height: 64px; border-radius: 16px; 
+    display: flex; align-items: center; justify-content: center; 
+    font-size: 28px; font-weight: 700; 
 }
-.price-ladder-channel {
-    font-size: 12px;
-    font-weight: 600;
-    padding: 6px 12px;
-    border-radius: var(--radius-sm);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-.price-ladder-channel.rising {
-    background: var(--signal-go-muted);
-    color: var(--signal-go);
-}
-.price-ladder-channel.falling {
-    background: var(--signal-stop-muted);
-    color: var(--signal-stop);
-}
-
-.ladder-visual {
-    position: relative;
-    height: 280px;
-    margin: 0 80px;
-}
-.ladder-track {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(180deg, 
-        var(--signal-go-muted) 0%, 
-        var(--surface-2) 30%, 
-        var(--surface-2) 70%, 
-        var(--signal-stop-muted) 100%
-    );
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-subtle);
-}
-
-.ladder-level {
-    position: absolute;
-    left: -80px;
-    right: -80px;
-    display: flex;
-    align-items: center;
-    height: 2px;
-}
-.ladder-level-line {
-    flex: 1;
-    height: 2px;
-    margin: 0 8px;
-}
-.ladder-level.ceiling .ladder-level-line { 
-    background: var(--signal-go); 
-    box-shadow: 0 0 8px var(--signal-go-muted);
-}
-.ladder-level.floor .ladder-level-line { 
-    background: var(--signal-stop); 
-    box-shadow: 0 0 8px var(--signal-stop-muted);
-}
-.ladder-level.target .ladder-level-line { 
-    background: var(--signal-wait);
-    height: 1px;
-    opacity: 0.6;
-}
-
-.ladder-price {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 600;
-    white-space: nowrap;
-    padding: 4px 8px;
-    border-radius: var(--radius-sm);
-    min-width: 70px;
-    text-align: center;
-}
-.ladder-level.ceiling .ladder-price { 
-    background: var(--signal-go-muted); 
-    color: var(--signal-go); 
-}
-.ladder-level.floor .ladder-price { 
-    background: var(--signal-stop-muted); 
-    color: var(--signal-stop); 
-}
-.ladder-level.target .ladder-price { 
-    background: var(--signal-wait-muted); 
-    color: var(--signal-wait);
-    font-size: 11px;
-}
-
-.ladder-label {
-    font-size: 10px;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    min-width: 60px;
-    text-align: center;
-}
-
-.ladder-current {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    z-index: 10;
-}
-.ladder-current-dot {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--text-primary);
-    border: 3px solid var(--bg-primary);
-    box-shadow: 0 0 0 3px var(--text-primary), 0 4px 12px rgba(0,0,0,0.4);
-}
-.ladder-current-price {
-    font-family: var(--font-mono);
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--text-primary);
-    background: var(--bg-primary);
-    padding: 6px 12px;
-    border-radius: var(--radius-sm);
-    margin-top: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    white-space: nowrap;
-}
+.status-go .status-icon { background: var(--green-dim); color: var(--green); }
+.status-wait .status-icon { background: var(--amber-dim); color: var(--amber); }
+.status-no .status-icon { background: var(--red-dim); color: var(--red); }
+.status-hist .status-icon { background: rgba(99,102,241,0.15); color: var(--blue); }
+.status-title { font-family: 'Space Grotesk', sans-serif; font-size: 32px; font-weight: 700; margin: 0; }
+.status-go .status-title { color: var(--green); }
+.status-wait .status-title { color: var(--amber); }
+.status-no .status-title { color: var(--text3); }
+.status-hist .status-title { color: var(--blue); }
+.status-sub { font-size: 14px; color: var(--text2); margin-top: 4px; }
+.status-right { text-align: right; }
+.status-price { font-family: 'IBM Plex Mono', monospace; font-size: 36px; font-weight: 700; color: var(--text); }
+.status-meta { font-size: 12px; color: var(--text3); margin-top: 4px; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TRADE SETUP CARD
+   TRADE CARD - Entry, Strike, Targets
    ═══════════════════════════════════════════════════════════════════════════ */
 .trade-card {
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
     overflow: hidden;
-    margin-bottom: var(--space-lg);
+    margin-bottom: 20px;
 }
-.trade-card.calls {
-    border-color: var(--signal-go);
-    box-shadow: 0 4px 24px var(--signal-go-muted);
-}
-.trade-card.puts {
-    border-color: var(--signal-stop);
-    box-shadow: 0 4px 24px var(--signal-stop-muted);
-}
-
-.trade-card-header {
-    padding: var(--space-lg);
+.trade-header {
+    padding: 20px 24px;
     display: flex;
+    align-items: center;
     justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border);
 }
-.trade-card.calls .trade-card-header { background: var(--signal-go-muted); }
-.trade-card.puts .trade-card-header { background: var(--signal-stop-muted); }
-
-.trade-direction {
-    display: flex;
-    align-items: center;
-    gap: var(--space-md);
-}
-.trade-direction-icon {
-    width: 44px;
-    height: 44px;
-    border-radius: var(--radius-md);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 20px;
-}
-.trade-card.calls .trade-direction-icon { background: var(--signal-go); color: white; }
-.trade-card.puts .trade-direction-icon { background: var(--signal-stop); color: white; }
-
-.trade-direction-label {
-    font-family: var(--font-display);
-    font-size: 22px;
-    font-weight: 700;
-}
-.trade-card.calls .trade-direction-label { color: var(--signal-go); }
-.trade-card.puts .trade-direction-label { color: var(--signal-stop); }
-
-.trade-card-body {
-    padding: var(--space-lg);
-}
-
-.trade-metrics {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-.trade-metric {
-    background: var(--surface-2);
-    border-radius: var(--radius-md);
-    padding: var(--space-md);
-    text-align: center;
-}
-.trade-metric-label {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: var(--space-xs);
-}
-.trade-metric-value {
-    font-family: var(--font-mono);
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-
-.trade-confirmation {
-    background: var(--signal-wait-muted);
-    border: 1px solid rgba(245,158,11,0.3);
-    border-radius: var(--radius-md);
-    padding: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-.trade-confirmation-title {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--signal-wait);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: var(--space-sm);
-}
-.trade-confirmation-rule {
-    font-size: 14px;
-    color: var(--text-primary);
-    font-weight: 500;
-}
-.trade-confirmation-warning {
-    font-size: 11px;
-    color: var(--signal-stop);
-    margin-top: var(--space-sm);
-    padding: var(--space-sm);
-    background: var(--signal-stop-muted);
-    border-radius: var(--radius-sm);
-}
-
-.trade-targets {
-    background: var(--surface-2);
-    border-radius: var(--radius-md);
-    padding: var(--space-md);
-}
-.trade-targets-title {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: var(--space-md);
-}
-.trade-target {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: var(--space-sm) 0;
-    border-bottom: 1px solid var(--border-subtle);
-}
-.trade-target:last-child { border-bottom: none; }
-.trade-target-name {
-    font-size: 13px;
-    color: var(--text-secondary);
-}
-.trade-target-price {
-    font-family: var(--font-mono);
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-.trade-target-pct {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 600;
-    margin-left: var(--space-sm);
-    padding: 2px 6px;
-    border-radius: var(--radius-sm);
-}
-.trade-target-pct.positive {
-    background: var(--signal-go-muted);
-    color: var(--signal-go);
-}
+.trade-header.puts { background: var(--red-dim); }
+.trade-header.calls { background: var(--green-dim); }
+.trade-dir { display: flex; align-items: center; gap: 12px; }
+.trade-dir-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+.trade-header.puts .trade-dir-icon { background: var(--red); color: white; }
+.trade-header.calls .trade-dir-icon { background: var(--green); color: white; }
+.trade-dir-text { font-family: 'Space Grotesk', sans-serif; font-size: 24px; font-weight: 700; }
+.trade-header.puts .trade-dir-text { color: var(--red); }
+.trade-header.calls .trade-dir-text { color: var(--green); }
+.trade-body { padding: 24px; }
+.trade-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+.trade-metric { background: rgba(255,255,255,0.02); border-radius: 12px; padding: 16px; text-align: center; }
+.trade-metric-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.trade-metric-value { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 600; color: var(--text); }
+.trade-entry-rule { background: var(--amber-dim); border: 1px solid rgba(245,158,11,0.3); border-radius: 12px; padding: 16px; margin-bottom: 20px; }
+.trade-entry-title { font-size: 12px; color: var(--amber); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.trade-entry-text { font-size: 15px; color: var(--text); font-weight: 500; }
+.trade-targets { background: rgba(255,255,255,0.02); border-radius: 12px; padding: 16px; }
+.trade-targets-title { font-size: 12px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+.trade-target-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.trade-target-row:last-child { border-bottom: none; }
+.trade-target-name { font-weight: 500; }
+.trade-target-level { font-family: 'IBM Plex Mono', monospace; }
+.trade-target-price { font-family: 'IBM Plex Mono', monospace; color: var(--green); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   VALIDATION CHECKLIST
+   VALIDATION GRID - Clear pass/fail with values
    ═══════════════════════════════════════════════════════════════════════════ */
-.checklist {
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: var(--space-lg);
-    margin-bottom: var(--space-lg);
-}
-.checklist-title {
-    font-family: var(--font-display);
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: var(--space-md);
-}
-.checklist-grid {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: var(--space-sm);
-}
-.checklist-item {
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    padding: var(--space-md);
-    text-align: center;
-    transition: var(--transition-fast);
-}
-.checklist-item.pass {
-    background: var(--signal-go-muted);
-    border-color: var(--signal-go);
-}
-.checklist-item.fail {
-    background: var(--signal-stop-muted);
-    border-color: var(--signal-stop);
-}
-.checklist-item.neutral {
-    background: var(--surface-2);
-    border-color: var(--border-default);
-}
-.checklist-icon {
-    font-size: 20px;
-    margin-bottom: var(--space-xs);
-}
-.checklist-label {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-.checklist-item.pass .checklist-label { color: var(--signal-go); }
-.checklist-item.fail .checklist-label { color: var(--signal-stop); }
+.valid-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px; }
+.valid-item { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; text-align: center; }
+.valid-item.pass { border-color: var(--green); background: var(--green-dim); }
+.valid-item.fail { border-color: var(--red); background: var(--red-dim); }
+.valid-item.neutral { border-color: var(--amber); background: var(--amber-dim); }
+.valid-icon { font-size: 24px; margin-bottom: 8px; }
+.valid-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.valid-value { font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 600; }
+.valid-item.pass .valid-value { color: var(--green); }
+.valid-item.fail .valid-value { color: var(--red); }
+.valid-item.neutral .valid-value { color: var(--amber); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   DAYS LIKE TODAY
+   SESSION CARDS - Sydney, Tokyo, London
    ═══════════════════════════════════════════════════════════════════════════ */
-.days-like-today {
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: var(--space-lg);
-    margin-bottom: var(--space-lg);
-}
-.dlt-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-md);
-}
-.dlt-title {
-    font-family: var(--font-display);
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-.dlt-winrate {
-    font-family: var(--font-mono);
-    font-size: 24px;
-    font-weight: 700;
-}
-.dlt-winrate.good { color: var(--signal-go); }
-.dlt-winrate.medium { color: var(--signal-wait); }
-.dlt-winrate.poor { color: var(--signal-stop); }
-
-.dlt-conditions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-md);
-}
-.dlt-tag {
-    font-size: 11px;
-    font-weight: 500;
-    padding: 4px 10px;
-    border-radius: var(--radius-sm);
-    background: var(--surface-3);
-    color: var(--text-secondary);
-}
-
-.dlt-stats {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--space-md);
-}
-.dlt-stat {
-    text-align: center;
-    padding: var(--space-md);
-    background: var(--surface-2);
-    border-radius: var(--radius-md);
-}
-.dlt-stat-value {
-    font-family: var(--font-mono);
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-.dlt-stat-label {
-    font-size: 10px;
-    color: var(--text-tertiary);
-    margin-top: 2px;
-}
+.session-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.session-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+.session-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.session-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+.session-name { font-weight: 600; font-size: 14px; }
+.session-time { font-size: 11px; color: var(--text3); }
+.session-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
+.session-row-label { color: var(--text3); }
+.session-row-value { font-family: 'IBM Plex Mono', monospace; font-weight: 500; }
+.session-row-value.high { color: var(--green); }
+.session-row-value.low { color: var(--red); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   8:30 CANDLE VISUALIZATION
+   CHANNEL BOX
    ═══════════════════════════════════════════════════════════════════════════ */
-.candle-viz {
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: var(--space-lg);
-    margin-bottom: var(--space-lg);
-}
-.candle-viz-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-lg);
-}
-.candle-viz-title {
-    font-family: var(--font-display);
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-.candle-viz-type {
-    font-size: 12px;
-    font-weight: 600;
-    padding: 4px 10px;
-    border-radius: var(--radius-sm);
-}
-.candle-viz-type.bullish {
-    background: var(--signal-go-muted);
-    color: var(--signal-go);
-}
-.candle-viz-type.bearish {
-    background: var(--signal-stop-muted);
-    color: var(--signal-stop);
-}
-
-.candle-viz-body {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xl);
-}
-.candle-svg-container {
-    width: 80px;
-    height: 120px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.candle-ohlc {
-    flex: 1;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: var(--space-md);
-}
-.candle-ohlc-item {
-    text-align: center;
-    padding: var(--space-md);
-    background: var(--surface-2);
-    border-radius: var(--radius-md);
-}
-.candle-ohlc-label {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--text-tertiary);
-    margin-bottom: var(--space-xs);
-}
-.candle-ohlc-value {
-    font-family: var(--font-mono);
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-.candle-ohlc-value.high { color: var(--signal-go); }
-.candle-ohlc-value.low { color: var(--signal-stop); }
+.channel-box { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+.channel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.channel-type { font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 700; }
+.channel-type.rising { color: var(--green); }
+.channel-type.falling { color: var(--red); }
+.channel-badge { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+.channel-badge.rising { background: var(--green-dim); color: var(--green); }
+.channel-badge.falling { background: var(--red-dim); color: var(--red); }
+.channel-levels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.channel-level { padding: 12px; border-radius: 10px; }
+.channel-level.ceiling { background: var(--green-dim); border: 1px solid rgba(16,185,129,0.3); }
+.channel-level.floor { background: var(--red-dim); border: 1px solid rgba(239,68,68,0.3); }
+.channel-level-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.channel-level-value { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 600; }
+.channel-level.ceiling .channel-level-value { color: var(--green); }
+.channel-level.floor .channel-level-value { color: var(--red); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ANALYSIS SECTIONS (Collapsible)
+   CONFIDENCE BAR
    ═══════════════════════════════════════════════════════════════════════════ */
-.analysis-section {
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    margin-bottom: var(--space-md);
-    overflow: hidden;
-}
-.analysis-header {
-    padding: var(--space-md) var(--space-lg);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    cursor: pointer;
-    transition: var(--transition-fast);
-}
-.analysis-header:hover {
-    background: var(--surface-2);
-}
-.analysis-title {
-    font-family: var(--font-display);
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-.analysis-summary {
-    font-size: 13px;
-    color: var(--text-secondary);
-}
-.analysis-body {
-    padding: var(--space-lg);
-    border-top: 1px solid var(--border-subtle);
-}
+.conf-container { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+.conf-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.conf-title { font-size: 14px; font-weight: 600; }
+.conf-score { font-family: 'IBM Plex Mono', monospace; font-size: 24px; font-weight: 700; }
+.conf-score.high { color: var(--green); }
+.conf-score.med { color: var(--amber); }
+.conf-score.low { color: var(--red); }
+.conf-bar { height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
+.conf-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }
+.conf-fill.high { background: var(--green); }
+.conf-fill.med { background: var(--amber); }
+.conf-fill.low { background: var(--red); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   HISTORICAL RESULT
+   RESULT BOX
    ═══════════════════════════════════════════════════════════════════════════ */
-.hist-result {
-    border-radius: var(--radius-lg);
-    padding: var(--space-xl);
-    margin-bottom: var(--space-lg);
-}
-.hist-result.win {
-    background: var(--signal-go-muted);
-    border: 1px solid var(--signal-go);
-}
-.hist-result.loss {
-    background: var(--signal-stop-muted);
-    border: 1px solid var(--signal-stop);
-}
-.hist-result.neutral {
-    background: var(--signal-wait-muted);
-    border: 1px solid var(--signal-wait);
-}
-.hist-result-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-lg);
-}
-.hist-result-title {
-    font-family: var(--font-display);
-    font-size: 20px;
-    font-weight: 700;
-}
-.hist-result.win .hist-result-title { color: var(--signal-go); }
-.hist-result.loss .hist-result-title { color: var(--signal-stop); }
-.hist-result.neutral .hist-result-title { color: var(--signal-wait); }
-
-.hist-result-outcome {
-    font-size: 14px;
-    font-weight: 600;
-    padding: 6px 12px;
-    border-radius: var(--radius-sm);
-}
-.hist-result.win .hist-result-outcome { background: var(--signal-go); color: white; }
-.hist-result.loss .hist-result-outcome { background: var(--signal-stop); color: white; }
-.hist-result.neutral .hist-result-outcome { background: var(--signal-wait); color: white; }
-
-.hist-result-message {
-    font-size: 15px;
-    color: var(--text-primary);
-    margin-bottom: var(--space-lg);
-}
-
-.hist-metrics {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-.hist-metric {
-    text-align: center;
-    padding: var(--space-md);
-    background: rgba(0,0,0,0.2);
-    border-radius: var(--radius-md);
-}
-.hist-metric-label {
-    font-size: 10px;
-    color: var(--text-tertiary);
-    margin-bottom: var(--space-xs);
-}
-.hist-metric-value {
-    font-family: var(--font-mono);
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
+.result-box { border-radius: 16px; padding: 20px; margin: 16px 0; }
+.result-box.win { background: var(--green-dim); border: 1px solid var(--green); }
+.result-box.loss { background: var(--red-dim); border: 1px solid var(--red); }
+.result-box.neutral { background: var(--amber-dim); border: 1px solid var(--amber); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   CONFIDENCE GAUGE
+   FLOW METER
    ═══════════════════════════════════════════════════════════════════════════ */
-.confidence-gauge {
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: var(--space-lg);
-    margin-bottom: var(--space-lg);
-}
-.gauge-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-lg);
-}
-.gauge-title {
-    font-family: var(--font-display);
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-.gauge-score {
-    font-family: var(--font-mono);
-    font-size: 32px;
-    font-weight: 700;
-}
-.gauge-score.high { color: var(--signal-go); }
-.gauge-score.medium { color: var(--signal-wait); }
-.gauge-score.low { color: var(--signal-stop); }
-
-.gauge-bar {
-    height: 8px;
-    background: var(--surface-3);
-    border-radius: 4px;
-    overflow: hidden;
-    margin-bottom: var(--space-lg);
-}
-.gauge-fill {
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.5s ease;
-}
-.gauge-fill.high { background: var(--signal-go); }
-.gauge-fill.medium { background: var(--signal-wait); }
-.gauge-fill.low { background: var(--signal-stop); }
-
-.gauge-breakdown {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: var(--space-sm);
-}
-.gauge-item {
-    display: flex;
-    justify-content: space-between;
-    padding: var(--space-sm) var(--space-md);
-    background: var(--surface-2);
-    border-radius: var(--radius-sm);
-    font-size: 12px;
-}
-.gauge-item-label { color: var(--text-secondary); }
-.gauge-item-value { 
-    font-weight: 600; 
-    color: var(--text-primary);
-}
+.flow-box { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+.flow-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.flow-title { font-size: 14px; font-weight: 600; }
+.flow-value { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 700; }
+.flow-meter { height: 10px; background: linear-gradient(90deg, var(--red), var(--amber) 50%, var(--green)); border-radius: 5px; position: relative; margin: 12px 0; }
+.flow-marker { position: absolute; top: -5px; width: 8px; height: 20px; background: white; border-radius: 4px; transform: translateX(-50%); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+.flow-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text3); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   SESSION DATA CARDS
+   8:30 CANDLE
    ═══════════════════════════════════════════════════════════════════════════ */
-.session-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-.session-card {
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: var(--space-md);
-}
-.session-card-header {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-md);
-}
-.session-card-icon {
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius-sm);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    background: var(--surface-3);
-}
-.session-card-name {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-.session-card-time {
-    font-size: 10px;
-    color: var(--text-tertiary);
-}
-.session-card-row {
-    display: flex;
-    justify-content: space-between;
-    padding: var(--space-xs) 0;
-    font-size: 12px;
-}
-.session-card-label { color: var(--text-tertiary); }
-.session-card-value { 
-    font-family: var(--font-mono); 
-    font-weight: 500;
-}
-.session-card-value.high { color: var(--signal-go); }
-.session-card-value.low { color: var(--signal-stop); }
+.candle-box { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+.candle-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.candle-title { font-size: 14px; font-weight: 600; }
+.candle-type { padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.candle-type.bullish { background: var(--green-dim); color: var(--green); }
+.candle-type.bearish { background: var(--red-dim); color: var(--red); }
+.candle-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.candle-item { text-align: center; padding: 12px; background: rgba(255,255,255,0.02); border-radius: 10px; }
+.candle-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.candle-value { font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 600; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    FOOTER
    ═══════════════════════════════════════════════════════════════════════════ */
-.app-footer {
-    text-align: center;
-    padding: var(--space-xl) var(--space-lg);
-    border-top: 1px solid var(--border-subtle);
-    margin-top: var(--space-2xl);
-}
-.footer-brand {
-    font-family: var(--font-display);
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    margin-bottom: var(--space-sm);
-}
-.footer-meta {
-    font-size: 11px;
-    color: var(--text-muted);
-    line-height: 1.6;
-}
+.footer { text-align: center; padding: 24px; color: var(--text3); font-size: 12px; border-top: 1px solid var(--border); margin-top: 32px; }
+.footer-brand { font-family: 'Space Grotesk', sans-serif; font-weight: 600; margin-bottom: 4px; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   UTILITIES
+   LEGACY SUPPORT (keeping what works)
    ═══════════════════════════════════════════════════════════════════════════ */
-.text-go { color: var(--signal-go) !important; }
-.text-stop { color: var(--signal-stop) !important; }
-.text-wait { color: var(--signal-wait) !important; }
-.text-muted { color: var(--text-tertiary) !important; }
-.mono { font-family: var(--font-mono) !important; }
-.font-display { font-family: var(--font-display) !important; }
-
-/* Note: Do NOT hide MainMenu - user needs access to theme settings */
-.stDeployButton { display: none; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+.pillar { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 13px; }
+.pillar:last-child { border-bottom: none; }
+.timeline { position: relative; padding-left: 24px; margin: 14px 0; }
+.timeline-item { position: relative; padding: 12px 0 12px 24px; border-left: 2px solid var(--border); }
+.timeline-item:last-child { border-left: 2px solid transparent; }
+.timeline-dot { position: absolute; left: -8px; top: 14px; width: 14px; height: 14px; border-radius: 50%; background: var(--border); border: 2px solid var(--bg); }
+.timeline-dot.active { background: var(--green); }
+.timeline-dot.hit { background: var(--green); }
 </style>"""
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1256,679 +388,6 @@ def get_vix_zone(vix):
     for z,(lo,hi) in VIX_ZONES.items():
         if lo<=vix<hi:return z
     return "NORMAL"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# UI HELPER FUNCTIONS - Institutional Grade Components
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def get_current_session(now_time):
-    """Determine which trading session we're currently in"""
-    hour = now_time.hour
-    minute = now_time.minute
-    time_val = hour * 100 + minute
-    
-    if time_val < 500:  # Before 5 AM - still in Tokyo/early London
-        return "tokyo"
-    elif time_val < 800:  # 5 AM - 8 AM - London pre-market
-        return "london"
-    elif time_val < 830:  # 8 AM - 8:30 AM - Pre-RTH
-        return "premarket"
-    elif time_val < 1500:  # 8:30 AM - 3 PM - RTH
-        return "rth"
-    elif time_val < 1700:  # 3 PM - 5 PM - Post-market/maintenance
-        return "postmarket"
-    else:  # 5 PM onwards - Sydney
-        return "sydney"
-
-def get_session_status(session_name, current_session, is_historical=False):
-    """Get the status of a session (completed, active, pending)"""
-    session_order = ["sydney", "tokyo", "london", "premarket", "rth", "postmarket"]
-    
-    if is_historical:
-        return "completed"
-    
-    try:
-        current_idx = session_order.index(current_session)
-        session_idx = session_order.index(session_name)
-        
-        if session_idx < current_idx:
-            return "completed"
-        elif session_idx == current_idx:
-            return "active"
-        else:
-            return "pending"
-    except ValueError:
-        return "pending"
-
-def calculate_countdown(target_time, now_time):
-    """Calculate countdown to a target time, returns formatted string"""
-    if target_time <= now_time:
-        return "DONE", True
-    
-    diff = target_time - now_time
-    total_seconds = int(diff.total_seconds())
-    hours = total_seconds // 3600
-    minutes = (total_seconds % 3600) // 60
-    seconds = total_seconds % 60
-    
-    if hours > 0:
-        return f"{hours}h {minutes:02d}m", False
-    elif minutes > 0:
-        return f"{minutes}m {seconds:02d}s", False
-    else:
-        return f"{seconds}s", False
-
-def render_status_banner(validation, direction, current_spx, current_es, is_historical, is_planning, trading_date):
-    """Render the main status banner - the most important UI element"""
-    
-    # Handle None values for prices
-    spx_display = f"{current_spx:,.2f}" if current_spx else "—"
-    es_display = f"{current_es:,.2f}" if current_es else "—"
-    
-    # Ensure validation is a dict
-    if not validation:
-        validation = {"setup": "WAIT", "status": "AWAITING", "message": "Waiting for data"}
-    
-    if is_historical:
-        status_class = "historical"
-        status_icon = "📜"
-        status_title = "HISTORICAL ANALYSIS"
-        status_reason = f"Reviewing {trading_date.strftime('%A, %B %d, %Y')}"
-    elif is_planning:
-        status_class = "historical"
-        status_icon = "📋"
-        status_title = "PLANNING MODE"
-        status_reason = f"Preparing for {trading_date.strftime('%A, %B %d, %Y')}"
-    elif validation.get("setup") == "PUTS":
-        status_class = "go"
-        status_icon = "🔴"
-        status_title = "PUTS SETUP ACTIVE"
-        status_reason = validation.get("message", "")
-    elif validation.get("setup") == "CALLS":
-        status_class = "go"
-        status_icon = "🟢"
-        status_title = "CALLS SETUP ACTIVE"
-        status_reason = validation.get("message", "")
-    elif validation.get("status") == "INSIDE":
-        status_class = "wait"
-        status_icon = "⏸"
-        status_title = "WAITING FOR BREAK"
-        status_reason = validation.get("message", "")
-    elif validation.get("status") == "AWAITING":
-        status_class = "wait"
-        status_icon = "⏳"
-        status_title = "AWAITING 8:30 CANDLE"
-        status_reason = "Market open pending"
-    else:
-        status_class = "no-trade"
-        status_icon = "—"
-        status_title = "NO TRADE TODAY"
-        status_reason = validation.get("message", "Setup conditions not met")
-    
-    return f'''<div class="status-banner {status_class}">
-<div class="status-main">
-<div class="status-indicator">{status_icon}</div>
-<div class="status-content">
-<h1>{status_title}</h1>
-<p class="status-reason">{status_reason}</p>
-</div>
-</div>
-<div class="status-meta">
-<div class="status-price">{spx_display}</div>
-<div class="status-sublabel">SPX • ES {es_display}</div>
-</div>
-</div>'''
-
-def render_countdown_bar(now_time, trading_date, is_historical=False):
-    """Render countdown timers for key market times"""
-    
-    key_times = [
-        ("8:30 AM", 8, 30, "Market Open"),
-        ("9:00 AM", 9, 0, "First Target"),
-        ("9:30 AM", 9, 30, "Setup Window"),
-        ("11:00 AM", 11, 0, "Entry Cutoff"),
-        ("3:00 PM", 15, 0, "Market Close"),
-    ]
-    
-    items_html = ""
-    for label, hour, minute, desc in key_times:
-        target = CT.localize(datetime.combine(trading_date, time(hour, minute)))
-        
-        if is_historical:
-            countdown_str = "—"
-            item_class = "past"
-        else:
-            countdown_str, is_past = calculate_countdown(target, now_time)
-            
-            # Determine if this is the next upcoming time
-            if is_past:
-                item_class = "past"
-            elif all(calculate_countdown(CT.localize(datetime.combine(trading_date, time(h, m))), now_time)[1] 
-                    for l, h, m, d in key_times if (h, m) < (hour, minute)):
-                # This is the next upcoming time
-                is_next = True
-                for l, h, m, d in key_times:
-                    if (h, m) < (hour, minute):
-                        continue
-                    if (h, m) == (hour, minute):
-                        break
-                    t = CT.localize(datetime.combine(trading_date, time(h, m)))
-                    if not calculate_countdown(t, now_time)[1]:
-                        is_next = False
-                        break
-                item_class = "active" if is_next else ""
-            else:
-                item_class = ""
-        
-        items_html += f'''<div class="countdown-item {item_class}">
-            <div class="countdown-label">{label}</div>
-            <div class="countdown-value">{countdown_str}</div>
-        </div>'''
-    
-    return f'<div class="countdown-bar">{items_html}</div>'
-
-def render_session_timeline(now_time, is_historical=False):
-    """Render the session timeline showing progress through trading day"""
-    
-    current = get_current_session(now_time) if not is_historical else "rth"
-    
-    sessions = [
-        ("sydney", "🌏", "Sydney", "5PM-8:30PM"),
-        ("tokyo", "🗼", "Tokyo", "9PM-1:30AM"),
-        ("london", "🏛", "London", "2AM-8AM"),
-        ("rth", "🇺🇸", "RTH", "8:30AM-3PM"),
-    ]
-    
-    segments_html = ""
-    for session_id, icon, name, time_range in sessions:
-        status = get_session_status(session_id, current, is_historical)
-        
-        segments_html += f'''<div class="timeline-segment {status}">
-            <div class="timeline-dot">{icon if status != "pending" else ""}</div>
-            <div class="timeline-label">{name}</div>
-        </div>'''
-    
-    return f'''<div class="session-timeline">
-    <div class="timeline-track">
-        {segments_html}
-    </div>
-</div>'''
-
-def render_price_ladder(current_spx, ceiling_spx, floor_spx, targets, direction, channel_type):
-    """Render the visual price ladder showing position within channel"""
-    
-    # Handle None values
-    if current_spx is None or ceiling_spx is None or floor_spx is None:
-        return ""
-    
-    # Ensure we have valid numbers
-    try:
-        current_spx = float(current_spx)
-        ceiling_spx = float(ceiling_spx)
-        floor_spx = float(floor_spx)
-    except (TypeError, ValueError):
-        return ""
-    
-    # Calculate the visual range (add padding above ceiling and below floor)
-    channel_range = ceiling_spx - floor_spx
-    if channel_range <= 0:
-        return ""
-    
-    padding = channel_range * 0.3
-    visual_top = ceiling_spx + padding
-    visual_bottom = floor_spx - padding
-    visual_range = visual_top - visual_bottom
-    
-    def price_to_percent(price):
-        """Convert price to percentage position (0 = bottom, 100 = top)"""
-        if visual_range == 0:
-            return 50
-        return ((price - visual_bottom) / visual_range) * 100
-    
-    # Current price position
-    current_pct = price_to_percent(current_spx)
-    current_pct = max(5, min(95, current_pct))  # Clamp to visible range
-    
-    # Ceiling and floor positions
-    ceiling_pct = price_to_percent(ceiling_spx)
-    floor_pct = price_to_percent(floor_spx)
-    
-    # Channel badge
-    channel_class = "rising" if channel_type == "RISING" else "falling"
-    channel_icon = "▲" if channel_type == "RISING" else "▼"
-    
-    # Build level lines HTML
-    levels_html = f'''<div class="ladder-level ceiling" style="bottom:{ceiling_pct:.1f}%"><span class="ladder-price">{ceiling_spx:.2f}</span><div class="ladder-level-line"></div><span class="ladder-label">CEILING</span></div>
-<div class="ladder-level floor" style="bottom:{floor_pct:.1f}%"><span class="ladder-price">{floor_spx:.2f}</span><div class="ladder-level-line"></div><span class="ladder-label">FLOOR</span></div>'''
-    
-    # Add target levels (max 3)
-    if targets:
-        for i, tgt in enumerate(targets[:3]):
-            if tgt and "level" in tgt:
-                tgt_pct = price_to_percent(tgt["level"])
-                if 5 < tgt_pct < 95:  # Only show if in visible range
-                    levels_html += f'''<div class="ladder-level target" style="bottom:{tgt_pct:.1f}%"><span class="ladder-price">{tgt["level"]:.2f}</span><div class="ladder-level-line"></div><span class="ladder-label">T{i+1}</span></div>'''
-    
-    # Current price marker
-    current_html = f'''<div class="ladder-current" style="bottom:{current_pct:.1f}%"><div class="ladder-current-dot"></div><div class="ladder-current-price">{current_spx:.2f}</div></div>'''
-    
-    return f'''<div class="price-ladder">
-<div class="price-ladder-header">
-<span class="price-ladder-title">Price Position</span>
-<span class="price-ladder-channel {channel_class}">{channel_icon} {channel_type}</span>
-</div>
-<div class="ladder-visual">
-<div class="ladder-track">
-{levels_html}
-{current_html}
-</div>
-</div>
-</div>'''
-
-def render_trade_card(direction, entry_spx, strike, entry_price, targets, exits, validation):
-    """Render the trade setup card"""
-    
-    if direction not in ["PUTS", "CALLS"]:
-        return ""
-    
-    # Handle None values
-    if entry_spx is None or strike is None or entry_price is None:
-        return ""
-    
-    try:
-        entry_spx = float(entry_spx)
-        entry_price = float(entry_price)
-    except (TypeError, ValueError):
-        return ""
-    
-    card_class = "calls" if direction == "CALLS" else "puts"
-    dir_icon = "▲" if direction == "CALLS" else "▼"
-    
-    # Entry confirmation rule
-    if direction == "PUTS":
-        entry_rule = "BULLISH candle touches entry, closes BELOW"
-        rule_warning = "If candle breaks >6 pts ABOVE entry but closes below → NO ENTRY (momentum probe)"
-    else:
-        entry_rule = "BEARISH candle touches entry, closes ABOVE"
-        rule_warning = "If candle breaks >6 pts BELOW entry but closes above → NO ENTRY (momentum probe)"
-    
-    # Targets HTML
-    targets_html = ""
-    if exits:
-        for i, t in enumerate(exits[:3]):
-            if t and "pct" in t and "level" in t and "price" in t:
-                pct_class = "positive" if t["pct"] > 0 else ""
-                targets_html += f'''<div class="trade-target"><span class="trade-target-name">{t["target"]}</span><span><span class="trade-target-price">{t["level"]:.2f}</span><span class="trade-target-pct {pct_class}">${t["price"]} ({t["pct"]:+.0f}%)</span></span></div>'''
-    
-    # Check for trend day
-    trend_badge = ""
-    if validation and validation.get("status") == "TREND_DAY":
-        trend_badge = '<span style="background:linear-gradient(90deg,#f59e0b,#ef4444);color:white;padding:4px 10px;border-radius:6px;font-size:10px;font-weight:600;margin-left:8px">⚡ TREND DAY</span>'
-    
-    return f'''<div class="trade-card {card_class}">
-<div class="trade-card-header">
-<div class="trade-direction">
-<div class="trade-direction-icon">{dir_icon}</div>
-<span class="trade-direction-label">{direction} SETUP</span>
-{trend_badge}
-</div>
-</div>
-<div class="trade-card-body">
-<div class="trade-metrics">
-<div class="trade-metric">
-<div class="trade-metric-label">Entry Window</div>
-<div class="trade-metric-value">8:30-11:00</div>
-</div>
-<div class="trade-metric">
-<div class="trade-metric-label">Entry Level</div>
-<div class="trade-metric-value">{entry_spx:.2f}</div>
-</div>
-<div class="trade-metric">
-<div class="trade-metric-label">Strike</div>
-<div class="trade-metric-value">{strike}</div>
-</div>
-<div class="trade-metric">
-<div class="trade-metric-label">Est. Premium</div>
-<div class="trade-metric-value">${entry_price:.2f}</div>
-</div>
-</div>
-<div class="trade-confirmation">
-<div class="trade-confirmation-title">Entry Confirmation Rule</div>
-<div class="trade-confirmation-rule">{entry_rule}</div>
-<div class="trade-confirmation-warning">⚠️ {rule_warning}</div>
-</div>
-<div class="trade-targets">
-<div class="trade-targets-title">Profit Targets</div>
-{targets_html if targets_html else '<div style="color:var(--text-tertiary);font-size:13px">No targets in range</div>'}
-</div>
-</div>
-</div>'''
-
-def render_checklist(channel_type, validation, ema_signals, flow, vix_zone, direction):
-    """Render the validation checklist"""
-    
-    # Handle None values
-    if not validation:
-        validation = {"status": "AWAITING"}
-    if not ema_signals:
-        ema_signals = {}
-    if not flow:
-        flow = {"bias": "NEUTRAL"}
-    if not vix_zone:
-        vix_zone = "NORMAL"
-    
-    items = []
-    
-    # Channel
-    if channel_type and channel_type != "UNDETERMINED":
-        items.append(("Channel", "✓", "pass", channel_type))
-    else:
-        items.append(("Channel", "?", "neutral", "Undetermined"))
-    
-    # 8:30 Validation
-    val_status = validation.get("status", "")
-    if val_status in ["VALID", "TREND_DAY"]:
-        items.append(("8:30 Break", "✓", "pass", val_status))
-    elif val_status == "INSIDE":
-        items.append(("8:30 Break", "—", "neutral", "Inside"))
-    else:
-        items.append(("8:30 Break", "✗", "fail", "No break"))
-    
-    # EMA Alignment
-    if direction == "CALLS" and ema_signals.get("aligned_calls"):
-        items.append(("EMA", "✓", "pass", "Aligned"))
-    elif direction == "PUTS" and ema_signals.get("aligned_puts"):
-        items.append(("EMA", "✓", "pass", "Aligned"))
-    elif direction in ["CALLS", "PUTS"]:
-        items.append(("EMA", "✗", "fail", "Conflict"))
-    else:
-        items.append(("EMA", "—", "neutral", "N/A"))
-    
-    # Flow Bias
-    flow_bias = flow.get("bias", "NEUTRAL")
-    if direction == "CALLS" and "CALLS" in flow_bias:
-        items.append(("Flow", "✓", "pass", flow_bias))
-    elif direction == "PUTS" and "PUTS" in flow_bias:
-        items.append(("Flow", "✓", "pass", flow_bias))
-    elif flow_bias == "NEUTRAL":
-        items.append(("Flow", "—", "neutral", "Neutral"))
-    elif direction in ["CALLS", "PUTS"]:
-        items.append(("Flow", "✗", "fail", "Against"))
-    else:
-        items.append(("Flow", "—", "neutral", "N/A"))
-    
-    # VIX Zone
-    if vix_zone in ["LOW", "NORMAL"]:
-        items.append(("VIX", "✓", "pass", vix_zone))
-    elif vix_zone == "ELEVATED":
-        items.append(("VIX", "—", "neutral", vix_zone))
-    else:
-        items.append(("VIX", "✗", "fail", vix_zone or "Unknown"))
-    
-    items_html = ""
-    for label, icon, status, detail in items:
-        items_html += f'''<div class="checklist-item {status}"><div class="checklist-icon">{icon}</div><div class="checklist-label">{label}</div></div>'''
-    
-    return f'''<div class="checklist">
-<div class="checklist-title">Setup Validation</div>
-<div class="checklist-grid">
-{items_html}
-</div>
-</div>'''
-
-def render_candle_830(candle, ceiling_es, floor_es, offset):
-    """Render the 8:30 candle visualization"""
-    
-    if not candle:
-        return ""
-    
-    try:
-        o, h, l, c = float(candle["open"]), float(candle["high"]), float(candle["low"]), float(candle["close"])
-    except (KeyError, TypeError, ValueError):
-        return ""
-    
-    is_bullish = c >= o
-    candle_type = "BULLISH" if is_bullish else "BEARISH"
-    type_class = "bullish" if is_bullish else "bearish"
-    
-    # SVG Candle visualization
-    wick_range = h - l
-    
-    if wick_range > 0:
-        body_top_pct = (h - max(o, c)) / wick_range * 100
-        body_bottom_pct = (h - min(o, c)) / wick_range * 100
-    else:
-        body_top_pct = 40
-        body_bottom_pct = 60
-    
-    body_height = max(5, body_bottom_pct - body_top_pct)
-    fill_color = "#10b981" if is_bullish else "#ef4444"
-    
-    svg_candle = f'''<svg viewBox="0 0 60 100" width="60" height="100">
-<line x1="30" y1="0" x2="30" y2="{body_top_pct}" stroke="{fill_color}" stroke-width="2"/>
-<line x1="30" y1="{body_bottom_pct}" x2="30" y2="100" stroke="{fill_color}" stroke-width="2"/>
-<rect x="15" y="{body_top_pct}" width="30" height="{body_height}" fill="{fill_color}" rx="3"/>
-</svg>'''
-    
-    return f'''<div class="candle-viz">
-<div class="candle-viz-header">
-<span class="candle-viz-title">8:30 AM Candle (ES)</span>
-<span class="candle-viz-type {type_class}">{candle_type}</span>
-</div>
-<div class="candle-viz-body">
-<div class="candle-svg-container">{svg_candle}</div>
-<div class="candle-ohlc">
-<div class="candle-ohlc-item"><div class="candle-ohlc-label">OPEN</div><div class="candle-ohlc-value">{o:.2f}</div></div>
-<div class="candle-ohlc-item"><div class="candle-ohlc-label">HIGH</div><div class="candle-ohlc-value high">{h:.2f}</div></div>
-<div class="candle-ohlc-item"><div class="candle-ohlc-label">LOW</div><div class="candle-ohlc-value low">{l:.2f}</div></div>
-<div class="candle-ohlc-item"><div class="candle-ohlc-label">CLOSE</div><div class="candle-ohlc-value">{c:.2f}</div></div>
-</div>
-</div>
-</div>'''
-
-def render_confidence_gauge(confidence):
-    """Render the confidence gauge with breakdown"""
-    
-    # Handle None values
-    if not confidence:
-        confidence = {"score": 50, "breakdown": []}
-    
-    score = confidence.get("score", 50)
-    if score >= 70:
-        score_class = "high"
-        label = "HIGH"
-    elif score >= 50:
-        score_class = "medium"
-        label = "MEDIUM"
-    else:
-        score_class = "low"
-        label = "LOW"
-    
-    breakdown_html = ""
-    breakdown = confidence.get("breakdown", [])
-    if breakdown:
-        for item_label, item_value in breakdown:
-            breakdown_html += f'''<div class="gauge-item"><span class="gauge-item-label">{item_label}</span><span class="gauge-item-value">{item_value}</span></div>'''
-    
-    return f'''<div class="confidence-gauge">
-<div class="gauge-header">
-<span class="gauge-title">Confidence Score</span>
-<span class="gauge-score {score_class}">{score}%</span>
-</div>
-<div class="gauge-bar">
-<div class="gauge-fill {score_class}" style="width:{score}%"></div>
-</div>
-<div class="gauge-breakdown">
-{breakdown_html}
-</div>
-</div>'''
-
-def render_session_cards(syd_h, syd_l, tok_h, tok_l, lon_h, lon_l, on_high, on_low):
-    """Render the session data cards"""
-    
-    sessions = [
-        ("🌏", "Sydney", "5PM-8:30PM", syd_h, syd_l),
-        ("🗼", "Tokyo", "9PM-1:30AM", tok_h, tok_l),
-        ("🏛", "London", "2AM-3AM", lon_h, lon_l),
-        ("🌙", "O/N Total", "5PM-3AM", on_high, on_low),
-    ]
-    
-    cards_html = ""
-    for icon, name, time_range, high, low in sessions:
-        try:
-            high_display = f"{float(high):.2f}" if high is not None else "—"
-        except (TypeError, ValueError):
-            high_display = "—"
-        try:
-            low_display = f"{float(low):.2f}" if low is not None else "—"
-        except (TypeError, ValueError):
-            low_display = "—"
-        
-        cards_html += f'''<div class="session-card">
-<div class="session-card-header">
-<div class="session-card-icon">{icon}</div>
-<div>
-<div class="session-card-name">{name}</div>
-<div class="session-card-time">{time_range}</div>
-</div>
-</div>
-<div class="session-card-row">
-<span class="session-card-label">High</span>
-<span class="session-card-value high">{high_display}</span>
-</div>
-<div class="session-card-row">
-<span class="session-card-label">Low</span>
-<span class="session-card-value low">{low_display}</span>
-</div>
-</div>'''
-    
-    return f'<div class="session-grid">{cards_html}</div>'
-
-def render_historical_result(outcome):
-    """Render the historical result card"""
-    
-    if not outcome:
-        return ""
-    
-    outcome_type = outcome.get("outcome", "NO_TRADE")
-    if outcome_type == "WIN":
-        result_class = "win"
-        result_title = "✓ TRADE WON"
-    elif outcome_type == "LOSS":
-        result_class = "loss"
-        result_title = "✗ TRADE LOST"
-    elif outcome_type == "MOMENTUM_PROBE":
-        result_class = "neutral"
-        result_title = "⚡ MOMENTUM PROBE"
-    else:
-        result_class = "neutral"
-        result_title = "— NO TRADE"
-    
-    direction = outcome.get("direction", "—")
-    entry_level = outcome.get("entry_level_at_time", outcome.get("entry_level_spx", "—"))
-    max_fav = outcome.get("max_favorable", 0)
-    max_adv = outcome.get("max_adverse", 0)
-    message = outcome.get("message", "")
-    
-    return f'''<div class="hist-result {result_class}">
-<div class="hist-result-header">
-<span class="hist-result-title">{result_title}</span>
-<span class="hist-result-outcome">{outcome_type.replace("_", " ")}</span>
-</div>
-<div class="hist-result-message">{message}</div>
-<div class="hist-metrics">
-<div class="hist-metric">
-<div class="hist-metric-label">Direction</div>
-<div class="hist-metric-value">{direction}</div>
-</div>
-<div class="hist-metric">
-<div class="hist-metric-label">Entry Level</div>
-<div class="hist-metric-value">{entry_level}</div>
-</div>
-<div class="hist-metric">
-<div class="hist-metric-label">Max Favorable</div>
-<div class="hist-metric-value" style="color:var(--signal-go)">+{max_fav:.1f}</div>
-</div>
-<div class="hist-metric">
-<div class="hist-metric-label">Max Adverse</div>
-<div class="hist-metric-value" style="color:var(--signal-stop)">-{max_adv:.1f}</div>
-</div>
-</div>
-</div>'''
-
-def render_days_like_today(channel_type, validation_status, vix_zone, direction):
-    """Render the 'Days Like Today' historical context panel"""
-    
-    # Build conditions list
-    conditions = []
-    if channel_type:
-        conditions.append(f"{channel_type} Channel")
-    if validation_status:
-        conditions.append(validation_status.replace("_", " ").title())
-    if vix_zone:
-        conditions.append(f"VIX {vix_zone}")
-    if direction and direction != "WAIT":
-        conditions.append(f"{direction} Setup")
-    
-    # Simulated win rate based on conditions
-    base_win_rate = 65
-    if validation_status == "TREND_DAY":
-        base_win_rate = 72
-    elif validation_status == "VALID":
-        base_win_rate = 68
-    if vix_zone in ["LOW", "NORMAL"]:
-        base_win_rate += 5
-    elif vix_zone in ["HIGH", "EXTREME"]:
-        base_win_rate -= 10
-    
-    win_rate = min(85, max(40, base_win_rate))
-    
-    if win_rate >= 70:
-        rate_class = "good"
-    elif win_rate >= 55:
-        rate_class = "medium"
-    else:
-        rate_class = "poor"
-    
-    sample_size = 15
-    wins = int(sample_size * win_rate / 100)
-    
-    conditions_html = "".join([f'<span class="dlt-tag">{c}</span>' for c in conditions])
-    
-    return f'''<div class="days-like-today">
-<div class="dlt-header">
-<span class="dlt-title">Days Like Today</span>
-<span class="dlt-winrate {rate_class}">{win_rate}%</span>
-</div>
-<div class="dlt-conditions">
-{conditions_html}
-</div>
-<div class="dlt-stats">
-<div class="dlt-stat">
-<div class="dlt-stat-value">{wins}/{sample_size}</div>
-<div class="dlt-stat-label">Win/Total</div>
-</div>
-<div class="dlt-stat">
-<div class="dlt-stat-value">+18.5</div>
-<div class="dlt-stat-label">Avg Win (pts)</div>
-</div>
-<div class="dlt-stat">
-<div class="dlt-stat-value">-8.2</div>
-<div class="dlt-stat-label">Avg Loss (pts)</div>
-</div>
-</div>
-</div>'''
-
-def render_footer():
-    """Render the app footer"""
-    return f'''<div class="app-footer">
-<div class="footer-brand">🔮 SPX PROPHET V6.2</div>
-<div class="footer-meta">
-Sydney/Tokyo Channel • Setup Candle → Next Candle Entry<br>
-Momentum Probe Filter • Structural Cone Targets<br>
-Setup: 8:00-10:30 AM | Entry: 8:30-11:00 AM | Slope: {SLOPE} pts/block
-</div>
-</div>'''
 
 def save_inputs(d):
     try:
@@ -3501,53 +1960,245 @@ def main():
         outcome=None
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # NEW INSTITUTIONAL-GRADE UI RENDERING
+    # ═══════════════════════════════════════════════════════════════════════════
+    # STATUS BANNER - Giant GO/NO-GO Indicator
     # ═══════════════════════════════════════════════════════════════════════════
     
-    # Prepare option pricing data if we have a valid setup
-    if direction in ["PUTS", "CALLS"] and entry_edge_es:
-        entry_spx = round(entry_edge_es - offset, 2)
-        strike = get_strike(entry_spx, "PUT" if direction == "PUTS" else "CALL")
-        entry_price = estimate_prices(entry_spx, strike, "PUT" if direction == "PUTS" else "CALL", vix, hours_to_expiry)
-        exits, _ = estimate_exit_prices(entry_spx, strike, "PUT" if direction == "PUTS" else "CALL", vix, hours_to_expiry, targets)
+    # Determine status
+    if inputs["is_historical"]:
+        status_class = "status-hist"
+        status_icon = "📜"
+        status_title = "HISTORICAL ANALYSIS"
+        status_sub = f"Reviewing {inputs['trading_date'].strftime('%A, %B %d, %Y')}"
+    elif inputs["is_planning"]:
+        status_class = "status-hist"
+        status_icon = "📋"
+        status_title = "PLANNING MODE"
+        status_sub = f"Preparing for {inputs['trading_date'].strftime('%A, %B %d, %Y')}"
+    elif validation["setup"] == "PUTS":
+        status_class = "status-go"
+        status_icon = "▼"
+        status_title = "PUTS SETUP"
+        status_sub = validation["message"]
+    elif validation["setup"] == "CALLS":
+        status_class = "status-go"
+        status_icon = "▲"
+        status_title = "CALLS SETUP"
+        status_sub = validation["message"]
+    elif validation["status"] == "INSIDE":
+        status_class = "status-wait"
+        status_icon = "⏸"
+        status_title = "WAITING"
+        status_sub = "8:30 candle inside channel - no setup yet"
+    elif validation["status"] == "AWAITING":
+        status_class = "status-wait"
+        status_icon = "⏳"
+        status_title = "AWAITING 8:30"
+        status_sub = "Market not yet open"
     else:
-        entry_spx = None
-        strike = None
-        entry_price = None
-        exits = []
+        status_class = "status-no"
+        status_icon = "—"
+        status_title = "NO TRADE"
+        status_sub = validation.get("message", "Setup conditions not met")
     
-    # Get London data for session cards
-    lon_h = hist_data.get("london_high") if hist_data else None
-    lon_l = hist_data.get("london_low") if hist_data else None
+    st.markdown(f'''<div class="{status_class}">
+<div class="status-left">
+<div class="status-icon">{status_icon}</div>
+<div>
+<div class="status-title">{status_title}</div>
+<div class="status-sub">{status_sub}</div>
+</div>
+</div>
+<div class="status-right">
+<div class="status-price">{current_spx:,.2f}</div>
+<div class="status-meta">SPX • ES {current_es:,.2f} • {channel_type} Channel</div>
+</div>
+</div>''', unsafe_allow_html=True)
     
-    # ─────────────────────────────────────────────────────────────────────────
-    # 1. STATUS BANNER - The most important element
-    # ─────────────────────────────────────────────────────────────────────────
-    status_banner_html = render_status_banner(
-        validation, direction, current_spx, current_es,
-        inputs["is_historical"], inputs["is_planning"], inputs["trading_date"]
-    )
-    st.markdown(status_banner_html, unsafe_allow_html=True)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # VALIDATION GRID - Clear pass/fail with actual values
+    # ═══════════════════════════════════════════════════════════════════════════
     
-    # ─────────────────────────────────────────────────────────────────────────
-    # 2. COUNTDOWN TIMERS (Live mode only)
-    # ─────────────────────────────────────────────────────────────────────────
-    if not inputs["is_historical"]:
-        countdown_html = render_countdown_bar(now, inputs["trading_date"], inputs["is_historical"])
-        st.markdown(countdown_html, unsafe_allow_html=True)
+    # Channel validation
+    if channel_type in ["RISING", "FALLING"]:
+        ch_status = "pass"
+        ch_icon = "✓"
+        ch_val = channel_type
+    else:
+        ch_status = "neutral"
+        ch_icon = "?"
+        ch_val = "UNDETERMINED"
     
-    # ─────────────────────────────────────────────────────────────────────────
-    # 3. HISTORICAL RESULT (if applicable)
-    # ─────────────────────────────────────────────────────────────────────────
+    # 8:30 Break validation
+    if validation["status"] in ["VALID", "TREND_DAY"]:
+        break_status = "pass"
+        break_icon = "✓"
+        break_val = validation["status"]
+    elif validation["status"] == "INSIDE":
+        break_status = "neutral"
+        break_icon = "—"
+        break_val = "INSIDE"
+    else:
+        break_status = "fail"
+        break_icon = "✗"
+        break_val = "NO BREAK"
+    
+    # EMA validation
+    ema8_val = ema_signals.get("ema8", "—")
+    ema21_val = ema_signals.get("ema21", "—")
+    ema200_val = ema_signals.get("ema200", "—")
+    if direction == "CALLS" and ema_signals.get("aligned_calls"):
+        ema_status = "pass"
+        ema_icon = "✓"
+        ema_val = f"BULL ({ema_signals.get('cross_signal', '')})"
+    elif direction == "PUTS" and ema_signals.get("aligned_puts"):
+        ema_status = "pass"
+        ema_icon = "✓"
+        ema_val = f"BEAR ({ema_signals.get('cross_signal', '')})"
+    elif direction in ["CALLS", "PUTS"]:
+        ema_status = "fail"
+        ema_icon = "✗"
+        ema_val = f"CONFLICT"
+    else:
+        ema_status = "neutral"
+        ema_icon = "—"
+        ema_val = ema_signals.get("cross_signal", "N/A")
+    
+    # Flow validation
+    flow_score = flow.get("score", 0)
+    flow_bias = flow.get("bias", "NEUTRAL")
+    if direction == "CALLS" and "CALLS" in flow_bias:
+        flow_status = "pass"
+        flow_icon = "✓"
+        flow_val = f"+{flow_score}"
+    elif direction == "PUTS" and "PUTS" in flow_bias:
+        flow_status = "pass"
+        flow_icon = "✓"
+        flow_val = f"{flow_score}"
+    elif flow_bias == "NEUTRAL":
+        flow_status = "neutral"
+        flow_icon = "—"
+        flow_val = f"{flow_score}"
+    elif direction in ["CALLS", "PUTS"]:
+        flow_status = "fail"
+        flow_icon = "✗"
+        flow_val = f"{flow_score}"
+    else:
+        flow_status = "neutral"
+        flow_icon = "—"
+        flow_val = f"{flow_score}"
+    
+    # VIX validation
+    if vix_zone in ["LOW", "NORMAL"]:
+        vix_status = "pass"
+        vix_icon = "✓"
+        vix_val = f"{vix:.1f}"
+    elif vix_zone == "ELEVATED":
+        vix_status = "neutral"
+        vix_icon = "—"
+        vix_val = f"{vix:.1f}"
+    else:
+        vix_status = "fail"
+        vix_icon = "✗"
+        vix_val = f"{vix:.1f}"
+    
+    st.markdown(f'''<div class="valid-grid">
+<div class="valid-item {ch_status}">
+<div class="valid-icon">{ch_icon}</div>
+<div class="valid-label">Channel</div>
+<div class="valid-value">{ch_val}</div>
+</div>
+<div class="valid-item {break_status}">
+<div class="valid-icon">{break_icon}</div>
+<div class="valid-label">8:30 Break</div>
+<div class="valid-value">{break_val}</div>
+</div>
+<div class="valid-item {ema_status}">
+<div class="valid-icon">{ema_icon}</div>
+<div class="valid-label">EMA</div>
+<div class="valid-value">{ema_val}</div>
+</div>
+<div class="valid-item {flow_status}">
+<div class="valid-icon">{flow_icon}</div>
+<div class="valid-label">Flow</div>
+<div class="valid-value">{flow_val}</div>
+</div>
+<div class="valid-item {vix_status}">
+<div class="valid-icon">{vix_icon}</div>
+<div class="valid-label">VIX</div>
+<div class="valid-value">{vix_val}</div>
+</div>
+</div>''', unsafe_allow_html=True)
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # HISTORICAL OUTCOME CARD (if applicable)
+    # ═══════════════════════════════════════════════════════════════════════════
     if outcome:
-        hist_result_html = render_historical_result(outcome)
-        st.markdown(hist_result_html, unsafe_allow_html=True)
+        if outcome["outcome"]=="WIN":
+            box_class="win"
+            icon="✅"
+        elif outcome["outcome"]=="LOSS":
+            box_class="loss"
+            icon="❌"
+        elif outcome["outcome"]=="MOMENTUM_PROBE":
+            box_class="neutral"
+            icon="⚡"
+        else:
+            box_class="neutral"
+            icon="⚠️"
         
-        # Entry confirmation debug expander
-        entry_conf = outcome.get("entry_confirmation", {})
+        timeline_html=""
+        for evt in outcome.get("timeline",[]):
+            dot_class="hit" if "TARGET" in evt["event"] else "active"
+            timeline_html+=f'<div class="timeline-item"><div class="timeline-dot {dot_class}"></div><div style="font-size:12px"><span style="color:rgba(255,255,255,0.5)">{evt["time"]}</span> <span style="font-weight:600">{evt["event"]}</span> @ {evt["price"]:.2f}</div></div>'
+        
+        targets_hit_str=", ".join([f"{t['name']} @ {t['time']}" for t in outcome.get("targets_hit",[])]) or "None"
+        
+        # Entry confirmation details - now shows setup_time and entry_time
+        entry_conf=outcome.get("entry_confirmation",{})
+        if entry_conf.get("confirmed"):
+            setup_time = entry_conf.get("setup_time", "")
+            entry_time = entry_conf.get("entry_time", entry_conf.get("time", ""))
+            entry_conf_html=f'''<div style="background:rgba(0,212,170,0.1);border:1px solid rgba(0,212,170,0.3);border-radius:10px;padding:12px;margin-bottom:12px">
+<div style="font-size:12px;font-weight:600;color:#00d4aa;margin-bottom:6px">✅ {setup_time} Setup → {entry_time} Entry</div>
+<div style="font-size:11px;color:rgba(255,255,255,0.7)">{entry_conf.get("candle_color","")} rejection — {entry_conf.get("detail","")}</div>
+</div>'''
+        elif outcome["outcome"]=="MOMENTUM_PROBE":
+            setup_time = entry_conf.get("setup_time", entry_conf.get("time", ""))
+            entry_conf_html=f'''<div style="background:rgba(255,71,87,0.1);border:1px solid rgba(255,71,87,0.3);border-radius:10px;padding:12px;margin-bottom:12px">
+<div style="font-size:12px;font-weight:600;color:#ff4757;margin-bottom:4px">⚡ Momentum Probe @ {setup_time}</div>
+<div style="font-size:11px;color:rgba(255,255,255,0.7)">{entry_conf.get("detail","Broke through by >6 pts - next candle continued in breakout direction")}</div>
+<div style="font-size:10px;color:#ff4757;margin-top:6px;font-weight:500">❌ NO ENTRY - Fade would have failed</div>
+</div>'''
+        elif outcome["outcome"]=="NO_ENTRY":
+            entry_conf_html=f'''<div style="background:rgba(255,165,2,0.1);border:1px solid rgba(255,165,2,0.3);border-radius:10px;padding:12px;margin-bottom:12px">
+<div style="font-size:12px;font-weight:600;color:#ffa502;margin-bottom:4px">⚠️ No Setup Found</div>
+<div style="font-size:11px;color:rgba(255,255,255,0.7)">{entry_conf.get("message","No valid setup candle found by 10:30 AM")}</div>
+</div>'''
+        else:
+            entry_conf_html=""
+        
+        st.markdown(f'''<div class="result-box {box_class}">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+<div style="font-size:18px;font-weight:700">{icon} HISTORICAL RESULT</div>
+<div style="font-size:14px;font-weight:600">{outcome["outcome"].replace("_"," ")}</div>
+</div>
+<div style="font-size:14px;margin-bottom:12px">{outcome["message"]}</div>
+{entry_conf_html}
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
+<div style="text-align:center"><div style="font-size:10px;color:rgba(255,255,255,0.5)">Direction</div><div style="font-weight:600">{outcome["direction"]}</div></div>
+<div style="text-align:center"><div style="font-size:10px;color:rgba(255,255,255,0.5)">Entry Level</div><div style="font-weight:600">{outcome.get("entry_level_at_time", outcome["entry_level_spx"])}</div></div>
+<div style="text-align:center"><div style="font-size:10px;color:rgba(255,255,255,0.5)">Max Favorable</div><div style="font-weight:600;color:#00d4aa">+{outcome["max_favorable"]:.1f}</div></div>
+<div style="text-align:center"><div style="font-size:10px;color:rgba(255,255,255,0.5)">Max Adverse</div><div style="font-weight:600;color:#ff4757">-{outcome["max_adverse"]:.1f}</div></div>
+</div>
+<div style="font-size:12px;color:rgba(255,255,255,0.6)"><strong>Targets Hit:</strong> {targets_hit_str}</div>
+{f'<div class="timeline" style="margin-top:12px">{timeline_html}</div>' if timeline_html else ""}
+</div>''',unsafe_allow_html=True)
+        
+        # Debug expander to show candle-by-candle evaluation
         debug_info = entry_conf.get("debug", [])
         if debug_info:
-            with st.expander("🔍 Entry Confirmation Details"):
+            with st.expander("🔍 Entry Confirmation Debug"):
                 st.write(f"**Base Entry Level (9AM SPX):** {outcome['entry_level_spx']}")
                 if outcome.get("entry_level_at_time"):
                     st.write(f"**Actual Entry Level (at entry time):** {outcome['entry_level_at_time']}")
@@ -3565,128 +2216,333 @@ def main():
                     st.write(f"  Result: **{d['result']}** - {d['detail']}")
                     st.write("---")
     
-    # ─────────────────────────────────────────────────────────────────────────
-    # 4. SESSION TIMELINE
-    # ─────────────────────────────────────────────────────────────────────────
-    session_timeline_html = render_session_timeline(now, inputs["is_historical"])
-    st.markdown(session_timeline_html, unsafe_allow_html=True)
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # 5. PRICE LADDER - Visual Channel Position
-    # ─────────────────────────────────────────────────────────────────────────
-    price_ladder_html = render_price_ladder(current_spx, ceiling_spx, floor_spx, targets, direction, channel_type)
-    if price_ladder_html:
-        st.markdown(price_ladder_html, unsafe_allow_html=True)
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # 6. TRADE SETUP CARD
-    # ─────────────────────────────────────────────────────────────────────────
-    if direction in ["PUTS", "CALLS"] and entry_spx:
-        trade_card_html = render_trade_card(direction, entry_spx, strike, entry_price, targets, exits, validation)
-        st.markdown(trade_card_html, unsafe_allow_html=True)
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # 7. VALIDATION CHECKLIST
-    # ─────────────────────────────────────────────────────────────────────────
-    checklist_html = render_checklist(channel_type, validation, ema_signals, flow, vix_zone, direction)
-    st.markdown(checklist_html, unsafe_allow_html=True)
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # 8. DAYS LIKE TODAY - Historical Context
-    # ─────────────────────────────────────────────────────────────────────────
-    days_like_today_html = render_days_like_today(channel_type, validation["status"], vix_zone, direction)
-    st.markdown(days_like_today_html, unsafe_allow_html=True)
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # 9. 8:30 CANDLE VISUALIZATION (Historical mode)
-    # ─────────────────────────────────────────────────────────────────────────
-    if inputs["is_historical"] and candle_830:
-        candle_viz_html = render_candle_830(candle_830, ceiling_es, floor_es, offset)
-        st.markdown(candle_viz_html, unsafe_allow_html=True)
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # 10. SESSION DATA CARDS (Historical mode)
-    # ─────────────────────────────────────────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════════════════════
+    # AUTO-POPULATED DATA (Historical) - Consistent Grid Layout
+    # ═══════════════════════════════════════════════════════════════════════════
     if inputs["is_historical"] and hist_data:
-        st.markdown("### Session Data", unsafe_allow_html=True)
-        session_cards_html = render_session_cards(syd_h, syd_l, tok_h, tok_l, lon_h, lon_l, on_high, on_low)
-        st.markdown(session_cards_html, unsafe_allow_html=True)
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # 11. CONFIDENCE GAUGE
-    # ─────────────────────────────────────────────────────────────────────────
-    confidence_html = render_confidence_gauge(confidence)
-    st.markdown(confidence_html, unsafe_allow_html=True)
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # 12. COLLAPSIBLE DETAIL SECTIONS
-    # ─────────────────────────────────────────────────────────────────────────
-    
-    # EMA & Momentum Details
-    with st.expander("📈 EMA & Momentum Analysis"):
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("**8/21 EMA Cross**")
-            cross_color = "#10b981" if ema_signals["cross_bullish"] else "#ef4444" if ema_signals["cross_bearish"] else "#f59e0b"
-            st.markdown(f'<div style="font-size:20px;font-weight:600;color:{cross_color}">{ema_signals["cross_signal"]}</div>', unsafe_allow_html=True)
-            st.write(f"EMA 8: {ema_signals['ema8']}")
-            st.write(f"EMA 21: {ema_signals['ema21']}")
-        with col2:
-            st.markdown("**200 EMA Filter**")
-            filter_color = "#10b981" if ema_signals["above_200"] else "#ef4444" if ema_signals["below_200"] else "#f59e0b"
-            filter_text = "ABOVE" if ema_signals["above_200"] else "BELOW" if ema_signals["below_200"] else "AT"
-            st.markdown(f'<div style="font-size:20px;font-weight:600;color:{filter_color}">{filter_text}</div>', unsafe_allow_html=True)
-            st.write(f"EMA 200: {ema_signals['ema200']}")
+        st.markdown("### 📊 Session Data")
         
-        st.markdown("---")
-        st.markdown("**Momentum**")
-        mom_color = "#10b981" if "BULL" in momentum["signal"] else "#ef4444" if "BEAR" in momentum["signal"] else "#f59e0b"
-        st.markdown(f'Signal: <span style="color:{mom_color};font-weight:600">{momentum["signal"]}</span> | RSI: {momentum["rsi"]} | MACD Hist: {momentum["macd"]}', unsafe_allow_html=True)
+        # Get london data
+        lon_h=hist_data.get("london_high","—")
+        lon_l=hist_data.get("london_low","—")
+        
+        # Build consistent 4-column grid
+        session_html=f'''
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px">
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+<div style="width:36px;height:36px;background:rgba(59,130,246,0.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px">🌏</div>
+<div><div style="font-size:13px;font-weight:600">Sydney</div><div style="font-size:10px;color:rgba(255,255,255,0.4)">5PM-8:30PM</div></div>
+</div>
+<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px"><span style="color:rgba(255,255,255,0.5)">High</span><span style="color:#00d4aa;font-weight:500">{syd_h}</span></div>
+<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px"><span style="color:rgba(255,255,255,0.5)">Low</span><span style="color:#ff4757;font-weight:500">{syd_l}</span></div>
+</div>
+
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px">
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+<div style="width:36px;height:36px;background:rgba(255,71,87,0.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px">🗼</div>
+<div><div style="font-size:13px;font-weight:600">Tokyo</div><div style="font-size:10px;color:rgba(255,255,255,0.4)">9PM-1:30AM</div></div>
+</div>
+<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px"><span style="color:rgba(255,255,255,0.5)">High</span><span style="color:#00d4aa;font-weight:500">{tok_h}</span></div>
+<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px"><span style="color:rgba(255,255,255,0.5)">Low</span><span style="color:#ff4757;font-weight:500">{tok_l}</span></div>
+</div>
+
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px">
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+<div style="width:36px;height:36px;background:rgba(0,212,170,0.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px">🏛️</div>
+<div><div style="font-size:13px;font-weight:600">London</div><div style="font-size:10px;color:rgba(255,255,255,0.4)">2AM-3AM</div></div>
+</div>
+<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px"><span style="color:rgba(255,255,255,0.5)">High</span><span style="color:#00d4aa;font-weight:500">{lon_h}</span></div>
+<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px"><span style="color:rgba(255,255,255,0.5)">Low</span><span style="color:#ff4757;font-weight:500">{lon_l}</span></div>
+</div>
+
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px">
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+<div style="width:36px;height:36px;background:rgba(168,85,247,0.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px">🌙</div>
+<div><div style="font-size:13px;font-weight:600">O/N Total</div><div style="font-size:10px;color:rgba(255,255,255,0.4)">5PM-3AM</div></div>
+</div>
+<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px"><span style="color:rgba(255,255,255,0.5)">High</span><span style="color:#00d4aa;font-weight:500">{on_high}</span></div>
+<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px"><span style="color:rgba(255,255,255,0.5)">Low</span><span style="color:#ff4757;font-weight:500">{on_low}</span></div>
+</div>
+</div>'''
+        
+        st.markdown(session_html,unsafe_allow_html=True)
+        
+        # 8:30 Candle - Full width card
+        if candle_830:
+            c=candle_830
+            candle_color="#00d4aa" if c["close"]>=c["open"] else "#ff4757"
+            candle_type="BULLISH" if c["close"]>=c["open"] else "BEARISH"
+            st.markdown(f'''
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px;margin-bottom:16px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+<div style="display:flex;align-items:center;gap:10px">
+<div style="width:36px;height:36px;background:rgba(34,211,238,0.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px">🕣</div>
+<div><div style="font-size:13px;font-weight:600">8:30 AM Candle (ES)</div><div style="font-size:10px;color:rgba(255,255,255,0.4)">First 30-min candle</div></div>
+</div>
+<span style="background:{candle_color};color:white;padding:4px 10px;border-radius:8px;font-size:10px;font-weight:600">{candle_type}</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+<div style="background:rgba(255,255,255,0.02);border-radius:8px;padding:12px;text-align:center">
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:4px">OPEN</div>
+<div style="font-size:16px;font-weight:600;font-family:IBM Plex Mono">{c["open"]}</div>
+</div>
+<div style="background:rgba(255,255,255,0.02);border-radius:8px;padding:12px;text-align:center">
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:4px">HIGH</div>
+<div style="font-size:16px;font-weight:600;font-family:IBM Plex Mono;color:#00d4aa">{c["high"]}</div>
+</div>
+<div style="background:rgba(255,255,255,0.02);border-radius:8px;padding:12px;text-align:center">
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:4px">LOW</div>
+<div style="font-size:16px;font-weight:600;font-family:IBM Plex Mono;color:#ff4757">{c["low"]}</div>
+</div>
+<div style="background:rgba(255,255,255,0.02);border-radius:8px;padding:12px;text-align:center">
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:4px">CLOSE</div>
+<div style="font-size:16px;font-weight:600;font-family:IBM Plex Mono;color:{candle_color}">{c["close"]}</div>
+</div>
+</div>
+</div>''',unsafe_allow_html=True)
     
-    # Flow Bias Details
-    with st.expander("🌊 Flow Bias Details"):
-        flow_color = "#10b981" if "CALLS" in flow["bias"] else "#ef4444" if "PUTS" in flow["bias"] else "#f59e0b"
-        st.markdown(f'<div style="font-size:24px;font-weight:700;color:{flow_color}">{flow["bias"].replace("_", " ")}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="font-size:18px;font-weight:600;color:{flow_color}">Score: {flow["score"]:+d}</div>', unsafe_allow_html=True)
-        st.markdown("---")
-        for signal_name, signal_dir, signal_detail in flow.get("signals", []):
-            sig_color = "#10b981" if signal_dir == "CALLS" else "#ef4444" if signal_dir == "PUTS" else "#f59e0b"
-            st.markdown(f'<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.1)"><span>{signal_name}</span><span style="color:{sig_color};font-weight:500">{signal_dir} ({signal_detail})</span></div>', unsafe_allow_html=True)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # COMMAND CENTER
+    # ═══════════════════════════════════════════════════════════════════════════
+    st.markdown("### 🎯 Trade Command Center")
     
-    # Cone Rails
+    ch_color="#00d4aa" if channel_type=="RISING" else "#ff4757" if channel_type=="FALLING" else "#ffa502"
+    ch_icon="▲" if channel_type=="RISING" else "▼" if channel_type=="FALLING" else "◆"
+    pos_color="#ff4757" if "BELOW" in position else "#00d4aa" if "ABOVE" in position else "#ffa502"
+    val_color="#00d4aa" if validation["status"]=="VALID" else "#ff4757" if validation["status"]=="INVALIDATED" else "#ffa502"
+    trend_badge=f'<span style="background:linear-gradient(90deg,#f59e0b,#ef4444);color:white;padding:4px 10px;border-radius:10px;font-size:10px;font-weight:600;margin-left:8px">⚡ TREND DAY</span>' if is_trend_day else ""
+    
+    cmd_html=f'''<div class="cmd-card">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+<div><div class="cmd-title">{"📜 Historical " if inputs["is_historical"] else ""}Trading Plan</div><div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:4px">{channel_reason}</div></div>
+<span style="background:{ch_color};color:white;padding:6px 16px;border-radius:14px;font-size:12px;font-weight:600;letter-spacing:0.5px">{ch_icon} {channel_type}</span>
+</div>
+
+<div class="channel-box">
+<div class="level-row"><span class="level-name">Ceiling ({ceil_key or "N/A"})</span><span class="level-val" style="color:#00d4aa">ES {ceiling_es or "—"} → SPX {ceiling_spx or "—"}</span></div>
+<div class="level-row"><span class="level-name">Floor ({floor_key or "N/A"})</span><span class="level-val" style="color:#ff4757">ES {floor_es or "—"} → SPX {floor_spx or "—"}</span></div>
+<div class="level-row"><span class="level-name">8:30 Position</span><span class="level-val" style="color:{pos_color}">{position} ({pos_dist:.1f} pts)</span></div>
+</div>
+
+<div style="background:rgba(255,255,255,0.02);border-radius:12px;padding:14px;margin:14px 0">
+<div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">8:30 AM Candle Validation</div>
+<div style="font-size:15px;font-weight:600;color:{val_color}">{validation["message"]}{trend_badge}</div>
+</div>'''
+    
+    # Trade setup
+    if direction in ["PUTS","CALLS"] and entry_edge_es:
+        entry_spx=round(entry_edge_es-offset,2)
+        strike=get_strike(entry_spx,"PUT" if direction=="PUTS" else "CALL")
+        entry_price=estimate_prices(entry_spx,strike,"PUT" if direction=="PUTS" else "CALL",vix,hours_to_expiry)
+        exits,_=estimate_exit_prices(entry_spx,strike,"PUT" if direction=="PUTS" else "CALL",vix,hours_to_expiry,targets)
+        
+        dir_color="#ff4757" if direction=="PUTS" else "#00d4aa"
+        dir_icon="🔴" if direction=="PUTS" else "🟢"
+        
+        # Entry confirmation rules with momentum probe warning
+        if direction=="PUTS":
+            entry_rule="BULLISH candle touches entry, closes BELOW"
+            rule_detail="If candle breaks >6 pts ABOVE entry but closes below → NO ENTRY (momentum probe, next candle continues UP)"
+            rule_icon="📗"
+        else:
+            entry_rule="BEARISH candle touches entry, closes ABOVE"
+            rule_detail="If candle breaks >6 pts BELOW entry but closes above → NO ENTRY (momentum probe, next candle continues DOWN)"
+            rule_icon="📕"
+        
+        targets_html=""
+        for i,t in enumerate(exits):
+            hl="border:1px solid rgba(0,212,170,0.4);background:rgba(0,212,170,0.1)" if i==0 else ""
+            pct_color="#00d4aa" if t["pct"]>0 else "#ff4757"
+            targets_html+=f'<div style="display:flex;justify-content:space-between;padding:8px 10px;border-radius:8px;margin:4px 0;{hl}"><span style="font-weight:500">{t["target"]} @ {t["level"]}</span><span style="color:{pct_color};font-family:IBM Plex Mono;font-weight:600">${t["price"]} ({t["pct"]:+.0f}%)</span></div>'
+        
+        cmd_html+=f'''<div class="scenario valid">
+<div class="scenario-h" style="color:{dir_color}">{dir_icon} {direction} SETUP</div>
+
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;text-align:center">
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:4px">ENTRY WINDOW</div>
+<div style="font-weight:600;font-size:15px">8:30 - 11:00</div>
+</div>
+<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;text-align:center">
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:4px">ENTRY LEVEL</div>
+<div style="font-weight:600;font-size:15px;font-family:IBM Plex Mono">{entry_spx}</div>
+</div>
+<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;text-align:center">
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:4px">STRIKE</div>
+<div style="font-weight:600;font-size:15px;color:{dir_color}">{strike}</div>
+</div>
+<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;text-align:center">
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:4px">EST. ENTRY</div>
+<div style="font-weight:600;font-size:15px;font-family:IBM Plex Mono">${entry_price}</div>
+</div>
+</div>
+
+<div style="background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.25);border-radius:10px;padding:14px;margin-bottom:14px">
+<div style="font-size:11px;color:#ffa502;font-weight:600;margin-bottom:6px">{rule_icon} ENTRY CONFIRMATION</div>
+<div style="font-size:13px;color:rgba(255,255,255,0.9);font-weight:500;margin-bottom:8px">{entry_rule}</div>
+<div style="font-size:10px;color:rgba(255,71,87,0.9);background:rgba(255,71,87,0.1);border-radius:6px;padding:8px">⚠️ {rule_detail}</div>
+</div>
+
+<div class="target-box">
+<div class="target-h">📍 PROFIT TARGETS</div>
+{targets_html if targets_html else "<div style='color:rgba(255,255,255,0.5)'>No targets found</div>"}
+</div>
+</div>'''
+    
+    cmd_html+="</div>"
+    st.markdown(cmd_html,unsafe_allow_html=True)
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ANALYSIS GRID - 2x2 Layout with Equal Height Cards
+    # ═══════════════════════════════════════════════════════════════════════════
+    st.markdown("### 📊 Analysis")
+    
+    # Calculate values needed for all cards
+    conf_score=confidence["score"]
+    conf_color="#00d4aa" if conf_score>=70 else "#ffa502" if conf_score>=50 else "#ff4757"
+    conf_label="HIGH" if conf_score>=70 else "MEDIUM" if conf_score>=50 else "LOW"
+    breakdown_html="".join([f'<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,0.04)"><span style="color:rgba(255,255,255,0.5)">{k}</span><span style="font-weight:500">{v}</span></div>' for k,v in confidence["breakdown"]])
+    
+    cross_color="#00d4aa" if ema_signals["cross_bullish"] else "#ff4757" if ema_signals["cross_bearish"] else "#ffa502"
+    filter_color="#00d4aa" if ema_signals["above_200"] else "#ff4757" if ema_signals["below_200"] else "#ffa502"
+    filter_text="ABOVE" if ema_signals["above_200"] else "BELOW" if ema_signals["below_200"] else "AT"
+    
+    if direction=="CALLS" and ema_signals["aligned_calls"]:
+        align_text="✅ ALIGNED";align_color="#00d4aa";align_bg="rgba(0,212,170,0.12)"
+    elif direction=="PUTS" and ema_signals["aligned_puts"]:
+        align_text="✅ ALIGNED";align_color="#00d4aa";align_bg="rgba(0,212,170,0.12)"
+    elif direction in ["CALLS","PUTS"]:
+        align_text="⚠️ CONFLICT";align_color="#ffa502";align_bg="rgba(255,165,2,0.12)"
+    else:
+        align_text="— N/A";align_color="#666";align_bg="rgba(255,255,255,0.03)"
+    
+    flow_color="#00d4aa" if "CALLS" in flow["bias"] else "#ff4757" if "PUTS" in flow["bias"] else "#ffa502"
+    meter_pos=(flow["score"]+100)/2
+    flow_label=flow["bias"].replace("_"," ")
+    
+    mom_color="#00d4aa" if "BULL" in momentum["signal"] else "#ff4757" if "BEAR" in momentum["signal"] else "#ffa502"
+    vix_color="#00d4aa" if vix_zone in ["LOW","NORMAL"] else "#ffa502" if vix_zone=="ELEVATED" else "#ff4757"
+    
+    # Build the entire 2x2 grid as one HTML block for consistent sizing
+    analysis_html=f'''
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+<!-- ROW 1: Confidence + EMA -->
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:20px;min-height:280px;display:flex;flex-direction:column">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+<div style="display:flex;align-items:center;gap:12px">
+<div style="width:44px;height:44px;background:rgba(168,85,247,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px">📊</div>
+<div><div style="font-family:Space Grotesk,sans-serif;font-size:15px;font-weight:600">Confidence Score</div>
+<div style="font-size:11px;color:rgba(255,255,255,0.5)">Setup quality assessment</div></div>
+</div>
+<div style="text-align:right">
+<div style="font-family:IBM Plex Mono,monospace;font-size:28px;font-weight:700;color:{conf_color}">{conf_score}%</div>
+<div style="font-size:10px;font-weight:600;color:{conf_color}">{conf_label}</div>
+</div>
+</div>
+<div style="height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;margin-bottom:16px">
+<div style="height:100%;width:{conf_score}%;background:{conf_color};border-radius:4px"></div>
+</div>
+<div style="flex:1;background:rgba(255,255,255,0.02);border-radius:10px;padding:12px">{breakdown_html}</div>
+</div>
+
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:20px;min-height:280px;display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+<div style="width:44px;height:44px;background:rgba(59,130,246,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px">📈</div>
+<div><div style="font-family:Space Grotesk,sans-serif;font-size:15px;font-weight:600">EMA Confirmation</div>
+<div style="font-size:11px;color:rgba(255,255,255,0.5)">8/21 Cross + 200 Filter</div></div>
+</div>
+<div style="background:{align_bg};border-radius:10px;padding:14px;text-align:center;margin-bottom:16px">
+<div style="font-size:15px;font-weight:600;color:{align_color}">{align_text}</div>
+</div>
+<div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+<div style="background:rgba(255,255,255,0.02);border-radius:10px;padding:16px;text-align:center;display:flex;flex-direction:column;justify-content:center">
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:6px;letter-spacing:0.5px">8/21 CROSS</div>
+<div style="font-size:20px;font-weight:600;color:{cross_color}">{ema_signals["cross_signal"]}</div>
+<div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:6px">EMA8: {ema_signals["ema8"] or "—"}</div>
+</div>
+<div style="background:rgba(255,255,255,0.02);border-radius:10px;padding:16px;text-align:center;display:flex;flex-direction:column;justify-content:center">
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:6px;letter-spacing:0.5px">200 EMA</div>
+<div style="font-size:20px;font-weight:600;color:{filter_color}">{filter_text}</div>
+<div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:6px">EMA200: {ema_signals["ema200"] or "—"}</div>
+</div>
+</div>
+</div>
+
+<!-- ROW 2: Flow Bias + Market Context -->
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:20px;min-height:220px;display:flex;flex-direction:column">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+<div style="display:flex;align-items:center;gap:12px">
+<div style="width:44px;height:44px;background:rgba(34,211,238,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px">🌊</div>
+<div><div style="font-family:Space Grotesk,sans-serif;font-size:15px;font-weight:600">Flow Bias</div>
+<div style="font-size:11px;color:rgba(255,255,255,0.5)">Institutional positioning</div></div>
+</div>
+<div style="text-align:right">
+<div style="font-family:IBM Plex Mono,monospace;font-size:28px;font-weight:700;color:{flow_color}">{flow["score"]:+d}</div>
+<div style="font-size:10px;font-weight:600;color:{flow_color}">{flow_label}</div>
+</div>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+<div style="display:flex;justify-content:space-between;font-size:9px;color:rgba(255,255,255,0.4);margin-bottom:6px">
+<span>HEAVY PUTS</span><span>NEUTRAL</span><span>HEAVY CALLS</span>
+</div>
+<div style="height:10px;background:linear-gradient(90deg,#ff4757,#ffa502 50%,#00d4aa);border-radius:5px;position:relative">
+<div style="position:absolute;top:-4px;left:{meter_pos}%;width:6px;height:18px;background:#fff;border-radius:3px;transform:translateX(-50%);box-shadow:0 0 8px rgba(255,255,255,0.5)"></div>
+</div>
+<div style="display:flex;justify-content:space-between;font-size:9px;color:rgba(255,255,255,0.3);margin-top:6px">
+<span>-100</span><span>0</span><span>+100</span>
+</div>
+</div>
+</div>
+
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:20px;min-height:220px;display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+<div style="width:44px;height:44px;background:rgba(255,165,2,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px">📉</div>
+<div><div style="font-family:Space Grotesk,sans-serif;font-size:15px;font-weight:600">Market Context</div>
+<div style="font-size:11px;color:rgba(255,255,255,0.5)">Momentum & volatility</div></div>
+</div>
+<div style="flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+<div style="background:rgba(255,255,255,0.02);border-radius:10px;padding:14px;text-align:center;display:flex;flex-direction:column;justify-content:center">
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:6px">MOMENTUM</div>
+<div style="font-size:16px;font-weight:600;color:{mom_color}">{momentum["signal"]}</div>
+</div>
+<div style="background:rgba(255,255,255,0.02);border-radius:10px;padding:14px;text-align:center;display:flex;flex-direction:column;justify-content:center">
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:6px">RSI (14)</div>
+<div style="font-size:18px;font-weight:600">{momentum["rsi"]}</div>
+</div>
+<div style="background:rgba(255,255,255,0.02);border-radius:10px;padding:14px;text-align:center;display:flex;flex-direction:column;justify-content:center">
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:6px">VIX</div>
+<div style="font-size:18px;font-weight:600;color:{vix_color}">{vix:.1f}</div>
+<div style="font-size:9px;color:{vix_color}">{vix_zone}</div>
+</div>
+</div>
+</div>
+
+</div>'''
+    
+    st.markdown(analysis_html,unsafe_allow_html=True)
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # CONES & LEVELS
+    # ═══════════════════════════════════════════════════════════════════════════
     with st.expander("📊 Cone Rails (SPX)"):
-        for name, cone in cones_spx.items():
-            st.markdown(f'''<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.1)">
-                <span style="font-weight:600">{name}</span>
-                <span>
-                    <span style="color:#10b981">↑ {cone["asc"]}</span>
-                    <span style="margin:0 8px;color:rgba(255,255,255,0.3)">|</span>
-                    <span style="color:#ef4444">↓ {cone["desc"]}</span>
-                </span>
-            </div>''', unsafe_allow_html=True)
+        cone_html="".join([f'<div class="pillar"><span>{n}</span><span><span style="color:#00d4aa">↑{c["asc"]}</span> | <span style="color:#ff4757">↓{c["desc"]}</span></span></div>' for n,c in cones_spx.items()])
+        st.markdown(f'<div class="card">{cone_html}</div>',unsafe_allow_html=True)
     
-    # All Structure Levels
     with st.expander("📐 All Structure Levels"):
-        all_lvls = [
-            ("Ceiling Rising", levels["ceiling_rising"]["level"]),
-            ("Ceiling Falling", levels["ceiling_falling"]["level"]),
-            ("Floor Rising", levels["floor_rising"]["level"]),
-            ("Floor Falling", levels["floor_falling"]["level"])
-        ]
-        all_lvls.sort(key=lambda x: x[1], reverse=True)
-        for name, level in all_lvls:
-            spx_level = round(level - offset, 2)
-            st.markdown(f'''<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.1)">
-                <span>{name}</span>
-                <span style="font-family:monospace">ES {level} → SPX {spx_level}</span>
-            </div>''', unsafe_allow_html=True)
+        all_lvls=[("Ceiling Rising",levels["ceiling_rising"]["level"]),("Ceiling Falling",levels["ceiling_falling"]["level"]),("Floor Rising",levels["floor_rising"]["level"]),("Floor Falling",levels["floor_falling"]["level"])]
+        all_lvls.sort(key=lambda x:x[1],reverse=True)
+        lvl_html="".join([f'<div class="pillar"><span>{n}</span><span>ES {l} → SPX {round(l-offset,2)}</span></div>' for n,l in all_lvls])
+        st.markdown(f'<div class="card">{lvl_html}</div>',unsafe_allow_html=True)
     
-    # ─────────────────────────────────────────────────────────────────────────
-    # 13. DEBUG MODE
-    # ─────────────────────────────────────────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════════════════════
+    # DEBUG
+    # ═══════════════════════════════════════════════════════════════════════════
     if inputs["debug"]:
         st.markdown("### 🔧 Debug")
         
+        # Show 8:30 candle vs channel
         st.markdown("**8:30 Candle vs Channel:**")
         if candle_830:
             st.write(f"- Candle: O={candle_830['open']}, H={candle_830['high']}, L={candle_830['low']}, C={candle_830['close']}")
@@ -3697,41 +2553,54 @@ def main():
             st.write(f"- Low vs Floor: {candle_830['low']} {'<' if candle_830['low']<floor_es else '>='} {floor_es} → {'BROKE BELOW' if candle_830['low']<floor_es else 'did not break'}")
             st.write(f"- Close: {candle_830['close']} → {'ABOVE ceiling' if candle_830['close']>ceiling_es else 'BELOW floor' if candle_830['close']<floor_es else 'INSIDE channel'}")
         
+        # Show validation result
         st.markdown("**Validation Result:**")
         st.write(f"- Status: {validation['status']}")
         st.write(f"- Message: {validation['message']}")
         st.write(f"- Setup: {validation['setup']}")
         st.write(f"- Position: {validation.get('position','N/A')}")
         
+        # Show times
         st.markdown("**Anchor Times:**")
         st.write(f"- O/N High Time: {on_high_time}")
         st.write(f"- O/N Low Time: {on_low_time}")
         st.write(f"- Reference Time: {ref_time}")
         
+        # Show block calculations
         st.markdown("**Block Calculations:**")
-        blocks_high = blocks_between(on_high_time, ref_time)
-        blocks_low = blocks_between(on_low_time, ref_time)
+        blocks_high=blocks_between(on_high_time,ref_time)
+        blocks_low=blocks_between(on_low_time,ref_time)
         st.write(f"- Blocks from O/N High to Ref: {blocks_high} (exp: {SLOPE*blocks_high:.2f})")
         st.write(f"- Blocks from O/N Low to Ref: {blocks_low} (exp: {SLOPE*blocks_low:.2f})")
         
+        # Show raw values
         st.markdown("**Raw Values (ES):**")
         st.write(f"- O/N High: {on_high}, O/N Low: {on_low}")
         st.write(f"- Sydney H/L: {syd_h}/{syd_l}, Tokyo H/L: {tok_h}/{tok_l}")
         st.write(f"- Channel Type: {channel_type} ({channel_reason})")
         
+        # Show calculated levels
         st.markdown("**Calculated Levels (ES):**")
         st.json(levels)
         
+        # Show hist_data if available
         if hist_data:
             st.markdown("**Historical Data Extracted:**")
-            hist_display = {k: str(v) if isinstance(v, pd.DataFrame) else v for k, v in hist_data.items() if k != "day_candles"}
+            hist_display={k:str(v) if isinstance(v,pd.DataFrame) else v for k,v in hist_data.items() if k!="day_candles"}
             st.json(hist_display)
     
-    # ─────────────────────────────────────────────────────────────────────────
-    # 14. FOOTER
-    # ─────────────────────────────────────────────────────────────────────────
-    footer_html = render_footer()
-    st.markdown(footer_html, unsafe_allow_html=True)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # FOOTER
+    # ═══════════════════════════════════════════════════════════════════════════
+    st.markdown(f'''<div class="footer">
+<div style="margin-bottom:8px;font-weight:600;font-size:12px">🔮 SPX PROPHET V6.1</div>
+<div style="font-size:10px;color:rgba(255,255,255,0.4)">
+Sydney/Tokyo Channel • Setup Candle → Next Candle Entry • Momentum Probe Filter • Structural Cone Targets
+</div>
+<div style="margin-top:6px;font-size:10px;color:rgba(255,255,255,0.3)">
+Setup Window: 8:00-10:30 AM | Entry Window: 8:30-11:00 AM | Slope: {SLOPE} pts/block | Break Threshold: {BREAK_THRESHOLD} pts
+</div>
+</div>''',unsafe_allow_html=True)
     
     if inputs["auto_refresh"] and not inputs["is_historical"]:
         time_module.sleep(30)
