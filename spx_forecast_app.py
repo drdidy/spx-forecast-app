@@ -285,9 +285,9 @@ h3 {
 .valid-card.fail { background: rgba(255,71,87,0.06); border-color: rgba(255,71,87,0.3); }
 .valid-card.neutral { background: rgba(255,179,0,0.06); border-color: rgba(255,179,0,0.3); }
 
-.valid-icon { font-size: 28px; margin-bottom: 8px; }
-.valid-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
-.valid-val { font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 600; }
+.valid-icon { font-size: 32px; margin-bottom: 10px; }
+.valid-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px; font-weight: 500; }
+.valid-val { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
 .valid-card.pass .valid-val { color: var(--accent-green-bright); }
 .valid-card.fail .valid-val { color: var(--accent-red-bright); }
 .valid-card.neutral .valid-val { color: var(--accent-amber-bright); }
@@ -1055,6 +1055,7 @@ def extract_historical_data(es_candles,trading_date,offset=18.0):
             result["prior_low"]=result["prior_low_close"]
             result["prior_high_time"]=result["prior_high_wick_time"]
             result["prior_low_time"]=result["prior_low_close_time"]
+            result["prior_date"]=prior_rth_day  # Track which day the prior data is from
         
         # ─────────────────────────────────────────────────────────────────────
         # 8:30 AM CANDLE
@@ -1888,29 +1889,72 @@ def calculate_flow_bias(price, on_high, on_low, vix, vix_high, vix_low, prior_cl
             signals.append(("VIX Level", "NEUTRAL", f"Normal ({vix:.1f})", 0))
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # PILLAR 3: Gap from Prior Close (±15 pts)
+    # PILLAR 3: Overnight Gap & Direction (±15 pts)
+    # Compare: Where is price NOW vs where did overnight SESSION start?
+    # If O/N High > Prior Close AND price near O/N Low = Gap filled, bearish
+    # If O/N Low < Prior Close AND price near O/N High = Gap filled, bullish
     # ═══════════════════════════════════════════════════════════════════════════
-    gap = price - prior_close if prior_close else 0
-    details["gap"] = f"{gap:+.1f}"
     
-    if gap > 15:
-        pts = 15
-        score += pts
-        signals.append(("Gap", "CALLS", f"Large Gap Up (+{gap:.0f})", pts))
-    elif gap < -15:
-        pts = -15
-        score += pts
-        signals.append(("Gap", "PUTS", f"Large Gap Down ({gap:.0f})", pts))
-    elif gap > 7:
-        pts = 8
-        score += pts
-        signals.append(("Gap", "CALLS", f"Gap Up (+{gap:.0f})", pts))
-    elif gap < -7:
-        pts = -8
-        score += pts
-        signals.append(("Gap", "PUTS", f"Gap Down ({gap:.0f})", pts))
+    # Calculate gap from prior close to overnight range
+    on_high_gap = on_high - prior_close if prior_close and on_high else 0  # How much O/N pushed above prior close
+    on_low_gap = on_low - prior_close if prior_close and on_low else 0     # How much O/N pushed below prior close
+    current_gap = price - prior_close if prior_close else 0                 # Where price is now vs prior close
+    
+    # Determine overnight character
+    if on_high_gap > 10 and on_low_gap > -5:
+        # Overnight gapped UP and held (bullish overnight)
+        if current_gap > on_high_gap * 0.7:
+            pts = 15
+            score += pts
+            signals.append(("O/N Gap", "CALLS", f"Gap Up Holding (+{current_gap:.0f})", pts))
+        elif current_gap > 5:
+            pts = 8
+            score += pts
+            signals.append(("O/N Gap", "CALLS", f"Gap Up Fading (+{current_gap:.0f})", pts))
+        else:
+            pts = -5
+            score += pts
+            signals.append(("O/N Gap", "PUTS", f"Gap Up Filled ({current_gap:+.0f})", pts))
+    elif on_low_gap < -10 and on_high_gap < 5:
+        # Overnight gapped DOWN and held (bearish overnight)
+        if current_gap < on_low_gap * 0.7:
+            pts = -15
+            score += pts
+            signals.append(("O/N Gap", "PUTS", f"Gap Down Holding ({current_gap:.0f})", pts))
+        elif current_gap < -5:
+            pts = -8
+            score += pts
+            signals.append(("O/N Gap", "PUTS", f"Gap Down Fading ({current_gap:.0f})", pts))
+        else:
+            pts = 5
+            score += pts
+            signals.append(("O/N Gap", "CALLS", f"Gap Down Filled ({current_gap:+.0f})", pts))
+    elif abs(on_high_gap) > 15 or abs(on_low_gap) > 15:
+        # Wide overnight range - volatile
+        if current_gap > 10:
+            pts = 10
+            score += pts
+            signals.append(("O/N Gap", "CALLS", f"Volatile, Near High (+{current_gap:.0f})", pts))
+        elif current_gap < -10:
+            pts = -10
+            score += pts
+            signals.append(("O/N Gap", "PUTS", f"Volatile, Near Low ({current_gap:.0f})", pts))
+        else:
+            signals.append(("O/N Gap", "NEUTRAL", f"Volatile, Mid ({current_gap:+.0f})", 0))
     else:
-        signals.append(("Gap", "NEUTRAL", f"Flat ({gap:+.0f})", 0))
+        # Tight overnight range
+        if current_gap > 7:
+            pts = 8
+            score += pts
+            signals.append(("O/N Gap", "CALLS", f"Slight Gap Up (+{current_gap:.0f})", pts))
+        elif current_gap < -7:
+            pts = -8
+            score += pts
+            signals.append(("O/N Gap", "PUTS", f"Slight Gap Down ({current_gap:.0f})", pts))
+        else:
+            signals.append(("O/N Gap", "NEUTRAL", f"Flat Open ({current_gap:+.0f})", 0))
+    
+    details["gap"] = f"{current_gap:+.1f}"
     
     # ═══════════════════════════════════════════════════════════════════════════
     # PILLAR 4: VVIX - Volatility of Volatility (±10 pts)
@@ -2490,6 +2534,16 @@ def main():
             
             if es_candles is not None and not es_candles.empty:
                 hist_data=extract_historical_data(es_candles,inputs["trading_date"],inputs["offset"])
+                
+                # Check if prior RTH data is stale (holiday scenario)
+                if inputs["is_planning"] and hist_data:
+                    prior_date = hist_data.get("prior_date")
+                    trading_date = inputs["trading_date"]
+                    if prior_date:
+                        days_gap = (trading_date - prior_date).days if isinstance(prior_date, date) else 0
+                        if days_gap > 3:  # More than a weekend gap = likely holiday
+                            st.warning(f"⚠️ **Holiday Detected:** Prior RTH data is from {prior_date.strftime('%A, %B %d') if hasattr(prior_date, 'strftime') else prior_date} ({days_gap} days ago). "
+                                      f"Use **Manual O/N Override** in sidebar to enter current overnight session data.")
             else:
                 hist_data=None
                 if inputs["is_planning"]:
