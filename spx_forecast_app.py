@@ -3535,35 +3535,18 @@ def main():
     # Direction & targets based on validation
     is_projected = validation.get("projected", False)
     
-    # Check for EMA conflict - if projected setup conflicts with EMA, we should show both
-    ema_favors_calls = ema_signals.get("aligned_calls", False) or ema_signals.get("cross_bullish", False)
-    ema_favors_puts = ema_signals.get("aligned_puts", False) or ema_signals.get("cross_bearish", False)
-    
+    # Initial direction assignment (EMA conflict check happens after ema_signals is calculated)
     if validation["setup"]=="PUTS":
         direction="PUTS"
         entry_edge_es=validation.get("edge",floor_es)
         entry_edge_spx=round(entry_edge_es-offset,2) if entry_edge_es else floor_spx
         targets=find_targets(entry_edge_spx,cones_spx,"PUTS") if entry_edge_spx else []
-        
-        # Check for conflict with EMA
-        if is_projected and ema_favors_calls and not ema_favors_puts:
-            # EMA says CALLS but projection says PUTS - show as CONFLICT/NEUTRAL
-            direction = "NEUTRAL"
-            validation["setup"] = "NEUTRAL"
-            validation["message"] = f"⚠️ CONFLICT: Structure suggests PUTS but EMA favors CALLS"
             
     elif validation["setup"]=="CALLS":
         direction="CALLS"
         entry_edge_es=validation.get("edge",ceiling_es)
         entry_edge_spx=round(entry_edge_es-offset,2) if entry_edge_es else ceiling_spx
         targets=find_targets(entry_edge_spx,cones_spx,"CALLS") if entry_edge_spx else []
-        
-        # Check for conflict with EMA
-        if is_projected and ema_favors_puts and not ema_favors_calls:
-            # EMA says PUTS but projection says CALLS - show as CONFLICT/NEUTRAL
-            direction = "NEUTRAL"
-            validation["setup"] = "NEUTRAL"
-            validation["message"] = f"⚠️ CONFLICT: Structure suggests CALLS but EMA favors PUTS"
             
     elif validation["setup"]=="NEUTRAL" and is_projected:
         # Neutral in planning mode - show both potential setups
@@ -3641,6 +3624,32 @@ def main():
     momentum=calculate_momentum(es_candles)
     ema_signals=calculate_ema_signals(es_candles,current_es)
     vix_zone=get_vix_zone(vix)
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # EMA CONFLICT CHECK - Now that we have ema_signals, check for conflicts
+    # ─────────────────────────────────────────────────────────────────────────
+    ema_favors_calls = ema_signals.get("aligned_calls", False) or ema_signals.get("cross") == "BULLISH"
+    ema_favors_puts = ema_signals.get("aligned_puts", False) or ema_signals.get("cross") == "BEARISH"
+    
+    # In projected mode, if EMA conflicts with structural setup, show NEUTRAL with both
+    if is_projected and direction in ["CALLS", "PUTS"]:
+        if direction == "CALLS" and ema_favors_puts and not ema_favors_calls:
+            # Structure says CALLS but EMA says PUTS - CONFLICT
+            original_direction = direction
+            direction = "NEUTRAL"
+            validation["original_setup"] = original_direction
+            validation["setup"] = "NEUTRAL"
+            validation["message"] = f"⚠️ CONFLICT: Structure suggests CALLS but EMA favors PUTS"
+            validation["conflict"] = True
+        elif direction == "PUTS" and ema_favors_calls and not ema_favors_puts:
+            # Structure says PUTS but EMA says CALLS - CONFLICT
+            original_direction = direction
+            direction = "NEUTRAL"
+            validation["original_setup"] = original_direction
+            validation["setup"] = "NEUTRAL"
+            validation["message"] = f"⚠️ CONFLICT: Structure suggests PUTS but EMA favors CALLS"
+            validation["conflict"] = True
+    
     confidence=calculate_confidence(channel_type,validation,direction,ema_signals,flow,vix_zone)
     
     # Historical outcome
