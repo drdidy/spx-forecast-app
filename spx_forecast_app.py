@@ -1634,26 +1634,56 @@ def fetch_vix_polygon():
     except:pass
     return None
 
-@st.cache_data(ttl=15,show_spinner=False)
+@st.cache_data(ttl=30,show_spinner=False)
 def fetch_es_current():
     """Fetch current ES futures price - ES is the source of truth"""
-    # Try 1: yfinance ES futures (most reliable for futures)
+    errors = []
+    
+    # Try 1: yfinance ES futures with 1d/5m (most recent, reliable interval)
     try:
         es=yf.Ticker("ES=F")
-        d=es.history(period="2d",interval="1m")
+        d=es.history(period="1d",interval="5m")
         if d is not None and not d.empty:
             return round(float(d['Close'].iloc[-1]),2)
-    except:pass
+        else:
+            errors.append("yf 1d/5m: empty")
+    except Exception as e:
+        errors.append(f"yf 1d/5m: {str(e)[:50]}")
     
-    # Try 2: yfinance with longer period
+    # Try 2: yfinance with 2d/5m
+    try:
+        es=yf.Ticker("ES=F")
+        d=es.history(period="2d",interval="5m")
+        if d is not None and not d.empty:
+            return round(float(d['Close'].iloc[-1]),2)
+        else:
+            errors.append("yf 2d/5m: empty")
+    except Exception as e:
+        errors.append(f"yf 2d/5m: {str(e)[:50]}")
+    
+    # Try 3: yfinance with 5d/30m
     try:
         es=yf.Ticker("ES=F")
         d=es.history(period="5d",interval="30m")
         if d is not None and not d.empty:
             return round(float(d['Close'].iloc[-1]),2)
-    except:pass
+        else:
+            errors.append("yf 5d/30m: empty")
+    except Exception as e:
+        errors.append(f"yf 5d/30m: {str(e)[:50]}")
     
-    # Try 3: Polygon ES futures snapshot
+    # Try 4: yfinance with 7d/1h (longer period, hourly)
+    try:
+        es=yf.Ticker("ES=F")
+        d=es.history(period="7d",interval="1h")
+        if d is not None and not d.empty:
+            return round(float(d['Close'].iloc[-1]),2)
+        else:
+            errors.append("yf 7d/1h: empty")
+    except Exception as e:
+        errors.append(f"yf 7d/1h: {str(e)[:50]}")
+    
+    # Try 5: Polygon ES futures snapshot
     try:
         url=f"{POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/tickers/ES=F?apiKey={POLYGON_KEY}"
         r=requests.get(url,timeout=5)
@@ -1662,7 +1692,13 @@ def fetch_es_current():
             if "ticker" in d and "lastTrade" in d["ticker"]:
                 p = d["ticker"]["lastTrade"].get("p")
                 if p: return round(float(p), 2)
-    except:pass
+        errors.append(f"polygon: status {r.status_code}")
+    except Exception as e:
+        errors.append(f"polygon: {str(e)[:50]}")
+    
+    # Log errors for debugging (visible in Streamlit logs)
+    if errors:
+        print(f"ES fetch failed: {'; '.join(errors)}")
     
     return None
 
