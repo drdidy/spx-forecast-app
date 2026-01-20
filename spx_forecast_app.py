@@ -3546,13 +3546,9 @@ def main():
     
     if inputs.get("override_vix") and inputs.get("manual_vix"):
         vix = float(inputs["manual_vix"])
-        st.success(f"✅ Using manual VIX: {vix}")
+        vix_source = "manual"
     else:
-        # Warn in planning mode that data may be stale
-        if inputs.get("is_planning"):
-            st.warning(f"⚠️ VIX: {vix:.1f} - **Data may be delayed/stale!** Enable 'Override VIX' in sidebar for accurate premiums.")
-        else:
-            st.caption(f"📊 VIX: {vix:.1f}")
+        vix_source = "fetched"
     
     current_spx=round(current_es-offset,2)
     
@@ -4576,9 +4572,9 @@ def main():
 <div style="font-size:18px;font-weight:600">{momentum["rsi"]}</div>
 </div>
 <div style="background:rgba(255,255,255,0.02);border-radius:10px;padding:14px;text-align:center;display:flex;flex-direction:column;justify-content:center">
-<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:6px">VIX</div>
+<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:6px">VIX {'✓' if vix_source == 'manual' else '⚠️' if inputs.get('is_planning') else ''}</div>
 <div style="font-size:18px;font-weight:600;color:{vix_color}">{vix:.1f}</div>
-<div style="font-size:9px;color:{vix_color}">{vix_zone}</div>
+<div style="font-size:9px;color:{vix_color}">{vix_zone}{' (manual)' if vix_source == 'manual' else ' (stale?)' if inputs.get('is_planning') else ''}</div>
 </div>
 </div>
 </div>
