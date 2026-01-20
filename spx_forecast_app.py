@@ -3388,7 +3388,12 @@ def main():
             # SPX is DERIVED from ES (ES - offset)
             spx_price = derive_spx_from_es(es_price, inputs["offset"])
             vix=fetch_vix_polygon() or 16.0
-            hist_data=None
+            
+            # Extract today's data from es_candles for live mode
+            if es_candles is not None and not es_candles.empty:
+                hist_data = extract_historical_data(es_candles, inputs["trading_date"], inputs["offset"])
+            else:
+                hist_data = None
     
     # Check if manual ES override is enabled
     if inputs.get("override_es") and inputs.get("manual_es"):
@@ -3450,8 +3455,8 @@ def main():
         prior_low_close_time=hist_data.get("prior_low_close_time")
         prior_close_time=hist_data.get("prior_close_time")
         
-        candle_830=hist_data.get("candle_830") if inputs["is_historical"] else None
-        current_es=hist_data.get("day_open",es_price) if inputs["is_historical"] else (es_price or hist_data.get("prior_close",6050))
+        candle_830=hist_data.get("candle_830") if hist_data else None
+        current_es=hist_data.get("day_open",es_price) if inputs["is_historical"] else (es_price or (hist_data.get("prior_close",6050) if hist_data else 6050))
     else:
         # No hist_data - use defaults
         syd_h=syd_l=tok_h=tok_l=on_high=on_low=None
