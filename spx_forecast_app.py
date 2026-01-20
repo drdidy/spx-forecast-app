@@ -1520,29 +1520,90 @@ def load_inputs():
 # DATA FETCHING
 # ═══════════════════════════════════════════════════════════════════════════════
 @st.cache_data(ttl=300,show_spinner=False)
-def fetch_es_candles_range(start_date,end_date,interval="30m"):
+def fetch_spx_candles_polygon(start_date, end_date, interval="30m"):
+    """Fetch SPX candles from Polygon and convert to ES equivalent"""
+    try:
+        # Convert interval to Polygon format
+        timespan = "minute"
+        multiplier = 30
+        if interval == "1h":
+            timespan = "hour"
+            multiplier = 1
+        elif interval == "30m":
+            timespan = "minute"
+            multiplier = 30
+        
+        start_str = start_date.strftime("%Y-%m-%d")
+        end_str = end_date.strftime("%Y-%m-%d")
+        
+        url = f"{POLYGON_BASE}/v2/aggs/ticker/I:SPX/range/{multiplier}/{timespan}/{start_str}/{end_str}?adjusted=true&sort=asc&limit=5000&apiKey={POLYGON_KEY}"
+        r = requests.get(url, timeout=15)
+        
+        if r.status_code == 200:
+            d = r.json()
+            if "results" in d and len(d["results"]) > 0:
+                import pandas as pd
+                df = pd.DataFrame(d["results"])
+                df['timestamp'] = pd.to_datetime(df['t'], unit='ms')
+                df.set_index('timestamp', inplace=True)
+                df.rename(columns={'o':'Open','h':'High','l':'Low','c':'Close','v':'Volume'}, inplace=True)
+                df.index = df.index.tz_localize('UTC').tz_convert('America/Chicago')
+                return df[['Open','High','Low','Close','Volume']]
+    except Exception as e:
+        pass
+    return None
+
+@st.cache_data(ttl=300,show_spinner=False)
+def fetch_es_candles_range(start_date, end_date, interval="30m", offset=18.0):
     """Fetch ES candles for a specific date range"""
-    for attempt in range(3):
+    # Try yfinance first for actual ES data
+    for attempt in range(2):
         try:
             es=yf.Ticker("ES=F")
             data=es.history(start=start_date,end=end_date+timedelta(days=1),interval=interval)
-            if data is not None and not data.empty:
+            if data is not None and not data.empty and len(data) > 10:
                 return data
         except Exception as e:
-            time_module.sleep(1)
+            time_module.sleep(0.5)
+    
+    # Backup: Use SPX from Polygon and add offset to convert to ES
+    spx_data = fetch_spx_candles_polygon(start_date, end_date, interval)
+    if spx_data is not None and not spx_data.empty:
+        # Convert SPX to ES by adding offset
+        es_data = spx_data.copy()
+        es_data['Open'] = es_data['Open'] + offset
+        es_data['High'] = es_data['High'] + offset
+        es_data['Low'] = es_data['Low'] + offset
+        es_data['Close'] = es_data['Close'] + offset
+        return es_data
+    
     return None
 
 @st.cache_data(ttl=120,show_spinner=False)
-def fetch_es_candles(days=7):
+def fetch_es_candles(days=7, offset=18.0):
     """Fetch recent ES candles"""
-    for attempt in range(3):
+    # Try yfinance first
+    for attempt in range(2):
         try:
             es=yf.Ticker("ES=F")
             data=es.history(period=f"{days}d",interval="30m")
-            if data is not None and not data.empty:
+            if data is not None and not data.empty and len(data) > 10:
                 return data
         except:
-            time_module.sleep(1)
+            time_module.sleep(0.5)
+    
+    # Backup: Use SPX from Polygon
+    end_date = date.today()
+    start_date = end_date - timedelta(days=days)
+    spx_data = fetch_spx_candles_polygon(start_date, end_date, "30m")
+    if spx_data is not None and not spx_data.empty:
+        es_data = spx_data.copy()
+        es_data['Open'] = es_data['Open'] + offset
+        es_data['High'] = es_data['High'] + offset
+        es_data['Low'] = es_data['Low'] + offset
+        es_data['Close'] = es_data['Close'] + offset
+        return es_data
+    
     return None
 
 @st.cache_data(ttl=60,show_spinner=False)
@@ -1575,16 +1636,8 @@ def fetch_vix_polygon():
 
 @st.cache_data(ttl=15,show_spinner=False)
 def fetch_es_current():
-    """Fetch current ES price - try multiple sources"""
-    # Try yfinance first
-    try:
-        es=yf.Ticker("ES=F")
-        d=es.history(period="1d",interval="1m")
-        if d is not None and not d.empty:
-            return round(float(d['Close'].iloc[-1]),2)
-    except:pass
-    
-    # Try yfinance with 2d period (sometimes 1d fails on weekends)
+    """Fetch current ES futures price - ES is the source of truth"""
+    # Try 1: yfinance ES futures (most reliable for futures)
     try:
         es=yf.Ticker("ES=F")
         d=es.history(period="2d",interval="1m")
@@ -1592,7 +1645,7 @@ def fetch_es_current():
             return round(float(d['Close'].iloc[-1]),2)
     except:pass
     
-    # Try yfinance with 5d period as last resort
+    # Try 2: yfinance with longer period
     try:
         es=yf.Ticker("ES=F")
         d=es.history(period="5d",interval="30m")
@@ -1600,13 +1653,23 @@ def fetch_es_current():
             return round(float(d['Close'].iloc[-1]),2)
     except:pass
     
+    # Try 3: Polygon ES futures snapshot
+    try:
+        url=f"{POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/tickers/ES=F?apiKey={POLYGON_KEY}"
+        r=requests.get(url,timeout=5)
+        if r.status_code==200:
+            d=r.json()
+            if "ticker" in d and "lastTrade" in d["ticker"]:
+                p = d["ticker"]["lastTrade"].get("p")
+                if p: return round(float(p), 2)
+    except:pass
+    
     return None
 
-def fetch_es_from_spx(offset=18.0):
-    """Derive ES from SPX price + offset"""
-    spx = fetch_spx_polygon()
-    if spx:
-        return round(spx + offset, 2)
+def derive_spx_from_es(es_price, offset=18.0):
+    """Derive SPX from ES price - ES is source of truth, SPX = ES - offset"""
+    if es_price:
+        return round(es_price - offset, 2)
     return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3231,7 +3294,7 @@ def main():
             # Need extra days to handle weekends (if trading_date is Monday/Tuesday)
             start=inputs["trading_date"]-timedelta(days=7)  # Go back a full week
             end=inputs["trading_date"]+timedelta(days=1)
-            es_candles=fetch_es_candles_range(start,end)
+            es_candles=fetch_es_candles_range(start, end, "30m", inputs["offset"])
             
             if es_candles is not None and not es_candles.empty:
                 hist_data=extract_historical_data(es_candles,inputs["trading_date"],inputs["offset"])
@@ -3255,36 +3318,33 @@ def main():
             if inputs["is_historical"]:
                 es_price=hist_data.get("day_open") if hist_data else None
             else:
-                # Planning mode - try multiple sources for live price
+                # Planning mode - try to get live ES price (ES is source of truth)
                 live_es = fetch_es_current()
+                
                 if live_es:
                     es_price = live_es
+                    if inputs.get("debug"):
+                        st.caption(f"🔍 ES fetched: {es_price}")
+                elif hist_data:
+                    es_price = hist_data.get("prior_close")
+                    st.info(f"📊 Using Friday's close ({es_price}) - Markets closed or live data unavailable")
                 else:
-                    # Try deriving from SPX
-                    derived_es = fetch_es_from_spx(inputs["offset"])
-                    if derived_es:
-                        es_price = derived_es
-                        st.info(f"📊 ES derived from SPX ({es_price}) - direct ES feed unavailable")
-                    elif hist_data:
-                        es_price = hist_data.get("prior_close")
-                        st.info(f"📊 Using Friday's close ({es_price}) - live data not available yet")
-                    else:
-                        es_price = None
-            spx_price=round(es_price-inputs["offset"],2) if es_price else None
+                    es_price = None
+                    st.warning("⚠️ Could not fetch ES price. Use **Override Current ES** in sidebar to enter manually.")
+            # SPX is DERIVED from ES (ES - offset)
+            spx_price = derive_spx_from_es(es_price, inputs["offset"])
             vix=fetch_vix_polygon() or 16.0
         else:
             # Live mode (today)
-            es_candles=fetch_es_candles(7)
+            es_candles=fetch_es_candles(7, inputs["offset"])
             es_price=fetch_es_current()
             
-            # If ES fetch failed, try deriving from SPX
+            # If ES fetch failed, show warning
             if es_price is None:
-                derived_es = fetch_es_from_spx(inputs["offset"])
-                if derived_es:
-                    es_price = derived_es
-                    st.info(f"📊 ES derived from SPX - direct ES feed unavailable")
+                st.warning("⚠️ Could not fetch ES price. Enable 'Override Current ES' in sidebar.")
             
-            spx_price=fetch_spx_polygon()
+            # SPX is DERIVED from ES (ES - offset)
+            spx_price = derive_spx_from_es(es_price, inputs["offset"])
             vix=fetch_vix_polygon() or 16.0
             hist_data=None
     
