@@ -1634,7 +1634,7 @@ def fetch_vix_polygon():
     except:pass
     return None
 
-@st.cache_data(ttl=30,show_spinner=False)
+@st.cache_data(ttl=15,show_spinner=False)
 def fetch_es_current():
     """Fetch current ES futures price - ES is the source of truth"""
     errors = []
@@ -3254,17 +3254,23 @@ def render_sidebar():
         auto_refresh=st.checkbox("🔄 Auto Refresh (30s)",value=False) if not (is_historical or is_planning) else False
         debug=st.checkbox("🔧 Debug Mode",value=False)
         
-        if st.button("💾 Save Inputs",use_container_width=True):
-            save_inputs({
-                "offset":offset,
-                "manual_es":manual_es,
-                "on_high":on_high,"on_low":on_low,
-                "on_prior_close":on_prior_close,
-                "vix_high":vix_high,"vix_low":vix_low,
-                "manual_vix":manual_vix,
-                "prior_high":prior_high,"prior_low":prior_low,"prior_close":prior_close
-            })
-            st.success("✅ Saved")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("💾 Save Inputs",use_container_width=True):
+                save_inputs({
+                    "offset":offset,
+                    "manual_es":manual_es,
+                    "on_high":on_high,"on_low":on_low,
+                    "on_prior_close":on_prior_close,
+                    "vix_high":vix_high,"vix_low":vix_low,
+                    "manual_vix":manual_vix,
+                    "prior_high":prior_high,"prior_low":prior_low,"prior_close":prior_close
+                })
+                st.success("✅ Saved")
+        with col2:
+            if st.button("🔄 Refresh Data",use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
     
     return {
         "trading_date":trading_date,
