@@ -3535,40 +3535,40 @@ def main():
         is_ascending = channel_type == ChannelType.ASCENDING
         is_descending = channel_type == ChannelType.DESCENDING
         
-        # Conditional styles
-        asc_dominant = "(DOMINANT)" if is_ascending else ""
-        desc_dominant = "(DOMINANT)" if is_descending else ""
-        asc_floor_style = "background: var(--bull-soft); margin: 0 -18px; padding: 12px 18px; border-left: 3px solid var(--bull);" if is_ascending else ""
-        desc_ceil_style = "background: var(--bear-soft); margin: 0 -18px; padding: 12px 18px; border-left: 3px solid var(--bear);" if is_descending else ""
-        
         # Position summary from decision
         pos_summary = decision.get("position_summary", f"Position: {position.value}")
         
-        # Build HTML parts
-        html_parts = []
-        html_parts.append('<div class="levels-container">')
-        html_parts.append(f'<div style="padding: 14px 16px; background: linear-gradient(90deg, var(--bg-elevated) 0%, transparent 100%); border-radius: 10px; margin-bottom: 16px; border-left: 4px solid var(--accent-cyan);"><span style="font-family: JetBrains Mono, monospace; font-size: 0.9rem; color: var(--text-primary);">{pos_summary}</span></div>')
+        # Position summary
+        st.markdown(f'<div class="levels-container"><div style="padding:14px 16px;background:linear-gradient(90deg,var(--bg-elevated) 0%,transparent 100%);border-radius:10px;margin-bottom:16px;border-left:4px solid var(--accent-cyan);"><span style="font-family:JetBrains Mono,monospace;font-size:0.9rem;color:var(--text-primary);">{pos_summary}</span></div></div>', unsafe_allow_html=True)
         
-        # Ascending channel section
-        html_parts.append('<div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--border-subtle);">')
-        html_parts.append(f'<div style="font-family: Plus Jakarta Sans, sans-serif; font-size: 0.75rem; color: var(--bull); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;"><span>↗</span> ASCENDING CHANNEL {asc_dominant}</div>')
-        html_parts.append(f'<div class="level-row" style="{asc_floor_style}"><div class="level-label floor"><span>▼</span><span>ASC FLOOR</span></div><div class="level-value floor">{asc_floor:,.2f}</div><div class="level-note">CALLS entry • {dist_asc_floor:+.1f} pts</div></div>')
-        html_parts.append(f'<div class="level-row"><div class="level-label" style="color: var(--bull); opacity: 0.6;"><span>▲</span><span>ASC CEIL</span></div><div class="level-value" style="color: var(--bull); opacity: 0.6;">{asc_ceiling:,.2f}</div><div class="level-note" style="opacity: 0.6;">CALLS target • {dist_asc_ceiling:+.1f} pts</div></div>')
-        html_parts.append('</div>')
+        # Ascending Channel Header
+        asc_label = "↗ ASCENDING CHANNEL (DOMINANT)" if is_ascending else "↗ ASCENDING CHANNEL"
+        st.markdown(f'<div style="font-size:0.8rem;color:var(--bull);text-transform:uppercase;letter-spacing:1px;margin:16px 0 8px 0;font-weight:600;">{asc_label}</div>', unsafe_allow_html=True)
         
-        # Current price
-        html_parts.append(f'<div class="level-row" style="background: linear-gradient(90deg, rgba(245,184,0,0.15) 0%, transparent 100%); margin: 0 -18px; padding: 14px 18px;"><div class="level-label current"><span>●</span><span>CURRENT</span></div><div class="level-value current">{current_spx:,.2f}</div><div class="level-note">ES: {current_es:,.2f}</div></div>')
+        # Ascending Floor Row
+        if is_ascending:
+            st.markdown(f'<div class="levels-container" style="border-left:3px solid var(--bull);"><div class="level-row"><div class="level-label floor"><span>▼</span><span>ASC FLOOR</span></div><div class="level-value floor">{asc_floor:,.2f}</div><div class="level-note">CALLS entry • {dist_asc_floor:+.1f} pts</div></div></div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="levels-container" style="opacity:0.7;"><div class="level-row"><div class="level-label floor"><span>▼</span><span>ASC FLOOR</span></div><div class="level-value floor">{asc_floor:,.2f}</div><div class="level-note">CALLS entry • {dist_asc_floor:+.1f} pts</div></div></div>', unsafe_allow_html=True)
         
-        # Descending channel section
-        html_parts.append('<div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-subtle);">')
-        html_parts.append(f'<div style="font-family: Plus Jakarta Sans, sans-serif; font-size: 0.75rem; color: var(--bear); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;"><span>↘</span> DESCENDING CHANNEL {desc_dominant}</div>')
-        html_parts.append(f'<div class="level-row" style="{desc_ceil_style}"><div class="level-label ceiling"><span>▲</span><span>DESC CEIL</span></div><div class="level-value ceiling">{desc_ceiling:,.2f}</div><div class="level-note">PUTS entry • {dist_desc_ceiling:+.1f} pts</div></div>')
-        html_parts.append(f'<div class="level-row"><div class="level-label" style="color: var(--bear); opacity: 0.6;"><span>▼</span><span>DESC FLOOR</span></div><div class="level-value" style="color: var(--bear); opacity: 0.6;">{desc_floor:,.2f}</div><div class="level-note" style="opacity: 0.6;">PUTS target • {dist_desc_floor:+.1f} pts</div></div>')
-        html_parts.append('</div>')
+        # Ascending Ceiling Row
+        st.markdown(f'<div class="levels-container" style="opacity:0.5;margin-top:-8px;"><div class="level-row"><div class="level-label" style="color:var(--bull);"><span>▲</span><span>ASC CEIL</span></div><div class="level-value" style="color:var(--bull);">{asc_ceiling:,.2f}</div><div class="level-note">CALLS target • {dist_asc_ceiling:+.1f} pts</div></div></div>', unsafe_allow_html=True)
         
-        html_parts.append('</div>')
+        # Current Price
+        st.markdown(f'<div class="levels-container" style="background:linear-gradient(90deg,rgba(245,184,0,0.15) 0%,transparent 100%);margin:12px 0;"><div class="level-row"><div class="level-label current"><span>●</span><span>CURRENT</span></div><div class="level-value current">{current_spx:,.2f}</div><div class="level-note">ES: {current_es:,.2f}</div></div></div>', unsafe_allow_html=True)
         
-        st.markdown(''.join(html_parts), unsafe_allow_html=True)
+        # Descending Channel Header
+        desc_label = "↘ DESCENDING CHANNEL (DOMINANT)" if is_descending else "↘ DESCENDING CHANNEL"
+        st.markdown(f'<div style="font-size:0.8rem;color:var(--bear);text-transform:uppercase;letter-spacing:1px;margin:16px 0 8px 0;font-weight:600;">{desc_label}</div>', unsafe_allow_html=True)
+        
+        # Descending Ceiling Row
+        if is_descending:
+            st.markdown(f'<div class="levels-container" style="border-left:3px solid var(--bear);"><div class="level-row"><div class="level-label ceiling"><span>▲</span><span>DESC CEIL</span></div><div class="level-value ceiling">{desc_ceiling:,.2f}</div><div class="level-note">PUTS entry • {dist_desc_ceiling:+.1f} pts</div></div></div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="levels-container" style="opacity:0.7;"><div class="level-row"><div class="level-label ceiling"><span>▲</span><span>DESC CEIL</span></div><div class="level-value ceiling">{desc_ceiling:,.2f}</div><div class="level-note">PUTS entry • {dist_desc_ceiling:+.1f} pts</div></div></div>', unsafe_allow_html=True)
+        
+        # Descending Floor Row
+        st.markdown(f'<div class="levels-container" style="opacity:0.5;margin-top:-8px;"><div class="level-row"><div class="level-label" style="color:var(--bear);"><span>▼</span><span>DESC FLOOR</span></div><div class="level-value" style="color:var(--bear);">{desc_floor:,.2f}</div><div class="level-note">PUTS target • {dist_desc_floor:+.1f} pts</div></div></div>', unsafe_allow_html=True)
         
         # Structure Alerts
         if decision.get("structure_alerts"):
