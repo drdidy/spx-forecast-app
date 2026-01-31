@@ -3544,74 +3544,38 @@ def main():
         # Position summary from decision
         pos_summary = decision.get("position_summary", f"Position: {position.value}")
         
-        st.markdown(f'''
-        <div class="levels-container">
-            <div style="padding: 14px 16px; background: linear-gradient(90deg, var(--bg-elevated) 0%, transparent 100%); border-radius: 10px; margin-bottom: 16px; border-left: 4px solid var(--accent-cyan);">
-                <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; color: var(--text-primary);">{pos_summary}</span>
-            </div>
-            
-            <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--border-subtle);">
-                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.75rem; color: var(--bull); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
-                    <span>↗</span> ASCENDING CHANNEL {asc_dominant}
-                </div>
-                <div class="level-row" style="{asc_floor_style}">
-                    <div class="level-label floor"><span>▼</span><span>ASC FLOOR</span></div>
-                    <div class="level-value floor">{asc_floor:,.2f}</div>
-                    <div class="level-note">CALLS entry • {dist_asc_floor:+.1f} pts</div>
-                </div>
-                <div class="level-row">
-                    <div class="level-label" style="color: var(--bull); opacity: 0.6;"><span>▲</span><span>ASC CEIL</span></div>
-                    <div class="level-value" style="color: var(--bull); opacity: 0.6;">{asc_ceiling:,.2f}</div>
-                    <div class="level-note" style="opacity: 0.6;">CALLS target • {dist_asc_ceiling:+.1f} pts</div>
-                </div>
-            </div>
-            
-            <div class="level-row" style="background: linear-gradient(90deg, rgba(245,184,0,0.15) 0%, transparent 100%); margin: 0 -18px; padding: 14px 18px;">
-                <div class="level-label current"><span>●</span><span>CURRENT</span></div>
-                <div class="level-value current">{current_spx:,.2f}</div>
-                <div class="level-note">ES: {current_es:,.2f}</div>
-            </div>
-            
-            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-subtle);">
-                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.75rem; color: var(--bear); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
-                    <span>↘</span> DESCENDING CHANNEL {desc_dominant}
-                </div>
-                <div class="level-row" style="{desc_ceil_style}">
-                    <div class="level-label ceiling"><span>▲</span><span>DESC CEIL</span></div>
-                    <div class="level-value ceiling">{desc_ceiling:,.2f}</div>
-                    <div class="level-note">PUTS entry • {dist_desc_ceiling:+.1f} pts</div>
-                </div>
-                <div class="level-row">
-                    <div class="level-label" style="color: var(--bear); opacity: 0.6;"><span>▼</span><span>DESC FLOOR</span></div>
-                    <div class="level-value" style="color: var(--bear); opacity: 0.6;">{desc_floor:,.2f}</div>
-                    <div class="level-note" style="opacity: 0.6;">PUTS target • {dist_desc_floor:+.1f} pts</div>
-                </div>
-            </div>
-        </div>
-        ''', unsafe_allow_html=True)
+        # Build HTML parts
+        html_parts = []
+        html_parts.append('<div class="levels-container">')
+        html_parts.append(f'<div style="padding: 14px 16px; background: linear-gradient(90deg, var(--bg-elevated) 0%, transparent 100%); border-radius: 10px; margin-bottom: 16px; border-left: 4px solid var(--accent-cyan);"><span style="font-family: JetBrains Mono, monospace; font-size: 0.9rem; color: var(--text-primary);">{pos_summary}</span></div>')
+        
+        # Ascending channel section
+        html_parts.append('<div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--border-subtle);">')
+        html_parts.append(f'<div style="font-family: Plus Jakarta Sans, sans-serif; font-size: 0.75rem; color: var(--bull); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;"><span>↗</span> ASCENDING CHANNEL {asc_dominant}</div>')
+        html_parts.append(f'<div class="level-row" style="{asc_floor_style}"><div class="level-label floor"><span>▼</span><span>ASC FLOOR</span></div><div class="level-value floor">{asc_floor:,.2f}</div><div class="level-note">CALLS entry • {dist_asc_floor:+.1f} pts</div></div>')
+        html_parts.append(f'<div class="level-row"><div class="level-label" style="color: var(--bull); opacity: 0.6;"><span>▲</span><span>ASC CEIL</span></div><div class="level-value" style="color: var(--bull); opacity: 0.6;">{asc_ceiling:,.2f}</div><div class="level-note" style="opacity: 0.6;">CALLS target • {dist_asc_ceiling:+.1f} pts</div></div>')
+        html_parts.append('</div>')
+        
+        # Current price
+        html_parts.append(f'<div class="level-row" style="background: linear-gradient(90deg, rgba(245,184,0,0.15) 0%, transparent 100%); margin: 0 -18px; padding: 14px 18px;"><div class="level-label current"><span>●</span><span>CURRENT</span></div><div class="level-value current">{current_spx:,.2f}</div><div class="level-note">ES: {current_es:,.2f}</div></div>')
+        
+        # Descending channel section
+        html_parts.append('<div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-subtle);">')
+        html_parts.append(f'<div style="font-family: Plus Jakarta Sans, sans-serif; font-size: 0.75rem; color: var(--bear); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;"><span>↘</span> DESCENDING CHANNEL {desc_dominant}</div>')
+        html_parts.append(f'<div class="level-row" style="{desc_ceil_style}"><div class="level-label ceiling"><span>▲</span><span>DESC CEIL</span></div><div class="level-value ceiling">{desc_ceiling:,.2f}</div><div class="level-note">PUTS entry • {dist_desc_ceiling:+.1f} pts</div></div>')
+        html_parts.append(f'<div class="level-row"><div class="level-label" style="color: var(--bear); opacity: 0.6;"><span>▼</span><span>DESC FLOOR</span></div><div class="level-value" style="color: var(--bear); opacity: 0.6;">{desc_floor:,.2f}</div><div class="level-note" style="opacity: 0.6;">PUTS target • {dist_desc_floor:+.1f} pts</div></div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('</div>')
+        
+        st.markdown(''.join(html_parts), unsafe_allow_html=True)
         
         # Structure Alerts
         if decision.get("structure_alerts"):
             for alert in decision["structure_alerts"]:
-                st.markdown(f'''
-                <div class="alert-box alert-box-warning">
-                    <span class="alert-icon">⚠️</span>
-                    <div class="alert-content">
-                        <div class="alert-title">Structure Break Alert</div>
-                        <div class="alert-text">{alert}</div>
-                    </div>
-                </div>
-                ''', unsafe_allow_html=True)
+                st.markdown(f'<div class="alert-box alert-box-warning"><span class="alert-icon">⚠️</span><div class="alert-content"><div class="alert-title">Structure Break Alert</div><div class="alert-text">{alert}</div></div></div>', unsafe_allow_html=True)
     else:
-        st.markdown('''
-        <div class="alert-box alert-box-danger">
-            <span class="alert-icon">❌</span>
-            <div class="alert-content">
-                <div class="alert-title">Dual Levels Unavailable</div>
-                <div class="alert-text">Missing overnight session data</div>
-            </div>
-        </div>
-        ''', unsafe_allow_html=True)
+        st.markdown('<div class="alert-box alert-box-danger"><span class="alert-icon">❌</span><div class="alert-content"><div class="alert-title">Dual Levels Unavailable</div><div class="alert-text">Missing overnight session data</div></div></div>', unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # PRIOR DAY INTERMEDIATE LEVELS
