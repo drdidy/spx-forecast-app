@@ -1513,6 +1513,24 @@ CSS_STYLES = """
     --radius-md: 12px;
     --radius-lg: 16px;
     --radius-xl: 20px;
+    
+    /* ═══════════════════════════════════════════════════════════════════════════
+       STANDARDIZED TYPOGRAPHY SCALE
+       ═══════════════════════════════════════════════════════════════════════════ */
+    /* Font Families - 3 Purpose-Driven Fonts */
+    --font-display: 'Orbitron', 'Plus Jakarta Sans', sans-serif;  /* Headlines, big numbers */
+    --font-body: 'Plus Jakarta Sans', 'Inter', sans-serif;        /* Body text, cards */
+    --font-mono: 'JetBrains Mono', monospace;                     /* Labels, technical data */
+    
+    /* Font Sizes - Consistent Scale */
+    --text-3xl: 2.5rem;    /* Hero brand name */
+    --text-2xl: 1.75rem;   /* Big metric values */
+    --text-xl: 1.4rem;     /* Section values, price levels */
+    --text-lg: 1.15rem;    /* Card titles, section headers */
+    --text-md: 1rem;       /* Body text */
+    --text-sm: 0.875rem;   /* Secondary info, descriptions */
+    --text-xs: 0.75rem;    /* Labels, badges, small caps */
+    --text-xxs: 0.65rem;   /* Micro labels */
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1783,8 +1801,8 @@ CSS_STYLES = """
 }
 
 .brand-name {
-    font-family: 'Orbitron', 'Plus Jakarta Sans', sans-serif;
-    font-size: 2.8rem;
+    font-family: var(--font-display);
+    font-size: var(--text-3xl);
     font-weight: 900;
     letter-spacing: 8px;
     background: var(--gradient-premium);
@@ -1804,8 +1822,8 @@ CSS_STYLES = """
 }
 
 .brand-tagline {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     color: var(--text-secondary);
     letter-spacing: 4px;
     margin-top: 8px;
@@ -1829,8 +1847,8 @@ CSS_STYLES = """
 }
 
 .brand-name {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 2rem;
+    font-family: var(--font-body);
+    font-size: var(--text-2xl);
     font-weight: 800;
     letter-spacing: 4px;
     background: var(--gradient-premium);
@@ -1842,8 +1860,8 @@ CSS_STYLES = """
 }
 
 .brand-tagline {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     color: var(--text-muted);
     letter-spacing: 3px;
     margin-top: 4px;
@@ -1964,12 +1982,12 @@ CSS_STYLES = """
     background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--bg-card) 100%);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
-    font-size: 1rem;
+    font-size: var(--text-md);
 }
 
 .indicator-title {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 0.9rem;
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
     font-weight: 700;
     color: var(--text-bright);
     letter-spacing: 0.3px;
@@ -1980,12 +1998,13 @@ CSS_STYLES = """
     justify-content: space-between;
     align-items: center;
     padding: 10px 0;
-    font-size: 0.9rem;
+    font-size: var(--text-sm);
     position: relative;
     z-index: 1;
 }
 
 .indicator-label {
+    font-family: var(--font-body);
     color: var(--text-muted);
     font-weight: 500;
 }
@@ -1993,8 +2012,8 @@ CSS_STYLES = """
 .indicator-value {
     color: var(--text-bright);
     font-weight: 700;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.95rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
 }
 
 .indicator-status {
@@ -2004,8 +2023,8 @@ CSS_STYLES = """
     gap: 8px;
     padding: 12px 16px;
     border-radius: var(--radius-md);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     font-weight: 700;
     margin-top: auto;
     position: relative;
@@ -2061,14 +2080,14 @@ CSS_STYLES = """
     background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--bg-card) 100%);
     border: 1px solid var(--border-accent);
     border-radius: var(--radius-md);
-    font-size: 1.2rem;
+    font-size: var(--text-lg);
     box-shadow: var(--shadow-sm), 0 0 15px rgba(0, 245, 212, 0.15);
     color: var(--accent-cyan);
 }
 
 .section-title {
-    font-family: 'Orbitron', 'Plus Jakarta Sans', sans-serif;
-    font-size: 1.15rem;
+    font-family: var(--font-display);
+    font-size: var(--text-lg);
     font-weight: 700;
     color: var(--text-bright);
     margin: 0;
@@ -2126,8 +2145,8 @@ CSS_STYLES = """
 }
 
 .metric-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xxs);
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 2.5px;
@@ -2138,8 +2157,8 @@ CSS_STYLES = """
 }
 
 .metric-value {
-    font-family: 'Orbitron', 'Plus Jakarta Sans', sans-serif;
-    font-size: 1.9rem;
+    font-family: var(--font-display);
+    font-size: var(--text-2xl);
     font-weight: 800;
     color: var(--text-bright);
     line-height: 1;
@@ -2164,8 +2183,8 @@ CSS_STYLES = """
 .metric-value.gold { color: var(--accent-gold); text-shadow: 0 0 25px rgba(254, 228, 64, 0.4); }
 
 .metric-delta {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     color: var(--text-secondary);
     margin-top: 12px;
     position: relative;
@@ -2183,8 +2202,8 @@ CSS_STYLES = """
     gap: 10px;
     padding: 14px 24px;
     border-radius: 50px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: 1.5px;
     text-transform: uppercase;
@@ -2218,8 +2237,8 @@ CSS_STYLES = """
     gap: 12px;
     padding: 14px 24px;
     border-radius: var(--radius-md);
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 0.85rem;
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
     font-weight: 800;
     letter-spacing: 2px;
     text-transform: uppercase;
@@ -2315,8 +2334,8 @@ CSS_STYLES = """
     display: flex;
     align-items: center;
     gap: 12px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.78rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 2.5px;
@@ -2328,8 +2347,8 @@ CSS_STYLES = """
 .level-label.floor { color: var(--bull); text-shadow: 0 0 10px rgba(0, 255, 136, 0.3); }
 
 .level-value {
-    font-family: 'Orbitron', 'Plus Jakarta Sans', sans-serif;
-    font-size: 1.6rem;
+    font-family: var(--font-display);
+    font-size: var(--text-xl);
     font-weight: 800;
     min-width: 160px;
     text-align: right;
@@ -2346,8 +2365,8 @@ CSS_STYLES = """
 }
 
 .level-note {
-    font-family: 'Inter', sans-serif;
-    font-size: 0.88rem;
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
     color: var(--text-secondary);
     margin-left: auto;
     text-align: right;
@@ -2390,19 +2409,19 @@ CSS_STYLES = """
     z-index: 1;
 }
 
-.prior-levels-icon { font-size: 1.1rem; }
+.prior-levels-icon { font-size: var(--text-lg); }
 
 .prior-levels-title {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 0.9rem;
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
     font-weight: 700;
     color: var(--text-bright);
 }
 
 .prior-levels-anchor {
     margin-left: auto;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.85rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
     color: var(--accent-cyan);
     font-weight: 700;
 }
@@ -2433,8 +2452,8 @@ CSS_STYLES = """
 .prior-level-sell { border-left: 3px solid var(--bear); }
 
 .prior-level-direction {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xxs);
     color: var(--text-muted);
     margin-bottom: 8px;
     text-transform: uppercase;
@@ -2443,8 +2462,8 @@ CSS_STYLES = """
 }
 
 .prior-level-value {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 1.15rem;
+    font-family: var(--font-body);
+    font-size: var(--text-lg);
     font-weight: 800;
     color: var(--text-bright);
     margin-bottom: 8px;
@@ -2454,16 +2473,16 @@ CSS_STYLES = """
 .prior-level-item.prior-level-sell .prior-level-action { color: var(--bear); }
 
 .prior-level-action {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
 }
 
 .prior-levels-note {
-    font-family: 'Inter', sans-serif;
-    font-size: 0.8rem;
+    font-family: var(--font-body);
+    font-size: var(--text-xs);
     color: var(--text-dim);
     font-style: italic;
     text-align: center;
@@ -2479,8 +2498,8 @@ CSS_STYLES = """
     margin-top: 14px;
     background: var(--bg-elevated);
     border-radius: var(--radius-md);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     color: var(--text-secondary);
 }
 
@@ -2488,7 +2507,7 @@ CSS_STYLES = """
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 1.5px;
-    font-size: 0.7rem;
+    font-size: var(--text-xs);
     font-weight: 600;
 }
 
@@ -2535,15 +2554,15 @@ CSS_STYLES = """
 }
 
 .confluence-title {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 1rem;
+    font-family: var(--font-body);
+    font-size: var(--text-md);
     font-weight: 700;
     color: var(--text-bright);
 }
 
 .confluence-score {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 2rem;
+    font-family: var(--font-display);
+    font-size: var(--text-2xl);
     font-weight: 900;
     padding: 8px 16px;
     border-radius: var(--radius-md);
@@ -2570,8 +2589,8 @@ CSS_STYLES = """
     align-items: center;
     gap: 12px;
     padding: 12px 0;
-    font-family: 'Inter', sans-serif;
-    font-size: 0.875rem;
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
     color: var(--text-secondary);
     border-bottom: 1px solid var(--border-subtle);
     position: relative;
@@ -2595,7 +2614,7 @@ CSS_STYLES = """
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    font-size: 0.7rem;
+    font-size: var(--text-xs);
     flex-shrink: 0;
     font-weight: 700;
 }
@@ -2681,8 +2700,8 @@ CSS_STYLES = """
 }
 
 .trade-name {
-    font-family: 'Orbitron', 'Plus Jakarta Sans', sans-serif;
-    font-size: 1.3rem;
+    font-family: var(--font-display);
+    font-size: var(--text-lg);
     font-weight: 800;
     color: var(--text-bright);
     letter-spacing: 1px;
@@ -2691,8 +2710,8 @@ CSS_STYLES = """
 .trade-confidence {
     padding: 10px 20px;
     border-radius: 50px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: 2px;
     text-transform: uppercase;
@@ -2727,8 +2746,8 @@ CSS_STYLES = """
 }
 
 .trade-contract {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.3rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xl);
     font-weight: 700;
     padding: 18px 24px;
     border-radius: var(--radius-md);
@@ -2769,8 +2788,8 @@ CSS_STYLES = """
 }
 
 .trade-metric-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xxs);
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 1.5px;
@@ -2779,8 +2798,8 @@ CSS_STYLES = """
 }
 
 .trade-metric-value {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 1.1rem;
+    font-family: var(--font-body);
+    font-size: var(--text-lg);
     font-weight: 800;
     color: var(--text-bright);
 }
@@ -2792,8 +2811,8 @@ CSS_STYLES = """
 }
 
 .targets-header {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xxs);
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 2px;
@@ -2822,7 +2841,7 @@ CSS_STYLES = """
 }
 
 .target-label {
-    font-size: 0.7rem;
+    font-size: var(--text-xs);
     color: var(--text-muted);
     margin-bottom: 6px;
     font-weight: 600;
@@ -2831,15 +2850,15 @@ CSS_STYLES = """
 }
 
 .target-price {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 1.1rem;
+    font-family: var(--font-body);
+    font-size: var(--text-lg);
     font-weight: 800;
     color: var(--text-bright);
 }
 
 .target-profit {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     color: var(--bull);
     margin-top: 6px;
     font-weight: 600;
@@ -2854,8 +2873,8 @@ CSS_STYLES = """
 }
 
 .trigger-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xxs);
     color: var(--accent-cyan);
     text-transform: uppercase;
     letter-spacing: 1.5px;
@@ -2864,8 +2883,8 @@ CSS_STYLES = """
 }
 
 .trigger-text {
-    font-family: 'Inter', sans-serif;
-    font-size: 0.9rem;
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
     color: var(--text-secondary);
     line-height: 1.5;
 }
@@ -2901,15 +2920,15 @@ CSS_STYLES = """
 }
 
 .session-icon {
-    font-size: 1.6rem;
+    font-size: var(--text-xl);
     margin-bottom: 10px;
     position: relative;
     z-index: 1;
 }
 
 .session-name {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 0.9rem;
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
     font-weight: 700;
     color: var(--text-bright);
     margin-bottom: 14px;
@@ -2929,8 +2948,8 @@ CSS_STYLES = """
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.85rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
     font-weight: 600;
 }
 
@@ -2985,7 +3004,7 @@ CSS_STYLES = """
 .alert-box-info::before { background: var(--accent-blue); }
 
 .alert-icon {
-    font-size: 1.3rem;
+    font-size: var(--text-xl);
     flex-shrink: 0;
     margin-top: 2px;
 }
@@ -2993,16 +3012,16 @@ CSS_STYLES = """
 .alert-content { flex: 1; }
 
 .alert-title {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 0.95rem;
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
     font-weight: 700;
     color: var(--text-bright);
     margin-bottom: 6px;
 }
 
 .alert-text {
-    font-family: 'Inter', sans-serif;
-    font-size: 0.875rem;
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
     color: var(--text-secondary);
     line-height: 1.5;
 }
@@ -3031,22 +3050,22 @@ CSS_STYLES = """
 }
 
 .no-trade-icon {
-    font-size: 3rem;
+    font-size: var(--text-3xl);
     margin-bottom: 20px;
     opacity: 0.9;
 }
 
 .no-trade-title {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 1.4rem;
+    font-family: var(--font-body);
+    font-size: var(--text-xl);
     font-weight: 800;
     color: var(--bear);
     margin-bottom: 12px;
 }
 
 .no-trade-reason {
-    font-family: 'Inter', sans-serif;
-    font-size: 1rem;
+    font-family: var(--font-body);
+    font-size: var(--text-md);
     color: var(--text-secondary);
     max-width: 400px;
     margin: 0 auto;
@@ -3179,7 +3198,7 @@ hr {
     }
     
     .hero-content { text-align: center; }
-    .brand-name { font-size: 1.6rem; letter-spacing: 2px; }
+    .brand-name { font-size: var(--text-xl); letter-spacing: 2px; }
     
     .prior-levels-container { grid-template-columns: 1fr; }
     .prior-levels-grid { grid-template-columns: 1fr; }
@@ -3187,7 +3206,7 @@ hr {
     .targets-grid { grid-template-columns: 1fr; }
     
     .metric-card { min-height: 90px; padding: 16px; }
-    .metric-value { font-size: 1.4rem; }
+    .metric-value { font-size: var(--text-xl); }
 }
 </style>
 """
