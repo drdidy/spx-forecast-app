@@ -3532,24 +3532,29 @@ def main():
         dist_desc_floor = round(current_spx - desc_floor, 1)
         
         # Determine which level is KEY based on channel type
-        key_level = "asc_floor" if channel_type == ChannelType.ASCENDING else ("desc_ceiling" if channel_type == ChannelType.DESCENDING else "both")
+        is_ascending = channel_type == ChannelType.ASCENDING
+        is_descending = channel_type == ChannelType.DESCENDING
+        
+        # Conditional styles
+        asc_dominant = "(DOMINANT)" if is_ascending else ""
+        desc_dominant = "(DOMINANT)" if is_descending else ""
+        asc_floor_style = "background: var(--bull-soft); margin: 0 -18px; padding: 12px 18px; border-left: 3px solid var(--bull);" if is_ascending else ""
+        desc_ceil_style = "background: var(--bear-soft); margin: 0 -18px; padding: 12px 18px; border-left: 3px solid var(--bear);" if is_descending else ""
         
         # Position summary from decision
         pos_summary = decision.get("position_summary", f"Position: {position.value}")
         
         st.markdown(f'''
         <div class="levels-container">
-            <!-- Position Summary -->
             <div style="padding: 14px 16px; background: linear-gradient(90deg, var(--bg-elevated) 0%, transparent 100%); border-radius: 10px; margin-bottom: 16px; border-left: 4px solid var(--accent-cyan);">
                 <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; color: var(--text-primary);">{pos_summary}</span>
             </div>
             
-            <!-- Ascending Channel -->
             <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--border-subtle);">
                 <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.75rem; color: var(--bull); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
-                    <span>↗</span> ASCENDING CHANNEL {'(DOMINANT)' if channel_type == ChannelType.ASCENDING else ''}
+                    <span>↗</span> ASCENDING CHANNEL {asc_dominant}
                 </div>
-                <div class="level-row" style="{'background: var(--bull-soft); margin: 0 -18px; padding: 12px 18px; border-left: 3px solid var(--bull);' if key_level == 'asc_floor' else ''}">
+                <div class="level-row" style="{asc_floor_style}">
                     <div class="level-label floor"><span>▼</span><span>ASC FLOOR</span></div>
                     <div class="level-value floor">{asc_floor:,.2f}</div>
                     <div class="level-note">CALLS entry • {dist_asc_floor:+.1f} pts</div>
@@ -3561,19 +3566,17 @@ def main():
                 </div>
             </div>
             
-            <!-- Current Price -->
             <div class="level-row" style="background: linear-gradient(90deg, rgba(245,184,0,0.15) 0%, transparent 100%); margin: 0 -18px; padding: 14px 18px;">
                 <div class="level-label current"><span>●</span><span>CURRENT</span></div>
                 <div class="level-value current">{current_spx:,.2f}</div>
                 <div class="level-note">ES: {current_es:,.2f}</div>
             </div>
             
-            <!-- Descending Channel -->
             <div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-subtle);">
                 <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.75rem; color: var(--bear); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
-                    <span>↘</span> DESCENDING CHANNEL {'(DOMINANT)' if channel_type == ChannelType.DESCENDING else ''}
+                    <span>↘</span> DESCENDING CHANNEL {desc_dominant}
                 </div>
-                <div class="level-row" style="{'background: var(--bear-soft); margin: 0 -18px; padding: 12px 18px; border-left: 3px solid var(--bear);' if key_level == 'desc_ceiling' else ''}">
+                <div class="level-row" style="{desc_ceil_style}">
                     <div class="level-label ceiling"><span>▲</span><span>DESC CEIL</span></div>
                     <div class="level-value ceiling">{desc_ceiling:,.2f}</div>
                     <div class="level-note">PUTS entry • {dist_desc_ceiling:+.1f} pts</div>
