@@ -1645,7 +1645,7 @@ def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reas
 # ═══════════════════════════════════════════════════════════════════════════════
 CSS_STYLES = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Orbitron:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
 
 /* ═══════════════════════════════════════════════════════════════════════════
    PREMIUM TRADING TERMINAL - ELITE DESIGN SYSTEM
@@ -1721,10 +1721,10 @@ CSS_STYLES = """
     /* ═══════════════════════════════════════════════════════════════════════════
        STANDARDIZED TYPOGRAPHY SCALE
        ═══════════════════════════════════════════════════════════════════════════ */
-    /* Font Families - 3 Purpose-Driven Fonts */
-    --font-display: 'Orbitron', 'Plus Jakarta Sans', sans-serif;  /* Headlines, big numbers */
-    --font-body: 'Plus Jakarta Sans', 'Inter', sans-serif;        /* Body text, cards */
-    --font-mono: 'JetBrains Mono', monospace;                     /* Labels, technical data */
+    /* Font Families - Cohesive Futuristic Terminal Aesthetic */
+    --font-display: 'Orbitron', sans-serif;           /* Prices, big numbers, headlines */
+    --font-body: 'Rajdhani', sans-serif;              /* Body text, descriptions, UI elements */
+    --font-mono: 'Share Tech Mono', 'IBM Plex Mono', monospace;  /* Labels, codes, technical data */
     
     /* Font Sizes - Consistent Scale */
     --text-3xl: 2.5rem;    /* Hero brand name */
@@ -1747,7 +1747,7 @@ CSS_STYLES = """
         radial-gradient(ellipse 100% 60% at 100% 20%, rgba(0, 187, 249, 0.06) 0%, transparent 40%),
         radial-gradient(ellipse 80% 50% at 0% 80%, rgba(155, 93, 229, 0.05) 0%, transparent 40%),
         radial-gradient(ellipse 60% 40% at 80% 100%, rgba(241, 91, 181, 0.04) 0%, transparent 40%);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Rajdhani', sans-serif;
     color: var(--text-primary);
     min-height: 100vh;
 }
@@ -3309,12 +3309,12 @@ CSS_STYLES = """
    STREAMLIT OVERRIDES
    ═══════════════════════════════════════════════════════════════════════════ */
 [data-testid="stMetricValue"] {
-    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    font-family: 'Orbitron', sans-serif !important;
     font-weight: 800 !important;
 }
 
 [data-testid="stMetricLabel"] {
-    font-family: 'JetBrains Mono', monospace !important;
+    font-family: 'Share Tech Mono', monospace !important;
     text-transform: uppercase !important;
     letter-spacing: 1.5px !important;
 }
@@ -3331,26 +3331,26 @@ section[data-testid="stSidebar"] > div {
 
 section[data-testid="stSidebar"] h3 {
     color: var(--text-bright) !important;
-    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    font-family: 'Rajdhani', sans-serif !important;
     font-weight: 700 !important;
 }
 
 section[data-testid="stSidebar"] h4 {
     color: var(--accent-cyan) !important;
-    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    font-family: 'Rajdhani', sans-serif !important;
     font-size: 0.9rem !important;
     font-weight: 600 !important;
 }
 
 section[data-testid="stSidebar"] h5 {
     color: var(--text-secondary) !important;
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'Rajdhani', sans-serif !important;
     font-size: 0.85rem !important;
 }
 
 section[data-testid="stSidebar"] label {
     color: var(--text-secondary) !important;
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'Rajdhani', sans-serif !important;
 }
 
 section[data-testid="stSidebar"] input {
@@ -3358,6 +3358,7 @@ section[data-testid="stSidebar"] input {
     color: var(--text-bright) !important;
     border: 1px solid var(--border-default) !important;
     border-radius: var(--radius-sm) !important;
+    font-family: 'Share Tech Mono', monospace !important;
 }
 
 section[data-testid="stSidebar"] input:focus {
@@ -3368,6 +3369,7 @@ section[data-testid="stSidebar"] input:focus {
 section[data-testid="stSidebar"] .stSelectbox > div > div {
     background: var(--bg-input) !important;
     color: var(--text-bright) !important;
+    font-family: 'Share Tech Mono', monospace !important;
 }
 
 section[data-testid="stSidebar"] p {
@@ -3376,7 +3378,7 @@ section[data-testid="stSidebar"] p {
 
 /* Buttons */
 .stButton > button {
-    font-family: 'JetBrains Mono', monospace !important;
+    font-family: 'Share Tech Mono', monospace !important;
     font-weight: 700 !important;
     border-radius: var(--radius-md) !important;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
@@ -4017,7 +4019,7 @@ def main():
             weekend_note = f" (adjusted from {inputs['trading_date'].strftime('%A')})"
         st.markdown(f"""
         <div style="display:flex;align-items:center;gap:8px;padding:10px 0;">
-            <span style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:rgba(255,255,255,0.5);">
+            <span style="font-family:'Share Tech Mono',monospace;font-size:0.8rem;color:rgba(255,255,255,0.5);">
                 📅 {date_display}{weekend_note}
             </span>
         </div>
@@ -4034,7 +4036,7 @@ def main():
     with col3:
         st.markdown(f"""
         <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:10px 0;">
-            <span style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:rgba(255,255,255,0.5);">
+            <span style="font-family:'Share Tech Mono',monospace;font-size:0.8rem;color:rgba(255,255,255,0.5);">
                 ⏰ {now.strftime("%I:%M %p CT")}
             </span>
         </div>
@@ -4128,7 +4130,7 @@ def main():
         pos_summary = decision.get("position_summary", f"Position: {position.value}")
         
         # Position summary
-        st.markdown(f'<div class="levels-container"><div style="padding:14px 16px;background:linear-gradient(90deg,var(--bg-elevated) 0%,transparent 100%);border-radius:10px;margin-bottom:16px;border-left:4px solid var(--accent-cyan);"><span style="font-family:JetBrains Mono,monospace;font-size:0.9rem;color:var(--text-primary);">{pos_summary}</span></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="levels-container"><div style="padding:14px 16px;background:linear-gradient(90deg,var(--bg-elevated) 0%,transparent 100%);border-radius:10px;margin-bottom:16px;border-left:4px solid var(--accent-cyan);"><span style="font-family:Share Tech Mono,monospace;font-size:0.9rem;color:var(--text-primary);">{pos_summary}</span></div></div>', unsafe_allow_html=True)
         
         # Ascending Channel Header
         asc_label = "↗ ASCENDING CHANNEL (DOMINANT)" if is_ascending else "↗ ASCENDING CHANNEL"
@@ -4446,7 +4448,7 @@ def main():
             st.markdown(f'<div class="indicator-card"><div class="indicator-header"><div class="indicator-icon">📉</div><div class="indicator-title">VIX Overnight</div></div><div class="indicator-row"><span class="indicator-label">Current</span><span class="indicator-value">{vix}</span></div><div style="margin-top:8px;color:var(--text-muted);font-size:0.85rem;">Range data unavailable</div></div>', unsafe_allow_html=True)
     
     # Footer
-    st.markdown('<div style="margin-top:40px;padding:20px 0;border-top:1px solid var(--border-subtle);text-align:center;"><p style="font-family:\'JetBrains Mono\',monospace;font-size:0.75rem;color:var(--text-muted);letter-spacing:2px;">SPX PROPHET • STRUCTURAL 0DTE TRADING SYSTEM</p></div>', unsafe_allow_html=True)
+    st.markdown('<div style="margin-top:40px;padding:20px 0;border-top:1px solid var(--border-subtle);text-align:center;"><p style="font-family:\'Share Tech Mono\',monospace;font-size:0.75rem;color:var(--text-muted);letter-spacing:2px;">SPX PROPHET • STRUCTURAL 0DTE TRADING SYSTEM</p></div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
