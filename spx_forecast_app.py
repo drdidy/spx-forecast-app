@@ -2666,16 +2666,22 @@ CSS_STYLES = """
 }
 
 .indicator-icon {
-    width: 48px;
-    height: 48px;
+    width: 56px;
+    height: 56px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, rgba(0, 245, 212, 0.1) 0%, rgba(0, 187, 249, 0.05) 100%);
-    border: 1px solid var(--accent-cyan);
+    background: linear-gradient(135deg, rgba(0, 245, 212, 0.15) 0%, rgba(0, 187, 249, 0.08) 100%);
+    border: 2px solid var(--accent-cyan);
     border-radius: var(--radius-lg);
-    font-size: 1.5rem;
-    box-shadow: 0 0 15px rgba(0, 245, 212, 0.2);
+    font-size: 2rem;
+    box-shadow: 0 0 25px rgba(0, 245, 212, 0.3);
+    animation: indicatorIconPulse 3s ease-in-out infinite;
+}
+
+@keyframes indicatorIconPulse {
+    0%, 100% { box-shadow: 0 0 20px rgba(0, 245, 212, 0.25); transform: scale(1); }
+    50% { box-shadow: 0 0 35px rgba(0, 245, 212, 0.5); transform: scale(1.05); }
 }
 
 .indicator-title {
@@ -2939,15 +2945,267 @@ CSS_STYLES = """
 }
 
 .metric-icon {
-    font-size: 2rem;
-    margin-bottom: 8px;
-    filter: drop-shadow(0 0 10px rgba(0, 245, 212, 0.3));
-    animation: metricIconPulse 3s ease-in-out infinite;
+    font-size: 3.2rem;
+    margin-bottom: 12px;
+    filter: drop-shadow(0 0 20px rgba(0, 245, 212, 0.6));
+    position: relative;
+    display: inline-block;
 }
 
-@keyframes metricIconPulse {
+.metric-icon::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 70px;
+    height: 70px;
+    background: radial-gradient(circle, rgba(0, 245, 212, 0.25) 0%, transparent 70%);
+    border-radius: 50%;
+    animation: iconHalo 3s ease-in-out infinite;
+    z-index: -1;
+}
+
+@keyframes iconHalo {
+    0%, 100% { opacity: 0.4; transform: translate(-50%, -50%) scale(1); }
+    50% { opacity: 0.9; transform: translate(-50%, -50%) scale(1.4); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONTEXTUAL ICON ANIMATIONS - Each icon animates according to its meaning!
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* 📈 SPX Chart - Rises upward like a bullish chart */
+.icon-chart-up {
+    animation: chartRise 2.5s ease-in-out infinite;
+}
+@keyframes chartRise {
+    0%, 100% { transform: translateY(0) rotate(-5deg); }
+    50% { transform: translateY(-12px) rotate(5deg); }
+}
+
+/* 🌊 VIX Wave - Undulates like ocean waves */
+.icon-wave {
+    animation: waveMotion 2s ease-in-out infinite;
+}
+@keyframes waveMotion {
+    0%, 100% { transform: translateX(0) scaleX(1); }
+    25% { transform: translateX(-5px) scaleX(0.95); }
+    50% { transform: translateX(0) scaleX(1.05); }
+    75% { transform: translateX(5px) scaleX(0.95); }
+}
+
+/* 🌋 VIX Volcano - Erupts and pulses with intensity */
+.icon-volcano {
+    animation: volcanoErupt 1.5s ease-in-out infinite;
+    filter: drop-shadow(0 0 25px rgba(255, 100, 50, 0.8)) !important;
+}
+.icon-volcano::after {
+    background: radial-gradient(circle, rgba(255, 100, 50, 0.4) 0%, transparent 70%) !important;
+}
+@keyframes volcanoErupt {
+    0%, 100% { transform: scale(1) translateY(0); }
+    25% { transform: scale(1.15) translateY(-5px); }
+    50% { transform: scale(1.05) translateY(-2px); }
+    75% { transform: scale(1.2) translateY(-8px); }
+}
+
+/* 🧊 VIX Ice - Subtle crystalline shimmer */
+.icon-ice {
+    animation: iceShimmer 3s ease-in-out infinite;
+    filter: drop-shadow(0 0 20px rgba(150, 220, 255, 0.7)) !important;
+}
+.icon-ice::after {
+    background: radial-gradient(circle, rgba(150, 220, 255, 0.3) 0%, transparent 70%) !important;
+}
+@keyframes iceShimmer {
+    0%, 100% { transform: scale(1); filter: brightness(1) drop-shadow(0 0 20px rgba(150, 220, 255, 0.7)); }
+    50% { transform: scale(1.05); filter: brightness(1.3) drop-shadow(0 0 30px rgba(150, 220, 255, 0.9)); }
+}
+
+/* 🔼 Position Above - Floats upward */
+.icon-up {
+    animation: floatUp 2s ease-in-out infinite;
+    filter: drop-shadow(0 0 20px rgba(0, 214, 125, 0.7)) !important;
+}
+.icon-up::after {
+    background: radial-gradient(circle, rgba(0, 214, 125, 0.3) 0%, transparent 70%) !important;
+}
+@keyframes floatUp {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-15px); }
+}
+
+/* 🔽 Position Below - Sinks downward */
+.icon-down {
+    animation: sinkDown 2s ease-in-out infinite;
+    filter: drop-shadow(0 0 20px rgba(255, 82, 99, 0.7)) !important;
+}
+.icon-down::after {
+    background: radial-gradient(circle, rgba(255, 82, 99, 0.3) 0%, transparent 70%) !important;
+}
+@keyframes sinkDown {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(10px); }
+}
+
+/* ⚖️ Position Balance - Rocks side to side */
+.icon-balance {
+    animation: balanceRock 3s ease-in-out infinite;
+    filter: drop-shadow(0 0 20px rgba(254, 228, 64, 0.7)) !important;
+}
+.icon-balance::after {
+    background: radial-gradient(circle, rgba(254, 228, 64, 0.3) 0%, transparent 70%) !important;
+}
+@keyframes balanceRock {
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(-10deg); }
+    75% { transform: rotate(10deg); }
+}
+
+/* 🕐 Time Clock - Pulses like a heartbeat */
+.icon-clock {
+    animation: clockPulse 1s ease-in-out infinite;
+}
+@keyframes clockPulse {
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.1); }
+}
+
+/* 🎯 Target/Bias - Pulses to center with glow */
+.icon-target {
+    animation: targetLock 2s ease-in-out infinite;
+}
+@keyframes targetLock {
+    0%, 100% { transform: scale(1); filter: drop-shadow(0 0 15px rgba(0, 245, 212, 0.5)); }
+    50% { transform: scale(1.15); filter: drop-shadow(0 0 35px rgba(0, 245, 212, 0.9)); }
+}
+
+/* ⚖️ Confluence Scales - Tips back and forth */
+.icon-scales {
+    animation: scalesTip 3s ease-in-out infinite;
+}
+@keyframes scalesTip {
+    0%, 100% { transform: rotate(0deg) scale(1); }
+    25% { transform: rotate(-8deg) scale(1.05); }
+    75% { transform: rotate(8deg) scale(1.05); }
+}
+
+/* 📊 Dual Channel Bars - Bars animate up and down */
+.icon-bars {
+    animation: barsMove 2s ease-in-out infinite;
+}
+@keyframes barsMove {
+    0%, 100% { transform: scaleY(1); }
+    25% { transform: scaleY(1.1); }
+    50% { transform: scaleY(0.95); }
+    75% { transform: scaleY(1.05); }
+}
+
+/* 📍 Pin/Location - Bounces like dropping a pin */
+.icon-pin {
+    animation: pinDrop 2s ease-in-out infinite;
+}
+@keyframes pinDrop {
+    0%, 100% { transform: translateY(0); }
+    20% { transform: translateY(-20px); }
+    40% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+    60% { transform: translateY(0); }
+}
+
+/* 🚀 Rocket/Primary Trade - Shakes and boosts */
+.icon-rocket {
+    animation: rocketBoost 1.5s ease-in-out infinite;
+    filter: drop-shadow(0 0 25px rgba(0, 245, 212, 0.8)) !important;
+}
+@keyframes rocketBoost {
+    0%, 100% { transform: translateY(0) rotate(-5deg); }
+    25% { transform: translateY(-8px) rotate(0deg); }
+    50% { transform: translateY(-15px) rotate(5deg); }
+    75% { transform: translateY(-10px) rotate(0deg); }
+}
+
+/* 🔄 Rotate/Secondary Trade - Continuous rotation */
+.icon-rotate {
+    animation: iconRotate 3s linear infinite;
+}
+@keyframes iconRotate {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* 🌍 Globe/World - Slow majestic spin */
+.icon-globe {
+    animation: globeSpin 8s linear infinite;
+}
+@keyframes globeSpin {
+    0% { transform: rotateY(0deg); }
+    100% { transform: rotateY(360deg); }
+}
+
+/* 🎲 Dice/Trade Setup - Tumbles */
+.icon-dice {
+    animation: diceTumble 3s ease-in-out infinite;
+}
+@keyframes diceTumble {
+    0%, 100% { transform: rotate(0deg) scale(1); }
+    25% { transform: rotate(-15deg) scale(1.1); }
+    50% { transform: rotate(10deg) scale(1.05); }
+    75% { transform: rotate(-5deg) scale(1.08); }
+}
+
+/* 🦘 Kangaroo/Sydney - Hops up and down */
+.icon-kangaroo {
+    animation: kangarooHop 1s ease-in-out infinite;
+}
+@keyframes kangarooHop {
+    0%, 100% { transform: translateY(0) scaleY(1); }
+    30% { transform: translateY(-20px) scaleY(1.1); }
+    50% { transform: translateY(-25px) scaleY(1.05); }
+    80% { transform: translateY(0) scaleY(0.95); }
+}
+
+/* 🗼 Tower/Tokyo - Gentle sway */
+.icon-tower {
+    animation: towerSway 4s ease-in-out infinite;
+    transform-origin: bottom center;
+}
+@keyframes towerSway {
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(3deg); }
+    75% { transform: rotate(-3deg); }
+}
+
+/* 🏛 Building/London - Solid pulse glow */
+.icon-building {
+    animation: buildingPulse 3s ease-in-out infinite;
+}
+@keyframes buildingPulse {
+    0%, 100% { transform: scale(1); filter: drop-shadow(0 0 15px rgba(0, 245, 212, 0.5)); }
+    50% { transform: scale(1.08); filter: drop-shadow(0 0 30px rgba(0, 245, 212, 0.8)); }
+}
+
+/* 🌙 Moon/Overnight - Soft ethereal glow pulse */
+.icon-moon {
+    animation: moonGlow 4s ease-in-out infinite;
+    filter: drop-shadow(0 0 25px rgba(200, 180, 255, 0.8)) !important;
+}
+.icon-moon::after {
+    background: radial-gradient(circle, rgba(200, 180, 255, 0.3) 0%, transparent 70%) !important;
+}
+@keyframes moonGlow {
+    0%, 100% { transform: scale(1); filter: drop-shadow(0 0 20px rgba(200, 180, 255, 0.6)); }
+    50% { transform: scale(1.1); filter: drop-shadow(0 0 40px rgba(200, 180, 255, 1)); }
+}
+
+/* 📈📉 Indicator Charts - Subtle pulse */
+.icon-indicator {
+    animation: indicatorPulse 2.5s ease-in-out infinite;
+}
+@keyframes indicatorPulse {
+    0%, 100% { transform: scale(1) rotate(0deg); }
+    50% { transform: scale(1.12) rotate(3deg); }
 }
 
 .metric-label {
@@ -3748,17 +4006,26 @@ CSS_STYLES = """
 }
 
 .session-icon {
-    font-size: 2.5rem;
-    margin-bottom: 12px;
+    font-size: 3.5rem;
+    margin-bottom: 14px;
     position: relative;
     z-index: 1;
-    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
-    animation: sessionIconBounce 3s ease-in-out infinite;
+    filter: drop-shadow(0 0 20px rgba(0, 245, 212, 0.5));
+    display: inline-block;
 }
 
-@keyframes sessionIconBounce {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-4px); }
+.session-icon::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80px;
+    height: 80px;
+    background: radial-gradient(circle, rgba(0, 245, 212, 0.2) 0%, transparent 70%);
+    border-radius: 50%;
+    z-index: -1;
+    animation: iconHalo 3s ease-in-out infinite;
 }
 
 .session-name {
@@ -4698,21 +4965,23 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.markdown(f'<div class="metric-card"><div class="metric-icon">📈</div><div class="metric-label">SPX Index</div><div class="metric-value accent">{current_spx:,.2f}</div><div class="metric-delta">ES {current_es:,.2f}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><div class="metric-icon icon-chart-up">📈</div><div class="metric-label">SPX Index</div><div class="metric-value accent">{current_spx:,.2f}</div><div class="metric-delta">ES {current_es:,.2f}</div></div>', unsafe_allow_html=True)
     with col2:
         vix_color = "puts" if vix > 20 else "calls" if vix < 15 else ""
         vix_icon = "🌋" if vix > 20 else "🧊" if vix < 15 else "🌊"
-        st.markdown(f'<div class="metric-card"><div class="metric-icon">{vix_icon}</div><div class="metric-label">VIX Index</div><div class="metric-value {vix_color}">{vix:.2f}</div><div class="metric-delta">Volatility</div></div>', unsafe_allow_html=True)
+        vix_anim = "icon-volcano" if vix > 20 else "icon-ice" if vix < 15 else "icon-wave"
+        st.markdown(f'<div class="metric-card"><div class="metric-icon {vix_anim}">{vix_icon}</div><div class="metric-label">VIX Index</div><div class="metric-value {vix_color}">{vix:.2f}</div><div class="metric-delta">Volatility</div></div>', unsafe_allow_html=True)
     with col3:
         pos_icon = "🔼" if position.value == "ABOVE" else "🔽" if position.value == "BELOW" else "⚖️"
-        st.markdown(f'<div class="metric-card"><div class="metric-icon">{pos_icon}</div><div class="metric-label">Position</div><div class="metric-value">{position.value}</div><div class="metric-delta">In Channel</div></div>', unsafe_allow_html=True)
+        pos_anim = "icon-up" if position.value == "ABOVE" else "icon-down" if position.value == "BELOW" else "icon-balance"
+        st.markdown(f'<div class="metric-card"><div class="metric-icon {pos_anim}">{pos_icon}</div><div class="metric-label">Position</div><div class="metric-value">{position.value}</div><div class="metric-delta">In Channel</div></div>', unsafe_allow_html=True)
     with col4:
-        st.markdown(f'<div class="metric-card"><div class="metric-icon">🕐</div><div class="metric-label">Time</div><div class="metric-value">{now.strftime("%I:%M")}</div><div class="metric-delta live-indicator"><span class="live-dot"></span> {now.strftime("%p CT")}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><div class="metric-icon icon-clock">🕐</div><div class="metric-label">Time</div><div class="metric-value">{now.strftime("%I:%M")}</div><div class="metric-delta live-indicator"><span class="live-dot"></span> {now.strftime("%p CT")}</div></div>', unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # TODAY'S BIAS
     # ═══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="section-header"><div class="section-icon">🎯</div><h2 class="section-title">Today\'s Bias</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><div class="section-icon icon-target">🎯</div><h2 class="section-title">Today\'s Bias</h2></div>', unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -4745,7 +5014,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     # CONFLUENCE
     # ═══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="section-header"><div class="section-icon">⚖️</div><h2 class="section-title">Confluence Analysis</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><div class="section-icon icon-scales">⚖️</div><h2 class="section-title">Confluence Analysis</h2></div>', unsafe_allow_html=True)
     
     calls_score, puts_score = len(decision["calls_factors"]), len(decision["puts_factors"])
     calls_class = "high" if calls_score >= 3 else "medium" if calls_score >= 2 else "low"
@@ -4762,7 +5031,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     # DUAL CHANNEL LEVELS (Option C - All 4 Levels)
     # ═══════════════════════════════════════════════════════════════════════════
-    st.markdown(f'<div class="section-header"><div class="section-icon">📊</div><h2 class="section-title">Dual Channel Levels @ {inputs["ref_time"][0]}:{inputs["ref_time"][1]:02d} AM</h2></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-header"><div class="section-icon icon-bars">📊</div><h2 class="section-title">Dual Channel Levels @ {inputs["ref_time"][0]}:{inputs["ref_time"][1]:02d} AM</h2></div>', unsafe_allow_html=True)
     
     if dual_levels_spx:
         asc_floor = dual_levels_spx["asc_floor"]
@@ -4824,7 +5093,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     # PRIOR DAY INTERMEDIATE LEVELS (4 Pivots x 2 Directions = 8 Levels)
     # ═══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="section-header"><div class="section-icon">📍</div><h2 class="section-title">Prior Day Intermediate Levels</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><div class="section-icon icon-pin">📍</div><h2 class="section-title">Prior Day Intermediate Levels</h2></div>', unsafe_allow_html=True)
     
     if prior_targets["available"]:
         # Convert all ES targets to SPX
@@ -4994,11 +5263,11 @@ def main():
     # TRADE SETUPS (Option C - Primary + Secondary)
     # ═══════════════════════════════════════════════════════════════════════════
     if decision["no_trade"]:
-        st.markdown('<div class="section-header"><div class="section-icon">🎲</div><h2 class="section-title">Trade Setup</h2></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header"><div class="section-icon icon-dice">🎲</div><h2 class="section-title">Trade Setup</h2></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="no-trade-card"><div class="no-trade-icon">⊘</div><div class="no-trade-title">NO TRADE</div><div class="no-trade-reason">{decision["no_trade_reason"]}</div></div>', unsafe_allow_html=True)
     else:
         # PRIMARY TRADE
-        st.markdown('<div class="section-header"><div class="section-icon">🚀</div><h2 class="section-title">PRIMARY Trade Setup</h2></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header"><div class="section-icon icon-rocket">🚀</div><h2 class="section-title">PRIMARY Trade Setup</h2></div>', unsafe_allow_html=True)
         
         p = decision["primary"]
         if p:
@@ -5033,7 +5302,7 @@ def main():
         
         # SECONDARY TRADE
         if decision["secondary"]:
-            st.markdown('<div class="section-header"><div class="section-icon">🔄</div><h2 class="section-title">SECONDARY Trade Setup</h2></div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header"><div class="section-icon icon-rotate">🔄</div><h2 class="section-title">SECONDARY Trade Setup</h2></div>', unsafe_allow_html=True)
             s = decision["secondary"]
             tc = "calls" if s["direction"] == "CALLS" else "puts"
             di = "↗" if s["direction"] == "CALLS" else "↘"
@@ -5067,23 +5336,23 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     # SESSIONS
     # ═══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="section-header"><div class="section-icon">🌍</div><h2 class="section-title">Global Sessions</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><div class="section-icon icon-globe">🌍</div><h2 class="section-title">Global Sessions</h2></div>', unsafe_allow_html=True)
     
-    session_data = [("🦘", "Sydney", sydney), ("🗼", "Tokyo", tokyo), ("🏛", "London", london), ("🌙", "Overnight", overnight)]
+    session_data = [("🦘", "Sydney", sydney, "icon-kangaroo"), ("🗼", "Tokyo", tokyo, "icon-tower"), ("🏛", "London", london, "icon-building"), ("🌙", "Overnight", overnight, "icon-moon")]
     cols = st.columns(4)
-    for i, (icon, name, data) in enumerate(session_data):
+    for i, (icon, name, data, anim_class) in enumerate(session_data):
         with cols[i]:
             if data:
                 h_mark = " ⬆" if upper_pivot and upper_pivot == data.get("high") else ""
                 l_mark = " ⬇" if lower_pivot and lower_pivot == data.get("low") else ""
-                st.markdown(f'<div class="session-card"><div class="session-icon">{icon}</div><div class="session-name">{name}</div><div class="session-data"><div class="session-value"><span style="color:var(--text-tertiary);">H</span><span class="session-high">{data["high"]:,.2f}{h_mark}</span></div><div class="session-value"><span style="color:var(--text-tertiary);">L</span><span class="session-low">{data["low"]:,.2f}{l_mark}</span></div></div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="session-card"><div class="session-icon {anim_class}">{icon}</div><div class="session-name">{name}</div><div class="session-data"><div class="session-value"><span style="color:var(--text-tertiary);">H</span><span class="session-high">{data["high"]:,.2f}{h_mark}</span></div><div class="session-value"><span style="color:var(--text-tertiary);">L</span><span class="session-low">{data["low"]:,.2f}{l_mark}</span></div></div></div>', unsafe_allow_html=True)
             else:
-                st.markdown(f'<div class="session-card" style="opacity:0.5;"><div class="session-icon">{icon}</div><div class="session-name">{name}</div><div class="session-data"><div style="color:var(--text-muted);font-size:0.85rem;">No data</div></div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="session-card" style="opacity:0.5;"><div class="session-icon {anim_class}">{icon}</div><div class="session-name">{name}</div><div class="session-data"><div style="color:var(--text-muted);font-size:0.85rem;">No data</div></div></div>', unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # INDICATORS
     # ═══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="section-header"><div class="section-icon">📈</div><h2 class="section-title">Technical Indicators</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><div class="section-icon icon-indicator">📈</div><h2 class="section-title">Technical Indicators</h2></div>', unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns(3)
     with col1:
