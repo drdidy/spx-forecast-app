@@ -3372,16 +3372,37 @@ def sidebar():
             prior_highest_wick = col1.number_input("Highest Wick (ES)", value=6100.0, step=0.5, help="Highest high of any RTH candle")
             prior_lowest_close = col2.number_input("Lowest Close (ES)", value=6050.0, step=0.5, help="Lowest close of any RTH candle")
             
+            # Time inputs with 30-minute granularity (RTH: 8:30 AM - 3:00 PM CT)
+            time_options = []
+            for h in range(8, 16):
+                for m in [0, 30]:
+                    if h == 8 and m == 0:
+                        continue  # RTH starts at 8:30
+                    if h == 15 and m == 30:
+                        continue  # RTH ends at 3:00
+                    time_options.append(f"{h}:{m:02d}")
+            
             col3, col4 = st.columns(2)
-            prior_hw_hour = col3.selectbox("HW Time (Hour)", options=list(range(8, 16)), index=4, help="Hour when highest wick occurred")
-            prior_lc_hour = col4.selectbox("LC Time (Hour)", options=list(range(8, 16)), index=4, help="Hour when lowest close occurred")
+            hw_time_str = col3.selectbox("HW Time", options=time_options, index=time_options.index("12:00") if "12:00" in time_options else 7, help="Time when highest wick occurred (CT)")
+            lc_time_str = col4.selectbox("LC Time", options=time_options, index=time_options.index("12:00") if "12:00" in time_options else 7, help="Time when lowest close occurred (CT)")
+            
+            # Parse time strings
+            hw_parts = hw_time_str.split(":")
+            prior_hw_hour = int(hw_parts[0])
+            prior_hw_min = int(hw_parts[1])
+            
+            lc_parts = lc_time_str.split(":")
+            prior_lc_hour = int(lc_parts[0])
+            prior_lc_min = int(lc_parts[1])
             
             prior_close = st.number_input("RTH Close (ES)", value=6075.0, step=0.5, help="Final RTH close")
         else:
             prior_highest_wick = None
             prior_lowest_close = None
             prior_hw_hour = 12
+            prior_hw_min = 0
             prior_lc_hour = 12
+            prior_lc_min = 0
             prior_close = None
         
         st.divider()
@@ -3487,7 +3508,7 @@ def sidebar():
         # Manual overrides
         "manual_vix": manual_vix,
         "manual_vix_range": {"low": manual_vix_low, "high": manual_vix_high} if use_manual_vix_range else None,
-        "manual_prior": {"highest_wick": prior_highest_wick, "lowest_close": prior_lowest_close, "close": prior_close, "hw_hour": prior_hw_hour, "lc_hour": prior_lc_hour} if use_manual_prior else None,
+        "manual_prior": {"highest_wick": prior_highest_wick, "lowest_close": prior_lowest_close, "close": prior_close, "hw_hour": prior_hw_hour, "hw_min": prior_hw_min, "lc_hour": prior_lc_hour, "lc_min": prior_lc_min} if use_manual_prior else None,
         "manual_overnight": {"high": on_high, "low": on_low} if use_manual_overnight else None,
         "manual_sessions": {
             "sydney": {"high": sydney_high, "low": sydney_low},
@@ -3603,12 +3624,14 @@ def main():
         if inputs["manual_prior"] is not None:
             prior_day = get_prior_trading_day(actual_trading_date)
             hw_hour = inputs["manual_prior"].get("hw_hour", 12)
+            hw_min = inputs["manual_prior"].get("hw_min", 0)
             lc_hour = inputs["manual_prior"].get("lc_hour", 12)
+            lc_min = inputs["manual_prior"].get("lc_min", 0)
             prior_rth = {
                 "highest_wick": inputs["manual_prior"]["highest_wick"],
-                "highest_wick_time": CT.localize(datetime.combine(prior_day, time(hw_hour, 0))),
+                "highest_wick_time": CT.localize(datetime.combine(prior_day, time(hw_hour, hw_min))),
                 "lowest_close": inputs["manual_prior"]["lowest_close"],
-                "lowest_close_time": CT.localize(datetime.combine(prior_day, time(lc_hour, 0))),
+                "lowest_close_time": CT.localize(datetime.combine(prior_day, time(lc_hour, lc_min))),
                 "high": inputs["manual_prior"]["highest_wick"],
                 "low": inputs["manual_prior"]["lowest_close"],
                 "close": inputs["manual_prior"]["close"],
