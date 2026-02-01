@@ -2277,27 +2277,35 @@ CSS_STYLES = """
 }
 
 .section-icon {
-    width: 46px;
-    height: 46px;
+    width: 56px;
+    height: 56px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--bg-card) 100%);
-    border: 1px solid var(--border-accent);
-    border-radius: var(--radius-md);
-    font-size: var(--text-lg);
-    box-shadow: var(--shadow-sm), 0 0 15px rgba(0, 245, 212, 0.15);
+    background: linear-gradient(135deg, rgba(0, 245, 212, 0.15) 0%, rgba(0, 187, 249, 0.1) 100%);
+    border: 2px solid var(--accent-cyan);
+    border-radius: var(--radius-lg);
+    font-size: 1.8rem;
+    box-shadow: 0 0 25px rgba(0, 245, 212, 0.3), inset 0 0 20px rgba(0, 245, 212, 0.1);
     color: var(--accent-cyan);
+    text-shadow: 0 0 15px var(--accent-cyan);
+    animation: iconGlow 3s ease-in-out infinite;
+}
+
+@keyframes iconGlow {
+    0%, 100% { box-shadow: 0 0 20px rgba(0, 245, 212, 0.25), inset 0 0 15px rgba(0, 245, 212, 0.1); }
+    50% { box-shadow: 0 0 35px rgba(0, 245, 212, 0.4), inset 0 0 25px rgba(0, 245, 212, 0.15); }
 }
 
 .section-title {
-    font-family: var(--font-display);
-    font-size: var(--text-lg);
-    font-weight: 700;
-    color: var(--text-bright);
-    margin: 0;
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
+    font-family: 'Orbitron', sans-serif !important;
+    font-size: 1.4rem !important;
+    font-weight: 700 !important;
+    color: var(--text-bright) !important;
+    margin: 0 !important;
+    letter-spacing: 2px !important;
+    text-transform: uppercase !important;
+    text-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -3396,6 +3404,11 @@ section[data-testid="stSidebar"] p {
     box-shadow: var(--shadow-md) !important;
 }
 
+/* Force Orbitron on all h2 section headers */
+h2.section-title, .section-title {
+    font-family: 'Orbitron', sans-serif !important;
+}
+
 /* Dividers */
 hr {
     border: none !important;
@@ -4064,7 +4077,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     # TODAY'S BIAS
     # ═══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="section-header"><div class="section-icon">◎</div><h2 class="section-title">Today\'s Bias</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><div class="section-icon">🎯</div><h2 class="section-title">Today\'s Bias</h2></div>', unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -4097,7 +4110,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     # CONFLUENCE
     # ═══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="section-header"><div class="section-icon">⚖</div><h2 class="section-title">Confluence Analysis</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><div class="section-icon">⚖️</div><h2 class="section-title">Confluence Analysis</h2></div>', unsafe_allow_html=True)
     
     calls_score, puts_score = len(decision["calls_factors"]), len(decision["puts_factors"])
     calls_class = "high" if calls_score >= 3 else "medium" if calls_score >= 2 else "low"
@@ -4114,7 +4127,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     # DUAL CHANNEL LEVELS (Option C - All 4 Levels)
     # ═══════════════════════════════════════════════════════════════════════════
-    st.markdown(f'<div class="section-header"><div class="section-icon">◫</div><h2 class="section-title">Dual Channel Levels @ {inputs["ref_time"][0]}:{inputs["ref_time"][1]:02d} AM</h2></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-header"><div class="section-icon">📊</div><h2 class="section-title">Dual Channel Levels @ {inputs["ref_time"][0]}:{inputs["ref_time"][1]:02d} AM</h2></div>', unsafe_allow_html=True)
     
     if dual_levels_spx:
         asc_floor = dual_levels_spx["asc_floor"]
@@ -4176,7 +4189,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     # PRIOR DAY INTERMEDIATE LEVELS (4 Pivots x 2 Directions = 8 Levels)
     # ═══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="section-header"><div class="section-icon">◎</div><h2 class="section-title">Prior Day Intermediate Levels</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><div class="section-icon">📍</div><h2 class="section-title">Prior Day Intermediate Levels</h2></div>', unsafe_allow_html=True)
     
     if prior_targets["available"]:
         # Convert all ES targets to SPX
@@ -4346,11 +4359,11 @@ def main():
     # TRADE SETUPS (Option C - Primary + Secondary)
     # ═══════════════════════════════════════════════════════════════════════════
     if decision["no_trade"]:
-        st.markdown('<div class="section-header"><div class="section-icon">◉</div><h2 class="section-title">Trade Setup</h2></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header"><div class="section-icon">🎲</div><h2 class="section-title">Trade Setup</h2></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="no-trade-card"><div class="no-trade-icon">⊘</div><div class="no-trade-title">NO TRADE</div><div class="no-trade-reason">{decision["no_trade_reason"]}</div></div>', unsafe_allow_html=True)
     else:
         # PRIMARY TRADE
-        st.markdown('<div class="section-header"><div class="section-icon">◉</div><h2 class="section-title">PRIMARY Trade Setup</h2></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header"><div class="section-icon">🚀</div><h2 class="section-title">PRIMARY Trade Setup</h2></div>', unsafe_allow_html=True)
         
         p = decision["primary"]
         if p:
@@ -4385,7 +4398,7 @@ def main():
         
         # SECONDARY TRADE
         if decision["secondary"]:
-            st.markdown('<div class="section-header"><div class="section-icon">◌</div><h2 class="section-title">SECONDARY Trade Setup</h2></div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header"><div class="section-icon">🔄</div><h2 class="section-title">SECONDARY Trade Setup</h2></div>', unsafe_allow_html=True)
             s = decision["secondary"]
             tc = "calls" if s["direction"] == "CALLS" else "puts"
             di = "↗" if s["direction"] == "CALLS" else "↘"
@@ -4419,7 +4432,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     # SESSIONS
     # ═══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="section-header"><div class="section-icon">◐</div><h2 class="section-title">Global Sessions</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><div class="section-icon">🌍</div><h2 class="section-title">Global Sessions</h2></div>', unsafe_allow_html=True)
     
     session_data = [("🦘", "Sydney", sydney), ("🗼", "Tokyo", tokyo), ("🏛", "London", london), ("🌙", "Overnight", overnight)]
     cols = st.columns(4)
@@ -4435,7 +4448,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     # INDICATORS
     # ═══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="section-header"><div class="section-icon">◧</div><h2 class="section-title">Technical Indicators</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><div class="section-icon">📈</div><h2 class="section-title">Technical Indicators</h2></div>', unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns(3)
     with col1:
