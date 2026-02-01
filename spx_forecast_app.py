@@ -3918,9 +3918,11 @@ CSS_STYLES = """
    ═══════════════════════════════════════════════════════════════════════════ */
 .alert-box {
     display: flex;
-    align-items: flex-start;
-    gap: 16px;
-    padding: 20px 24px;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 12px;
+    padding: 28px 24px;
     border-radius: var(--radius-lg);
     margin: 16px 0;
     position: relative;
@@ -3932,8 +3934,9 @@ CSS_STYLES = """
     position: absolute;
     top: 0;
     left: 0;
-    width: 4px;
-    height: 100%;
+    right: 0;
+    width: 100%;
+    height: 4px;
 }
 
 .alert-box-warning {
@@ -3985,7 +3988,10 @@ CSS_STYLES = """
     filter: drop-shadow(0 0 25px rgba(0, 214, 125, 0.6));
 }
 
-.alert-content { flex: 1; }
+.alert-content { 
+    flex: 1;
+    text-align: center;
+}
 
 .alert-title {
     font-family: var(--font-display);
