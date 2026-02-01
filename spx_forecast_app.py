@@ -2536,17 +2536,11 @@ CSS_STYLES = """
 .brand-tagline {
     font-family: 'Rajdhani', sans-serif;
     font-size: 1.1rem;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.6);
     letter-spacing: 10px;
     margin-top: 15px;
     text-transform: uppercase;
     font-weight: 600;
-    animation: taglineFade 5s ease-in-out infinite;
-}
-
-@keyframes taglineFade {
-    0%, 100% { opacity: 0.5; letter-spacing: 10px; color: rgba(255, 255, 255, 0.5); }
-    50% { opacity: 1; letter-spacing: 14px; color: rgba(0, 245, 212, 0.8); }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
