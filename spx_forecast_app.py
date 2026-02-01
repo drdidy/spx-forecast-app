@@ -1829,37 +1829,49 @@ CSS_STYLES = """
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   HERO BANNER - CINEMATIC HEADER
+   HERO BANNER - EPIC CINEMATIC HEADER WITH LEGENDARY LOGO
    ═══════════════════════════════════════════════════════════════════════════ */
 .hero-banner {
     position: relative;
-    padding: 40px 40px;
+    padding: 50px 40px 40px 40px;
     margin: -1rem -1rem 30px -1rem;
-    background: linear-gradient(180deg, var(--bg-panel) 0%, var(--bg-terminal) 100%);
-    border-bottom: 2px solid transparent;
+    background: linear-gradient(180deg, rgba(5, 10, 20, 1) 0%, var(--bg-terminal) 100%);
+    border-bottom: 3px solid transparent;
     border-image: var(--gradient-premium) 1;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 30px;
+    gap: 24px;
     overflow: hidden;
+    min-height: 380px;
 }
 
+/* Starfield Background */
 .hero-banner::before {
     content: '';
     position: absolute;
     inset: 0;
     background: 
-        radial-gradient(ellipse 80% 120% at 20% 50%, rgba(0, 245, 212, 0.12) 0%, transparent 50%),
-        radial-gradient(ellipse 80% 120% at 80% 50%, rgba(155, 93, 229, 0.1) 0%, transparent 50%),
-        radial-gradient(ellipse 100% 100% at 50% 0%, rgba(0, 187, 249, 0.08) 0%, transparent 60%);
-    animation: heroAurora 10s ease-in-out infinite;
+        radial-gradient(2px 2px at 20% 30%, rgba(255,255,255,0.8) 0%, transparent 100%),
+        radial-gradient(2px 2px at 40% 70%, rgba(255,255,255,0.6) 0%, transparent 100%),
+        radial-gradient(1px 1px at 60% 20%, rgba(255,255,255,0.7) 0%, transparent 100%),
+        radial-gradient(2px 2px at 80% 50%, rgba(255,255,255,0.5) 0%, transparent 100%),
+        radial-gradient(1px 1px at 10% 80%, rgba(255,255,255,0.6) 0%, transparent 100%),
+        radial-gradient(1px 1px at 90% 10%, rgba(255,255,255,0.7) 0%, transparent 100%),
+        radial-gradient(2px 2px at 30% 90%, rgba(255,255,255,0.5) 0%, transparent 100%),
+        radial-gradient(1px 1px at 70% 40%, rgba(255,255,255,0.6) 0%, transparent 100%),
+        radial-gradient(1px 1px at 50% 60%, rgba(0, 245, 212, 0.8) 0%, transparent 100%),
+        radial-gradient(1px 1px at 85% 75%, rgba(155, 93, 229, 0.8) 0%, transparent 100%),
+        radial-gradient(ellipse 100% 100% at 50% 0%, rgba(0, 245, 212, 0.12) 0%, transparent 60%),
+        radial-gradient(ellipse 80% 80% at 20% 100%, rgba(155, 93, 229, 0.1) 0%, transparent 50%),
+        radial-gradient(ellipse 80% 80% at 80% 100%, rgba(0, 187, 249, 0.08) 0%, transparent 50%);
+    animation: starsShimmer 8s ease-in-out infinite;
 }
 
-@keyframes heroAurora {
-    0%, 100% { opacity: 0.6; transform: scale(1) translateX(0); }
-    33% { opacity: 1; transform: scale(1.05) translateX(2%); }
-    66% { opacity: 0.8; transform: scale(1.02) translateX(-2%); }
+@keyframes starsShimmer {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
 }
 
 .hero-banner::after {
@@ -1868,209 +1880,673 @@ CSS_STYLES = """
     bottom: 0;
     left: 0;
     right: 0;
-    height: 2px;
-    background: var(--gradient-premium);
-    box-shadow: 0 0 20px rgba(0, 245, 212, 0.5), 0 0 40px rgba(155, 93, 229, 0.3);
+    height: 4px;
+    background: linear-gradient(90deg, 
+        transparent 0%, 
+        var(--accent-cyan) 20%, 
+        var(--accent-purple) 40%,
+        var(--accent-gold) 60%,
+        var(--accent-purple) 80%,
+        var(--accent-cyan) 100%);
+    box-shadow: 0 0 30px rgba(0, 245, 212, 0.6), 0 0 60px rgba(155, 93, 229, 0.4);
+    animation: bottomBarFlow 4s linear infinite;
 }
 
-/* Animated Holographic Logo */
+@keyframes bottomBarFlow {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE LEGENDARY 3-PILLAR HOLOGRAPHIC PYRAMID
+   ═══════════════════════════════════════════════════════════════════════════ */
 .prophet-logo {
     position: relative;
-    width: 90px;
-    height: 90px;
+    width: 240px;
+    height: 220px;
     flex-shrink: 0;
     z-index: 2;
+    perspective: 1000px;
 }
 
-.logo-pyramid {
+/* ═══════════════════════════════════════════════════════════════════════════
+   LAYER 1: OUTER PARTICLE FIELD - Cosmic dust swirling
+   ═══════════════════════════════════════════════════════════════════════════ */
+.particle-field {
+    position: absolute;
+    width: 300px;
+    height: 300px;
+    top: -40px;
+    left: -30px;
+    border-radius: 50%;
+    background: 
+        radial-gradient(circle at 30% 30%, rgba(0, 245, 212, 0.4) 0%, transparent 3%),
+        radial-gradient(circle at 70% 20%, rgba(155, 93, 229, 0.5) 0%, transparent 2%),
+        radial-gradient(circle at 20% 70%, rgba(254, 228, 64, 0.4) 0%, transparent 2%),
+        radial-gradient(circle at 80% 80%, rgba(0, 187, 249, 0.5) 0%, transparent 3%),
+        radial-gradient(circle at 50% 50%, rgba(0, 245, 212, 0.3) 0%, transparent 2%),
+        radial-gradient(circle at 40% 80%, rgba(155, 93, 229, 0.4) 0%, transparent 2%),
+        radial-gradient(circle at 60% 30%, rgba(254, 228, 64, 0.3) 0%, transparent 2%),
+        radial-gradient(circle at 10% 50%, rgba(0, 245, 212, 0.5) 0%, transparent 2%),
+        radial-gradient(circle at 90% 50%, rgba(155, 93, 229, 0.4) 0%, transparent 2%);
+    animation: particleSwirl 20s linear infinite;
+    opacity: 0.8;
+}
+
+@keyframes particleSwirl {
+    0% { transform: rotate(0deg) scale(1); }
+    50% { transform: rotate(180deg) scale(1.1); }
+    100% { transform: rotate(360deg) scale(1); }
+}
+
+.particle-field-inner {
+    position: absolute;
+    width: 200px;
+    height: 200px;
+    top: 10px;
+    left: 20px;
+    border-radius: 50%;
+    background: 
+        radial-gradient(circle at 25% 25%, rgba(0, 245, 212, 0.6) 0%, transparent 4%),
+        radial-gradient(circle at 75% 25%, rgba(155, 93, 229, 0.6) 0%, transparent 4%),
+        radial-gradient(circle at 50% 75%, rgba(254, 228, 64, 0.6) 0%, transparent 4%),
+        radial-gradient(circle at 50% 40%, rgba(255, 255, 255, 0.8) 0%, transparent 3%);
+    animation: particleSwirl 12s linear infinite reverse;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LAYER 2: TRIPLE ORBITAL RINGS - The 3 Systems in Motion
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* Ring 1: Prior RTH Cones (Cyan) */
+.orbital-ring-1 {
+    position: absolute;
+    width: 220px;
+    height: 220px;
+    top: 0;
+    left: 10px;
+    border: 2px solid transparent;
+    border-top-color: var(--accent-cyan);
+    border-radius: 50%;
+    animation: orbit1 8s linear infinite;
+    box-shadow: 0 0 20px var(--accent-cyan), inset 0 0 20px rgba(0, 245, 212, 0.1);
+}
+
+.orbital-ring-1::before {
+    content: '◆';
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 16px;
+    color: var(--accent-cyan);
+    text-shadow: 0 0 20px var(--accent-cyan), 0 0 40px var(--accent-cyan);
+    animation: orbitNodePulse 2s ease-in-out infinite;
+}
+
+@keyframes orbit1 {
+    0% { transform: rotateX(70deg) rotateZ(0deg); }
+    100% { transform: rotateX(70deg) rotateZ(360deg); }
+}
+
+/* Ring 2: Overnight Structure (Purple) */
+.orbital-ring-2 {
+    position: absolute;
+    width: 200px;
+    height: 200px;
+    top: 10px;
+    left: 20px;
+    border: 2px solid transparent;
+    border-top-color: var(--accent-purple);
+    border-radius: 50%;
+    animation: orbit2 10s linear infinite reverse;
+    box-shadow: 0 0 20px var(--accent-purple), inset 0 0 20px rgba(155, 93, 229, 0.1);
+}
+
+.orbital-ring-2::before {
+    content: '◆';
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 16px;
+    color: var(--accent-purple);
+    text-shadow: 0 0 20px var(--accent-purple), 0 0 40px var(--accent-purple);
+    animation: orbitNodePulse 2s ease-in-out infinite 0.5s;
+}
+
+@keyframes orbit2 {
+    0% { transform: rotateX(70deg) rotateY(60deg) rotateZ(0deg); }
+    100% { transform: rotateX(70deg) rotateY(60deg) rotateZ(-360deg); }
+}
+
+/* Ring 3: VIX (Gold) */
+.orbital-ring-3 {
+    position: absolute;
+    width: 180px;
+    height: 180px;
+    top: 20px;
+    left: 30px;
+    border: 2px solid transparent;
+    border-top-color: var(--accent-gold);
+    border-radius: 50%;
+    animation: orbit3 6s linear infinite;
+    box-shadow: 0 0 20px var(--accent-gold), inset 0 0 20px rgba(254, 228, 64, 0.1);
+}
+
+.orbital-ring-3::before {
+    content: '◆';
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 16px;
+    color: var(--accent-gold);
+    text-shadow: 0 0 20px var(--accent-gold), 0 0 40px var(--accent-gold);
+    animation: orbitNodePulse 2s ease-in-out infinite 1s;
+}
+
+@keyframes orbit3 {
+    0% { transform: rotateX(70deg) rotateY(-60deg) rotateZ(0deg); }
+    100% { transform: rotateX(70deg) rotateY(-60deg) rotateZ(360deg); }
+}
+
+@keyframes orbitNodePulse {
+    0%, 100% { opacity: 1; transform: translateX(-50%) scale(1); }
+    50% { opacity: 0.6; transform: translateX(-50%) scale(1.3); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LAYER 3: THE HOLOGRAPHIC PYRAMID - Main Structure
+   ═══════════════════════════════════════════════════════════════════════════ */
+.pyramid-container {
     position: absolute;
     width: 100%;
     height: 100%;
-    animation: pyramidFloat 4s ease-in-out infinite;
+    top: 0;
+    left: 0;
+    animation: pyramidFloat 6s ease-in-out infinite;
+    transform-style: preserve-3d;
 }
 
 @keyframes pyramidFloat {
-    0%, 100% { transform: translateY(0) scale(1) rotateY(0deg); }
-    50% { transform: translateY(-6px) scale(1.05) rotateY(5deg); }
+    0%, 100% { transform: translateY(0) rotateY(0deg); }
+    25% { transform: translateY(-8px) rotateY(3deg); }
+    50% { transform: translateY(-12px) rotateY(0deg); }
+    75% { transform: translateY(-8px) rotateY(-3deg); }
 }
 
-.pyramid-body {
+/* Pyramid Base Platform - Glowing */
+.pyramid-base {
     position: absolute;
-    top: 4px;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 160px;
+    height: 20px;
+    background: linear-gradient(180deg, rgba(0, 245, 212, 0.3) 0%, transparent 100%);
+    border-radius: 50%;
+    filter: blur(8px);
+    animation: basePulse 3s ease-in-out infinite;
+}
+
+@keyframes basePulse {
+    0%, 100% { opacity: 0.5; transform: translateX(-50%) scale(1); }
+    50% { opacity: 0.8; transform: translateX(-50%) scale(1.1); }
+}
+
+/* Main Pyramid Body - Outer Layer */
+.pyramid-main {
+    position: absolute;
+    top: 35px;
     left: 50%;
     transform: translateX(-50%);
     width: 0;
     height: 0;
-    border-left: 42px solid transparent;
-    border-right: 42px solid transparent;
-    border-bottom: 75px solid rgba(0, 245, 212, 0.15);
-    filter: drop-shadow(0 0 25px rgba(0, 245, 212, 0.4));
-    animation: pyramidGlow 2s ease-in-out infinite;
+    border-left: 80px solid transparent;
+    border-right: 80px solid transparent;
+    border-bottom: 140px solid rgba(0, 245, 212, 0.08);
+    filter: drop-shadow(0 0 40px rgba(0, 245, 212, 0.4));
+    animation: pyramidGlow 4s ease-in-out infinite;
 }
 
 @keyframes pyramidGlow {
-    0%, 100% { filter: drop-shadow(0 0 20px rgba(0, 245, 212, 0.3)); border-bottom-color: rgba(0, 245, 212, 0.15); }
-    50% { filter: drop-shadow(0 0 40px rgba(0, 245, 212, 0.6)); border-bottom-color: rgba(0, 245, 212, 0.25); }
+    0%, 100% { 
+        filter: drop-shadow(0 0 30px rgba(0, 245, 212, 0.3)); 
+        border-bottom-color: rgba(0, 245, 212, 0.08); 
+    }
+    50% { 
+        filter: drop-shadow(0 0 60px rgba(0, 245, 212, 0.6)); 
+        border-bottom-color: rgba(0, 245, 212, 0.15); 
+    }
 }
 
-.pyramid-inner {
+/* Pyramid Layer 2 - Purple */
+.pyramid-layer-2 {
     position: absolute;
-    top: 20px;
+    top: 55px;
     left: 50%;
     transform: translateX(-50%);
     width: 0;
     height: 0;
-    border-left: 26px solid transparent;
-    border-right: 26px solid transparent;
-    border-bottom: 46px solid rgba(155, 93, 229, 0.2);
-    animation: innerPulse 2s ease-in-out infinite 0.5s;
+    border-left: 60px solid transparent;
+    border-right: 60px solid transparent;
+    border-bottom: 105px solid rgba(155, 93, 229, 0.1);
+    animation: layer2Pulse 4s ease-in-out infinite 0.5s;
 }
 
-@keyframes innerPulse {
+@keyframes layer2Pulse {
+    0%, 100% { opacity: 0.6; border-bottom-color: rgba(155, 93, 229, 0.1); }
+    50% { opacity: 1; border-bottom-color: rgba(155, 93, 229, 0.2); }
+}
+
+/* Pyramid Layer 3 - Gold Core */
+.pyramid-layer-3 {
+    position: absolute;
+    top: 75px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 40px solid transparent;
+    border-right: 40px solid transparent;
+    border-bottom: 70px solid rgba(254, 228, 64, 0.12);
+    animation: layer3Pulse 4s ease-in-out infinite 1s;
+}
+
+@keyframes layer3Pulse {
+    0%, 100% { opacity: 0.5; border-bottom-color: rgba(254, 228, 64, 0.12); }
+    50% { opacity: 1; border-bottom-color: rgba(254, 228, 64, 0.25); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LAYER 4: THE 3 PILLAR VERTICES - Energy Nodes
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* Top Vertex - The Apex (Convergence Point) */
+.vertex-top {
+    position: absolute;
+    top: 25px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 24px;
+    background: radial-gradient(circle, #fff 0%, var(--accent-cyan) 40%, transparent 70%);
+    border-radius: 50%;
+    box-shadow: 
+        0 0 30px var(--accent-cyan),
+        0 0 60px var(--accent-cyan),
+        0 0 90px rgba(0, 245, 212, 0.5);
+    animation: apexPulse 2s ease-in-out infinite;
+}
+
+@keyframes apexPulse {
+    0%, 100% { 
+        transform: translateX(-50%) scale(1);
+        box-shadow: 0 0 30px var(--accent-cyan), 0 0 60px var(--accent-cyan);
+    }
+    50% { 
+        transform: translateX(-50%) scale(1.3);
+        box-shadow: 0 0 50px var(--accent-cyan), 0 0 100px var(--accent-cyan), 0 0 150px rgba(0, 245, 212, 0.3);
+    }
+}
+
+.vertex-top::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 8px;
+    height: 8px;
+    background: #fff;
+    border-radius: 50%;
+    animation: coreFlicker 0.5s ease-in-out infinite;
+}
+
+@keyframes coreFlicker {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Left Base Vertex - Prior RTH (Cyan) */
+.vertex-left {
+    position: absolute;
+    bottom: 32px;
+    left: 38px;
+    width: 18px;
+    height: 18px;
+    background: radial-gradient(circle, #fff 0%, var(--accent-cyan) 50%, transparent 70%);
+    border-radius: 50%;
+    box-shadow: 0 0 25px var(--accent-cyan), 0 0 50px rgba(0, 245, 212, 0.4);
+    animation: vertexPulse 3s ease-in-out infinite;
+}
+
+/* Right Base Vertex - Overnight (Purple) */
+.vertex-right {
+    position: absolute;
+    bottom: 32px;
+    right: 38px;
+    width: 18px;
+    height: 18px;
+    background: radial-gradient(circle, #fff 0%, var(--accent-purple) 50%, transparent 70%);
+    border-radius: 50%;
+    box-shadow: 0 0 25px var(--accent-purple), 0 0 50px rgba(155, 93, 229, 0.4);
+    animation: vertexPulse 3s ease-in-out infinite 1s;
+}
+
+/* Center Base Vertex - VIX (Gold) */
+.vertex-center {
+    position: absolute;
+    bottom: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 18px;
+    height: 18px;
+    background: radial-gradient(circle, #fff 0%, var(--accent-gold) 50%, transparent 70%);
+    border-radius: 50%;
+    box-shadow: 0 0 25px var(--accent-gold), 0 0 50px rgba(254, 228, 64, 0.4);
+    animation: vertexPulse 3s ease-in-out infinite 2s;
+}
+
+@keyframes vertexPulse {
+    0%, 100% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.4); opacity: 1; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LAYER 5: ENERGY BEAMS - Connecting the Vertices
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* Left Edge Beam (Top to Left) */
+.energy-beam-left {
+    position: absolute;
+    top: 35px;
+    left: 45px;
+    width: 3px;
+    height: 130px;
+    background: linear-gradient(180deg, var(--accent-cyan) 0%, transparent 100%);
+    transform: rotate(-30deg);
+    transform-origin: top center;
+    box-shadow: 0 0 15px var(--accent-cyan);
+    animation: beamFlow 2s ease-in-out infinite;
+}
+
+.energy-beam-left::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -2px;
+    width: 7px;
+    height: 30px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, var(--accent-cyan) 50%, transparent 100%);
+    border-radius: 3px;
+    animation: beamParticle 2s ease-in-out infinite;
+}
+
+@keyframes beamFlow {
     0%, 100% { opacity: 0.6; }
     50% { opacity: 1; }
 }
 
-.eye-container {
+@keyframes beamParticle {
+    0% { top: 0; opacity: 1; }
+    100% { top: 120px; opacity: 0; }
+}
+
+/* Right Edge Beam (Top to Right) */
+.energy-beam-right {
     position: absolute;
-    top: 28px;
+    top: 35px;
+    right: 45px;
+    width: 3px;
+    height: 130px;
+    background: linear-gradient(180deg, var(--accent-purple) 0%, transparent 100%);
+    transform: rotate(30deg);
+    transform-origin: top center;
+    box-shadow: 0 0 15px var(--accent-purple);
+    animation: beamFlow 2s ease-in-out infinite 0.3s;
+}
+
+.energy-beam-right::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -2px;
+    width: 7px;
+    height: 30px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, var(--accent-purple) 50%, transparent 100%);
+    border-radius: 3px;
+    animation: beamParticle 2s ease-in-out infinite 0.3s;
+}
+
+/* Base Beam (Left to Right through Center) */
+.energy-beam-base {
+    position: absolute;
+    bottom: 38px;
     left: 50%;
     transform: translateX(-50%);
-    width: 32px;
-    height: 20px;
+    width: 140px;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent-cyan) 0%, var(--accent-gold) 50%, var(--accent-purple) 100%);
+    box-shadow: 0 0 15px rgba(254, 228, 64, 0.5);
+    animation: baseBeamPulse 3s ease-in-out infinite;
 }
 
-.eye-rays {
+@keyframes baseBeamPulse {
+    0%, 100% { opacity: 0.5; width: 140px; }
+    50% { opacity: 1; width: 150px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LAYER 6: HOLOGRAPHIC SCAN LINES - Tech Effect
+   ═══════════════════════════════════════════════════════════════════════════ */
+.scan-line {
     position: absolute;
-    width: 60px;
-    height: 60px;
-    top: -20px;
-    left: -14px;
-    background: radial-gradient(circle, rgba(254, 228, 64, 0.3) 0%, transparent 60%);
-    animation: raysPulse 1.5s ease-in-out infinite;
+    top: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 160px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+    opacity: 0.6;
+    animation: scanMove 3s ease-in-out infinite;
 }
 
-@keyframes raysPulse {
-    0%, 100% { opacity: 0.4; transform: scale(0.9); }
-    50% { opacity: 1; transform: scale(1.2); }
+@keyframes scanMove {
+    0% { top: 30px; opacity: 0; }
+    10% { opacity: 0.8; }
+    90% { opacity: 0.8; }
+    100% { top: 170px; opacity: 0; }
 }
 
-.eye-outer {
+.scan-line-2 {
     position: absolute;
-    width: 32px;
-    height: 18px;
-    border: 2px solid var(--accent-gold);
-    border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
-    animation: eyeBlink 4s ease-in-out infinite;
-    box-shadow: 0 0 15px var(--accent-gold), 0 0 30px rgba(254, 228, 64, 0.3), inset 0 0 10px rgba(254, 228, 64, 0.3);
+    top: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 160px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent-purple), transparent);
+    opacity: 0.6;
+    animation: scanMove 3s ease-in-out infinite 1.5s;
 }
 
-@keyframes eyeBlink {
-    0%, 45%, 55%, 100% { transform: scaleY(1); }
-    50% { transform: scaleY(0.1); }
-}
-
-.eye-iris {
+/* ═══════════════════════════════════════════════════════════════════════════
+   LAYER 7: DATA STREAMS - Flowing Numbers Effect
+   ═══════════════════════════════════════════════════════════════════════════ */
+.data-stream-left {
     position: absolute;
-    width: 14px;
-    height: 14px;
-    background: radial-gradient(circle, var(--accent-gold) 0%, #ff9500 60%, #ff6b00 100%);
-    border-radius: 50%;
-    top: 2px;
-    left: 9px;
-    box-shadow: 0 0 15px var(--accent-gold), 0 0 25px rgba(254, 228, 64, 0.5);
-    animation: irisGlow 2s ease-in-out infinite;
+    top: 50px;
+    left: 25px;
+    width: 20px;
+    height: 100px;
+    overflow: hidden;
+    opacity: 0.4;
 }
 
-@keyframes irisGlow {
-    0%, 100% { box-shadow: 0 0 10px var(--accent-gold); }
-    50% { box-shadow: 0 0 25px var(--accent-gold), 0 0 40px rgba(254, 228, 64, 0.6); }
-}
-
-.eye-pupil {
+.data-stream-left::before {
+    content: '0110 1001 0011 1100 0101 1010 0111 1000';
     position: absolute;
-    width: 6px;
-    height: 6px;
-    background: #000;
-    border-radius: 50%;
-    top: 4px;
-    left: 4px;
-    box-shadow: inset 0 0 3px rgba(254, 228, 64, 0.5);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 8px;
+    color: var(--accent-cyan);
+    writing-mode: vertical-rl;
+    animation: dataFlow 4s linear infinite;
+    text-shadow: 0 0 10px var(--accent-cyan);
 }
 
+@keyframes dataFlow {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(100%); }
+}
+
+.data-stream-right {
+    position: absolute;
+    top: 50px;
+    right: 25px;
+    width: 20px;
+    height: 100px;
+    overflow: hidden;
+    opacity: 0.4;
+}
+
+.data-stream-right::before {
+    content: '1101 0010 1110 0001 1011 0100 1111 0000';
+    position: absolute;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 8px;
+    color: var(--accent-purple);
+    writing-mode: vertical-rl;
+    animation: dataFlow 4s linear infinite 2s;
+    text-shadow: 0 0 10px var(--accent-purple);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LAYER 8: PILLAR LABELS - The 3 Systems
+   ═══════════════════════════════════════════════════════════════════════════ */
+.pillar-label-left {
+    position: absolute;
+    bottom: 0px;
+    left: 10px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 7px;
+    color: var(--accent-cyan);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    opacity: 0.7;
+    text-shadow: 0 0 10px var(--accent-cyan);
+    animation: labelPulse 4s ease-in-out infinite;
+}
+
+.pillar-label-right {
+    position: absolute;
+    bottom: 0px;
+    right: 5px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 7px;
+    color: var(--accent-purple);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    opacity: 0.7;
+    text-shadow: 0 0 10px var(--accent-purple);
+    animation: labelPulse 4s ease-in-out infinite 1s;
+}
+
+.pillar-label-center {
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 7px;
+    color: var(--accent-gold);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    opacity: 0.7;
+    text-shadow: 0 0 10px var(--accent-gold);
+    animation: labelPulse 4s ease-in-out infinite 2s;
+}
+
+@keyframes labelPulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LAYER 9: AMBIENT GLOW - Overall Atmosphere
+   ═══════════════════════════════════════════════════════════════════════════ */
+.ambient-glow {
+    position: absolute;
+    width: 300px;
+    height: 250px;
+    top: -15px;
+    left: -30px;
+    background: radial-gradient(ellipse at center, 
+        rgba(0, 245, 212, 0.15) 0%, 
+        rgba(155, 93, 229, 0.1) 30%,
+        rgba(254, 228, 64, 0.05) 50%,
+        transparent 70%);
+    filter: blur(20px);
+    animation: ambientPulse 5s ease-in-out infinite;
+    pointer-events: none;
+}
+
+@keyframes ambientPulse {
+    0%, 100% { opacity: 0.6; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.1); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HERO CONTENT - EPIC TYPOGRAPHY
+   ═══════════════════════════════════════════════════════════════════════════ */
 .hero-content {
     position: relative;
     z-index: 2;
     text-align: center;
+    margin-top: 15px;
 }
 
 .brand-name {
-    font-family: var(--font-display);
-    font-size: var(--text-3xl);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 3.2rem;
     font-weight: 900;
-    letter-spacing: 8px;
-    background: var(--gradient-premium);
-    background-size: 200% 200%;
+    letter-spacing: 14px;
+    background: linear-gradient(135deg, 
+        var(--accent-cyan) 0%, 
+        #00d4ff 20%, 
+        #fff 40%,
+        var(--accent-purple) 60%, 
+        #f15bb5 80%, 
+        var(--accent-cyan) 100%);
+    background-size: 400% 400%;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
     margin: 0;
     text-transform: uppercase;
-    animation: gradientFlow 4s ease infinite;
-    text-shadow: 0 0 40px rgba(0, 245, 212, 0.3);
+    animation: brandShimmer 8s ease-in-out infinite;
+    filter: drop-shadow(0 0 40px rgba(0, 245, 212, 0.4));
 }
 
-@keyframes gradientFlow {
+@keyframes brandShimmer {
     0%, 100% { background-position: 0% 50%; }
+    25% { background-position: 50% 0%; }
     50% { background-position: 100% 50%; }
+    75% { background-position: 50% 100%; }
 }
 
 .brand-tagline {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-    letter-spacing: 4px;
-    margin-top: 8px;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1.1rem;
+    color: rgba(255, 255, 255, 0.5);
+    letter-spacing: 10px;
+    margin-top: 15px;
     text-transform: uppercase;
-    font-weight: 500;
-    opacity: 0.8;
-}
-    transform: translate(-50%, -50%);
-    background: radial-gradient(circle, rgba(0,229,199,0.25) 0%, transparent 60%);
-    animation: rayPulse 2.5s ease-in-out infinite;
+    font-weight: 600;
+    animation: taglineFade 5s ease-in-out infinite;
 }
 
-@keyframes rayPulse {
-    0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.4; }
-    50% { transform: translate(-50%, -50%) scale(1.4); opacity: 0.7; }
-}
-
-.hero-content {
-    position: relative;
-    z-index: 2;
-}
-
-.brand-name {
-    font-family: var(--font-display);
-    font-size: var(--text-2xl);
-    font-weight: 800;
-    letter-spacing: 4px;
-    background: var(--gradient-premium);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    margin: 0;
-    text-transform: uppercase;
-}
-
-.brand-tagline {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-muted);
-    letter-spacing: 3px;
-    margin-top: 4px;
-    text-transform: uppercase;
-    font-weight: 500;
+@keyframes taglineFade {
+    0%, 100% { opacity: 0.5; letter-spacing: 10px; color: rgba(255, 255, 255, 0.5); }
+    50% { opacity: 1; letter-spacing: 14px; color: rgba(0, 245, 212, 0.8); }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -4154,14 +4630,48 @@ def main():
     st.markdown("""
     <div class="hero-banner">
         <div class="prophet-logo">
-            <div class="logo-pyramid">
-                <div class="pyramid-body"></div>
-                <div class="pyramid-inner"></div>
-                <div class="eye-container">
-                    <div class="eye-rays"></div>
-                    <div class="eye-outer"></div>
-                    <div class="eye-iris"><div class="eye-pupil"></div></div>
-                </div>
+            <!-- Layer 1: Particle Fields -->
+            <div class="particle-field"></div>
+            <div class="particle-field-inner"></div>
+            
+            <!-- Layer 2: Triple Orbital Rings (The 3 Systems) -->
+            <div class="orbital-ring-1"></div>
+            <div class="orbital-ring-2"></div>
+            <div class="orbital-ring-3"></div>
+            
+            <!-- Layer 9: Ambient Glow (behind pyramid) -->
+            <div class="ambient-glow"></div>
+            
+            <!-- Layer 3: The Holographic Pyramid -->
+            <div class="pyramid-container">
+                <div class="pyramid-base"></div>
+                <div class="pyramid-main"></div>
+                <div class="pyramid-layer-2"></div>
+                <div class="pyramid-layer-3"></div>
+                
+                <!-- Layer 4: Energy Vertices -->
+                <div class="vertex-top"></div>
+                <div class="vertex-left"></div>
+                <div class="vertex-right"></div>
+                <div class="vertex-center"></div>
+                
+                <!-- Layer 5: Energy Beams -->
+                <div class="energy-beam-left"></div>
+                <div class="energy-beam-right"></div>
+                <div class="energy-beam-base"></div>
+                
+                <!-- Layer 6: Scan Lines -->
+                <div class="scan-line"></div>
+                <div class="scan-line-2"></div>
+                
+                <!-- Layer 7: Data Streams -->
+                <div class="data-stream-left"></div>
+                <div class="data-stream-right"></div>
+                
+                <!-- Layer 8: Pillar Labels -->
+                <div class="pillar-label-left">RTH</div>
+                <div class="pillar-label-right">O/N</div>
+                <div class="pillar-label-center">VIX</div>
             </div>
         </div>
         <div class="hero-content">
