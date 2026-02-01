@@ -2051,7 +2051,7 @@ CSS_STYLES = """
 }
 
 .brand-name {
-    font-family: var(--font-body);
+    font-family: var(--font-display);
     font-size: var(--text-2xl);
     font-weight: 800;
     letter-spacing: 4px;
@@ -2190,11 +2190,11 @@ CSS_STYLES = """
 }
 
 .indicator-title {
-    font-family: var(--font-body);
+    font-family: var(--font-display);
     font-size: var(--text-sm);
     font-weight: 700;
     color: var(--text-bright);
-    letter-spacing: 0.3px;
+    letter-spacing: 0.5px;
 }
 
 .indicator-row {
@@ -2442,7 +2442,7 @@ CSS_STYLES = """
     gap: 12px;
     padding: 14px 24px;
     border-radius: var(--radius-md);
-    font-family: var(--font-body);
+    font-family: var(--font-display);
     font-size: var(--text-sm);
     font-weight: 800;
     letter-spacing: 2px;
@@ -2617,10 +2617,11 @@ CSS_STYLES = """
 .prior-levels-icon { font-size: var(--text-lg); }
 
 .prior-levels-title {
-    font-family: var(--font-body);
+    font-family: var(--font-display);
     font-size: var(--text-sm);
     font-weight: 700;
     color: var(--text-bright);
+    letter-spacing: 0.5px;
 }
 
 .prior-levels-anchor {
@@ -2761,10 +2762,11 @@ CSS_STYLES = """
 }
 
 .confluence-title {
-    font-family: var(--font-body);
+    font-family: var(--font-display);
     font-size: var(--text-md);
     font-weight: 700;
     color: var(--text-bright);
+    letter-spacing: 0.5px;
 }
 
 .confluence-score {
@@ -3136,13 +3138,14 @@ CSS_STYLES = """
 }
 
 .session-name {
-    font-family: var(--font-body);
+    font-family: var(--font-display);
     font-size: var(--text-sm);
     font-weight: 700;
     color: var(--text-bright);
     margin-bottom: 14px;
     position: relative;
     z-index: 1;
+    letter-spacing: 0.5px;
 }
 
 .session-data {
@@ -3222,11 +3225,12 @@ CSS_STYLES = """
 .alert-content { flex: 1; }
 
 .alert-title {
-    font-family: var(--font-body);
+    font-family: var(--font-display);
     font-size: var(--text-sm);
     font-weight: 700;
     color: var(--text-bright);
     margin-bottom: 6px;
+    letter-spacing: 0.5px;
 }
 
 .alert-text {
@@ -3266,11 +3270,12 @@ CSS_STYLES = """
 }
 
 .no-trade-title {
-    font-family: var(--font-body);
+    font-family: var(--font-display);
     font-size: var(--text-xl);
     font-weight: 800;
     color: var(--bear);
     margin-bottom: 12px;
+    letter-spacing: 1px;
 }
 
 .no-trade-reason {
