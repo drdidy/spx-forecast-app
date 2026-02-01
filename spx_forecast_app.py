@@ -2216,8 +2216,9 @@ CSS_STYLES = """
 .indicator-value {
     color: var(--text-bright);
     font-weight: 700;
-    font-family: var(--font-mono);
+    font-family: var(--font-display);
     font-size: var(--text-sm);
+    letter-spacing: 0.5px;
 }
 
 .indicator-status {
@@ -2624,10 +2625,11 @@ CSS_STYLES = """
 
 .prior-levels-anchor {
     margin-left: auto;
-    font-family: var(--font-mono);
+    font-family: var(--font-display);
     font-size: var(--text-sm);
     color: var(--accent-cyan);
     font-weight: 700;
+    letter-spacing: 0.5px;
 }
 
 .prior-levels-grid {
@@ -2666,11 +2668,12 @@ CSS_STYLES = """
 }
 
 .prior-level-value {
-    font-family: var(--font-body);
+    font-family: var(--font-display);
     font-size: var(--text-lg);
     font-weight: 800;
     color: var(--text-bright);
     margin-bottom: 8px;
+    letter-spacing: 0.5px;
 }
 
 .prior-level-item.prior-level-buy .prior-level-action { color: var(--bull); }
@@ -3002,10 +3005,11 @@ CSS_STYLES = """
 }
 
 .trade-metric-value {
-    font-family: var(--font-body);
+    font-family: var(--font-display);
     font-size: var(--text-lg);
     font-weight: 800;
     color: var(--text-bright);
+    letter-spacing: 0.5px;
 }
 
 .trade-targets {
@@ -3054,10 +3058,11 @@ CSS_STYLES = """
 }
 
 .target-price {
-    font-family: var(--font-body);
+    font-family: var(--font-display);
     font-size: var(--text-lg);
     font-weight: 800;
     color: var(--text-bright);
+    letter-spacing: 0.5px;
 }
 
 .target-profit {
@@ -3152,9 +3157,10 @@ CSS_STYLES = """
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-family: var(--font-mono);
+    font-family: var(--font-display);
     font-size: var(--text-sm);
     font-weight: 600;
+    letter-spacing: 0.5px;
 }
 
 .session-high { color: var(--bear); }
