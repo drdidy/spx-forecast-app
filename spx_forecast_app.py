@@ -3966,15 +3966,34 @@ CSS_STYLES = """
     margin-top: 2px;
 }
 
+.alert-icon-large {
+    font-size: 3.5rem;
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 20px rgba(0, 245, 212, 0.5));
+    line-height: 1;
+}
+
+.alert-box-warning .alert-icon-large {
+    filter: drop-shadow(0 0 25px rgba(245, 184, 0, 0.6));
+}
+
+.alert-box-danger .alert-icon-large {
+    filter: drop-shadow(0 0 25px rgba(255, 82, 99, 0.6));
+}
+
+.alert-box-success .alert-icon-large {
+    filter: drop-shadow(0 0 25px rgba(0, 214, 125, 0.6));
+}
+
 .alert-content { flex: 1; }
 
 .alert-title {
     font-family: var(--font-display);
-    font-size: var(--text-sm);
+    font-size: var(--text-md);
     font-weight: 700;
     color: var(--text-bright);
     margin-bottom: 6px;
-    letter-spacing: 0.5px;
+    letter-spacing: 1px;
 }
 
 .alert-text {
@@ -3982,6 +4001,16 @@ CSS_STYLES = """
     font-size: var(--text-sm);
     color: var(--text-secondary);
     line-height: 1.5;
+}
+
+.alert-values {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    letter-spacing: 0.5px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -4854,10 +4883,18 @@ def main():
     # Retail positioning alert
     if retail_data["positioning"] != "BALANCED":
         alert_class = "warning" if "HEAVY" in retail_data["positioning"] else "danger"
-        alert_icon = "⚡" if "EXTREME" in retail_data["positioning"] else "⚠"
-        st.markdown(f'<div class="alert-box alert-box-{alert_class}"><span class="alert-icon">{alert_icon}</span><div class="alert-content"><div class="alert-title">{retail_data["positioning"]}</div><div class="alert-text">{retail_data["warning"]}</div></div></div>', unsafe_allow_html=True)
+        # Bull icon for CALL buying (fade to puts), Bear icon for PUT buying (fade to calls)
+        alert_icon = "🐂" if "CALL" in retail_data["positioning"] else "🐻"
+        # Show the actual VIX values so user can verify data is real
+        vix_vals = f"VIX: {retail_data['vix']} | VIX3M: {retail_data['vix3m']} | Spread: {retail_data['spread']}" if retail_data['vix'] else "Data unavailable"
+        st.markdown(f'<div class="alert-box alert-box-{alert_class}"><div class="alert-icon-large">{alert_icon}</div><div class="alert-content"><div class="alert-title">{retail_data["positioning"]}</div><div class="alert-text">{retail_data["warning"]}</div><div class="alert-values">{vix_vals}</div></div></div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div class="alert-box alert-box-success"><span class="alert-icon">✓</span><div class="alert-content"><div class="alert-title">BALANCED POSITIONING</div><div class="alert-text">No crowd pressure detected - trade freely with structure</div></div></div>', unsafe_allow_html=True)
+        # Check if we actually have data or if it failed silently
+        if retail_data['vix'] is not None:
+            vix_vals = f"VIX: {retail_data['vix']} | VIX3M: {retail_data['vix3m']} | Spread: {retail_data['spread']}"
+            st.markdown(f'<div class="alert-box alert-box-success"><div class="alert-icon-large">⚖️</div><div class="alert-content"><div class="alert-title">BALANCED POSITIONING</div><div class="alert-text">No crowd pressure detected - trade freely with structure</div><div class="alert-values">{vix_vals}</div></div></div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="alert-box alert-box-info"><div class="alert-icon-large">❓</div><div class="alert-content"><div class="alert-title">POSITIONING UNKNOWN</div><div class="alert-text">Could not fetch VIX term structure data</div></div></div>', unsafe_allow_html=True)
     
     # VIX Position
     if vix_range["available"]:
