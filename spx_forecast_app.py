@@ -76,13 +76,13 @@ def blocks_between(start, end):
 def trading_blocks_between(start_time, end_time):
     """Calculate trading blocks between two times for prior day projections.
     
-    For Friday → Monday (or any cross-day), we count:
-    - Blocks from anchor time to Friday RTH close (3:00 PM CT)
-    - Full overnight session Sunday 5PM to Monday reference time
-    - This treats the weekend as a continuous overnight session
+    For cross-day calculations, we count:
+    - Blocks from anchor time to that day's RTH close (3:00 PM CT)
+    - Overnight blocks to the next trading day's reference time
+    - Weekend is treated as one extended overnight session
     
-    Overnight ES session: Sunday 5:00 PM CT to Friday 4:00 PM CT (with daily break 4-5 PM)
-    RTH: 8:30 AM - 3:00 PM CT
+    Key insight: The TRADING reference time matters, not the calendar date.
+    If user picks Sunday or Monday, we project to MONDAY's reference time.
     """
     if start_time is None or end_time is None:
         return 0
@@ -98,10 +98,6 @@ def trading_blocks_between(start_time, end_time):
     if start_date == end_date:
         return blocks_between(start_time, end_time)
     
-    # For cross-day calculations (including weekends):
-    # Count from anchor time to end of that day's RTH (3:00 PM)
-    # Plus overnight session to the reference time next trading day
-    
     # Blocks from start_time to 3:00 PM CT (end of RTH) on start day
     start_day_close = start_time.replace(hour=15, minute=0, second=0, microsecond=0)
     if start_time < start_day_close:
@@ -109,48 +105,50 @@ def trading_blocks_between(start_time, end_time):
     else:
         blocks_to_close = 0
     
-    # Check if this is a weekend crossing (Friday to Monday)
-    start_weekday = start_date.weekday()  # Friday = 4
-    end_weekday = end_date.weekday()      # Monday = 0
-    
-    # Count trading days between (not including start and end dates)
-    trading_days_between = 0
-    current = start_date + timedelta(days=1)
-    while current < end_date:
-        if current.weekday() < 5:  # Monday-Friday
-            trading_days_between += 1
-        current += timedelta(days=1)
-    
-    # Blocks for full trading days between (23 hours of futures = 46 blocks per day)
-    # But for RTH-anchored projections, use ~26 blocks per full day (RTH + overnight to next open)
-    BLOCKS_PER_FULL_DAY = 26  # Approximate: 13 RTH blocks + 13 overnight blocks
-    
-    blocks_middle_days = trading_days_between * BLOCKS_PER_FULL_DAY
-    
-    # Blocks from market open to end_time on final day
-    # Futures open Sunday 5 PM, but for RTH reference we use 8:30 AM
+    # Blocks from 8:30 AM to end_time on final day
     end_day_open = end_time.replace(hour=8, minute=30, second=0, microsecond=0)
     if end_time >= end_day_open:
         blocks_from_open = int((end_time - end_day_open).total_seconds() / 1800)
     else:
         blocks_from_open = 0
     
-    # For Friday → Monday specifically:
-    # Friday close (3PM) to Sunday open (5PM) = ~50 hours but market closed
-    # Sunday 5PM to Monday 9AM = 16 hours = 32 blocks
-    # We want total ~37-42 blocks for Friday afternoon to Monday 9AM
+    # Check if this crosses a weekend
+    # Weekend crossing = start is Friday (4) or earlier, and end is Saturday (5), Sunday (6), or Monday (0)
+    # OR start is Friday and there's a weekend between start and end
+    start_weekday = start_date.weekday()
+    end_weekday = end_date.weekday()
     
-    # Simplified: Friday 3PM to Monday 8:30AM overnight = ~32 blocks
-    # Plus blocks from anchor to Friday close
-    # Plus blocks from Monday 8:30 to reference time
+    # Count weekend days between start and end
+    crosses_weekend = False
+    current = start_date + timedelta(days=1)
+    while current <= end_date:
+        if current.weekday() in [5, 6]:  # Saturday or Sunday
+            crosses_weekend = True
+            break
+        current += timedelta(days=1)
     
-    OVERNIGHT_WEEKEND_BLOCKS = 32  # Sunday 5PM to Monday 8:30AM
+    # Also check if end_date itself is a weekend (user picked Sunday)
+    if end_weekday in [5, 6]:
+        crosses_weekend = True
     
-    if start_weekday == 4 and end_weekday == 0:  # Friday to Monday
+    if crosses_weekend:
+        # Weekend overnight: Friday 3PM → Monday 8:30AM = ~32 blocks for the overnight portion
+        OVERNIGHT_WEEKEND_BLOCKS = 32
         total_blocks = blocks_to_close + OVERNIGHT_WEEKEND_BLOCKS + blocks_from_open
     else:
-        # Regular overnight (non-weekend)
-        OVERNIGHT_REGULAR_BLOCKS = 17  # ~8.5 hours from 3PM to next day 8:30AM equivalent
+        # Regular overnight (weekday to weekday, no weekend)
+        # Count trading days between
+        trading_days_between = 0
+        current = start_date + timedelta(days=1)
+        while current < end_date:
+            if current.weekday() < 5:
+                trading_days_between += 1
+            current += timedelta(days=1)
+        
+        BLOCKS_PER_FULL_DAY = 26
+        OVERNIGHT_REGULAR_BLOCKS = 17
+        
+        blocks_middle_days = trading_days_between * BLOCKS_PER_FULL_DAY
         total_blocks = blocks_to_close + blocks_middle_days + OVERNIGHT_REGULAR_BLOCKS + blocks_from_open
     
     return max(0, total_blocks)
@@ -176,6 +174,15 @@ def get_prior_trading_day(ref_date):
     while prior.weekday() >= 5:
         prior -= timedelta(days=1)
     return prior
+
+def get_actual_trading_day(selected_date):
+    """If user selects a weekend, return the next Monday (actual trading day).
+    Otherwise return the selected date."""
+    if selected_date.weekday() == 5:  # Saturday
+        return selected_date + timedelta(days=2)  # Monday
+    elif selected_date.weekday() == 6:  # Sunday
+        return selected_date + timedelta(days=1)  # Monday
+    return selected_date
 # ═══════════════════════════════════════════════════════════════════════════════
 # BLACK-SCHOLES PRICING
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3508,10 +3515,14 @@ def main():
         else:
             current_es = fetch_es_current() or 6050
         
+        # --- IMPORTANT: Adjust trading date for weekends ---
+        # If user selects Saturday/Sunday, use Monday as actual trading date
+        actual_trading_date = get_actual_trading_day(inputs["trading_date"])
+        
         # --- Session Data ---
         if inputs["manual_sessions"] is not None:
             m = inputs["manual_sessions"]
-            overnight_day = get_prior_trading_day(inputs["trading_date"])
+            overnight_day = get_prior_trading_day(actual_trading_date)
             sydney = {
                 "high": m["sydney"]["high"], "low": m["sydney"]["low"],
                 "high_time": CT.localize(datetime.combine(overnight_day, time(18, 0))),
@@ -3520,16 +3531,16 @@ def main():
             tokyo = {
                 "high": m["tokyo"]["high"], "low": m["tokyo"]["low"],
                 "high_time": CT.localize(datetime.combine(overnight_day, time(23, 0))),
-                "low_time": CT.localize(datetime.combine(inputs["trading_date"], time(0, 30)))
+                "low_time": CT.localize(datetime.combine(actual_trading_date, time(0, 30)))
             }
             london = {
                 "high": m["london"]["high"], "low": m["london"]["low"],
-                "high_time": CT.localize(datetime.combine(inputs["trading_date"], time(3, 0))),
-                "low_time": CT.localize(datetime.combine(inputs["trading_date"], time(4, 0)))
+                "high_time": CT.localize(datetime.combine(actual_trading_date, time(3, 0))),
+                "low_time": CT.localize(datetime.combine(actual_trading_date, time(4, 0)))
             }
         else:
             es_candles = fetch_es_candles()
-            sessions = extract_sessions(es_candles, inputs["trading_date"]) or {}
+            sessions = extract_sessions(es_candles, actual_trading_date) or {}
             sydney = sessions.get("sydney")
             tokyo = sessions.get("tokyo")
             london = sessions.get("london")
@@ -3553,7 +3564,7 @@ def main():
             }
         else:
             es_candles = fetch_es_candles()
-            sessions = extract_sessions(es_candles, inputs["trading_date"]) or {}
+            sessions = extract_sessions(es_candles, actual_trading_date) or {}
             overnight = sessions.get("overnight")
         
         # --- VIX Current ---
@@ -3577,7 +3588,7 @@ def main():
             }
         else:
             vix_range = fetch_vix_overnight_range(
-                inputs["trading_date"], 
+                actual_trading_date, 
                 inputs["vix_zone_start"].hour, inputs["vix_zone_start"].minute, 
                 inputs["vix_zone_end"].hour, inputs["vix_zone_end"].minute
             )
@@ -3587,8 +3598,10 @@ def main():
         ema_data = fetch_es_with_ema()
         
         # --- Prior Day RTH Data ---
+        # actual_trading_date was already set at the beginning (adjusts weekends to Monday)
+        
         if inputs["manual_prior"] is not None:
-            prior_day = get_prior_trading_day(inputs["trading_date"])
+            prior_day = get_prior_trading_day(actual_trading_date)
             hw_hour = inputs["manual_prior"].get("hw_hour", 12)
             lc_hour = inputs["manual_prior"].get("lc_hour", 12)
             prior_rth = {
@@ -3602,12 +3615,14 @@ def main():
                 "available": True
             }
         else:
-            prior_rth = fetch_prior_day_rth(inputs["trading_date"])
+            prior_rth = fetch_prior_day_rth(actual_trading_date)
     
     offset = inputs["offset"]
     current_spx = round(current_es - offset, 2)
     channel_type, channel_reason, upper_pivot, lower_pivot, upper_time, lower_time = determine_channel(sydney, tokyo, london)
-    ref_time_dt = CT.localize(datetime.combine(inputs["trading_date"], time(*inputs["ref_time"])))
+    
+    # Reference time uses actual trading day
+    ref_time_dt = CT.localize(datetime.combine(actual_trading_date, time(*inputs["ref_time"])))
     ceiling_es, floor_es = calc_channel_levels(upper_pivot, lower_pivot, upper_time, lower_time, ref_time_dt, channel_type)
     
     if ceiling_es is None:
@@ -3698,10 +3713,15 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     col1, col2, col3 = st.columns([2, 1, 2])
     with col1:
+        # Show actual trading date (with note if user selected weekend)
+        date_display = actual_trading_date.strftime("%A, %B %d, %Y")
+        weekend_note = ""
+        if inputs["trading_date"] != actual_trading_date:
+            weekend_note = f" (adjusted from {inputs['trading_date'].strftime('%A')})"
         st.markdown(f"""
         <div style="display:flex;align-items:center;gap:8px;padding:10px 0;">
             <span style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:rgba(255,255,255,0.5);">
-                📅 {inputs["trading_date"].strftime("%A, %B %d, %Y")}
+                📅 {date_display}{weekend_note}
             </span>
         </div>
         """, unsafe_allow_html=True)
