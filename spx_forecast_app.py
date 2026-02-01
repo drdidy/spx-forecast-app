@@ -67,9 +67,93 @@ def now_ct():
     return datetime.now(CT)
 
 def blocks_between(start, end):
+    """Calculate 30-minute blocks between two times.
+    Used for intraday projections within the same trading session."""
     if start is None or end is None or end <= start:
         return 0
     return max(0, int((end - start).total_seconds() / 1800))
+
+def trading_blocks_between(start_time, end_time):
+    """Calculate trading blocks between two times for prior day projections.
+    
+    For Friday → Monday (or any cross-day), we count:
+    - Blocks from anchor time to Friday RTH close (3:00 PM CT)
+    - Full overnight session Sunday 5PM to Monday reference time
+    - This treats the weekend as a continuous overnight session
+    
+    Overnight ES session: Sunday 5:00 PM CT to Friday 4:00 PM CT (with daily break 4-5 PM)
+    RTH: 8:30 AM - 3:00 PM CT
+    """
+    if start_time is None or end_time is None:
+        return 0
+    
+    # Ensure both are timezone-aware
+    if start_time.tzinfo is None or end_time.tzinfo is None:
+        return blocks_between(start_time, end_time)
+    
+    start_date = start_time.date()
+    end_date = end_time.date()
+    
+    # If same day, use simple calculation
+    if start_date == end_date:
+        return blocks_between(start_time, end_time)
+    
+    # For cross-day calculations (including weekends):
+    # Count from anchor time to end of that day's RTH (3:00 PM)
+    # Plus overnight session to the reference time next trading day
+    
+    # Blocks from start_time to 3:00 PM CT (end of RTH) on start day
+    start_day_close = start_time.replace(hour=15, minute=0, second=0, microsecond=0)
+    if start_time < start_day_close:
+        blocks_to_close = int((start_day_close - start_time).total_seconds() / 1800)
+    else:
+        blocks_to_close = 0
+    
+    # Check if this is a weekend crossing (Friday to Monday)
+    start_weekday = start_date.weekday()  # Friday = 4
+    end_weekday = end_date.weekday()      # Monday = 0
+    
+    # Count trading days between (not including start and end dates)
+    trading_days_between = 0
+    current = start_date + timedelta(days=1)
+    while current < end_date:
+        if current.weekday() < 5:  # Monday-Friday
+            trading_days_between += 1
+        current += timedelta(days=1)
+    
+    # Blocks for full trading days between (23 hours of futures = 46 blocks per day)
+    # But for RTH-anchored projections, use ~26 blocks per full day (RTH + overnight to next open)
+    BLOCKS_PER_FULL_DAY = 26  # Approximate: 13 RTH blocks + 13 overnight blocks
+    
+    blocks_middle_days = trading_days_between * BLOCKS_PER_FULL_DAY
+    
+    # Blocks from market open to end_time on final day
+    # Futures open Sunday 5 PM, but for RTH reference we use 8:30 AM
+    end_day_open = end_time.replace(hour=8, minute=30, second=0, microsecond=0)
+    if end_time >= end_day_open:
+        blocks_from_open = int((end_time - end_day_open).total_seconds() / 1800)
+    else:
+        blocks_from_open = 0
+    
+    # For Friday → Monday specifically:
+    # Friday close (3PM) to Sunday open (5PM) = ~50 hours but market closed
+    # Sunday 5PM to Monday 9AM = 16 hours = 32 blocks
+    # We want total ~37-42 blocks for Friday afternoon to Monday 9AM
+    
+    # Simplified: Friday 3PM to Monday 8:30AM overnight = ~32 blocks
+    # Plus blocks from anchor to Friday close
+    # Plus blocks from Monday 8:30 to reference time
+    
+    OVERNIGHT_WEEKEND_BLOCKS = 32  # Sunday 5PM to Monday 8:30AM
+    
+    if start_weekday == 4 and end_weekday == 0:  # Friday to Monday
+        total_blocks = blocks_to_close + OVERNIGHT_WEEKEND_BLOCKS + blocks_from_open
+    else:
+        # Regular overnight (non-weekend)
+        OVERNIGHT_REGULAR_BLOCKS = 17  # ~8.5 hours from 3PM to next day 8:30AM equivalent
+        total_blocks = blocks_to_close + blocks_middle_days + OVERNIGHT_REGULAR_BLOCKS + blocks_from_open
+    
+    return max(0, total_blocks)
 
 def save_inputs(data):
     try:
@@ -602,15 +686,15 @@ def calc_prior_day_targets(prior_rth, ref_time):
     result["highest_wick"] = prior_rth["highest_wick"]
     result["lowest_close"] = prior_rth["lowest_close"]
     
-    # Calculate blocks from highest wick time
+    # Calculate blocks from highest wick time (using trading blocks for cross-day)
     if prior_rth["highest_wick"] is not None and prior_rth["highest_wick_time"]:
-        blocks = blocks_between(prior_rth["highest_wick_time"], ref_time)
+        blocks = trading_blocks_between(prior_rth["highest_wick_time"], ref_time)
         result["highest_wick_ascending"] = round(prior_rth["highest_wick"] + SLOPE * blocks, 2)
         result["highest_wick_descending"] = round(prior_rth["highest_wick"] - SLOPE * blocks, 2)
     
-    # Calculate blocks from lowest close time
+    # Calculate blocks from lowest close time (using trading blocks for cross-day)
     if prior_rth["lowest_close"] is not None and prior_rth["lowest_close_time"]:
-        blocks = blocks_between(prior_rth["lowest_close_time"], ref_time)
+        blocks = trading_blocks_between(prior_rth["lowest_close_time"], ref_time)
         result["lowest_close_ascending"] = round(prior_rth["lowest_close"] + SLOPE * blocks, 2)
         result["lowest_close_descending"] = round(prior_rth["lowest_close"] - SLOPE * blocks, 2)
     
@@ -3278,12 +3362,19 @@ def sidebar():
         use_manual_prior = st.checkbox("Manual Prior Day Override", value=False)
         if use_manual_prior:
             col1, col2 = st.columns(2)
-            prior_highest_wick = col1.number_input("Highest Wick", value=6100.0, step=0.5, help="Highest high of any RTH candle")
-            prior_lowest_close = col2.number_input("Lowest Close", value=6050.0, step=0.5, help="Lowest close of any RTH candle")
-            prior_close = st.number_input("RTH Close", value=6075.0, step=0.5, help="Final RTH close")
+            prior_highest_wick = col1.number_input("Highest Wick (ES)", value=6100.0, step=0.5, help="Highest high of any RTH candle")
+            prior_lowest_close = col2.number_input("Lowest Close (ES)", value=6050.0, step=0.5, help="Lowest close of any RTH candle")
+            
+            col3, col4 = st.columns(2)
+            prior_hw_hour = col3.selectbox("HW Time (Hour)", options=list(range(8, 16)), index=4, help="Hour when highest wick occurred")
+            prior_lc_hour = col4.selectbox("LC Time (Hour)", options=list(range(8, 16)), index=4, help="Hour when lowest close occurred")
+            
+            prior_close = st.number_input("RTH Close (ES)", value=6075.0, step=0.5, help="Final RTH close")
         else:
             prior_highest_wick = None
             prior_lowest_close = None
+            prior_hw_hour = 12
+            prior_lc_hour = 12
             prior_close = None
         
         st.divider()
@@ -3389,7 +3480,7 @@ def sidebar():
         # Manual overrides
         "manual_vix": manual_vix,
         "manual_vix_range": {"low": manual_vix_low, "high": manual_vix_high} if use_manual_vix_range else None,
-        "manual_prior": {"highest_wick": prior_highest_wick, "lowest_close": prior_lowest_close, "close": prior_close} if use_manual_prior else None,
+        "manual_prior": {"highest_wick": prior_highest_wick, "lowest_close": prior_lowest_close, "close": prior_close, "hw_hour": prior_hw_hour, "lc_hour": prior_lc_hour} if use_manual_prior else None,
         "manual_overnight": {"high": on_high, "low": on_low} if use_manual_overnight else None,
         "manual_sessions": {
             "sydney": {"high": sydney_high, "low": sydney_low},
@@ -3498,11 +3589,13 @@ def main():
         # --- Prior Day RTH Data ---
         if inputs["manual_prior"] is not None:
             prior_day = get_prior_trading_day(inputs["trading_date"])
+            hw_hour = inputs["manual_prior"].get("hw_hour", 12)
+            lc_hour = inputs["manual_prior"].get("lc_hour", 12)
             prior_rth = {
                 "highest_wick": inputs["manual_prior"]["highest_wick"],
-                "highest_wick_time": CT.localize(datetime.combine(prior_day, time(12, 0))),
+                "highest_wick_time": CT.localize(datetime.combine(prior_day, time(hw_hour, 0))),
                 "lowest_close": inputs["manual_prior"]["lowest_close"],
-                "lowest_close_time": CT.localize(datetime.combine(prior_day, time(12, 0))),
+                "lowest_close_time": CT.localize(datetime.combine(prior_day, time(lc_hour, 0))),
                 "high": inputs["manual_prior"]["highest_wick"],
                 "low": inputs["manual_prior"]["lowest_close"],
                 "close": inputs["manual_prior"]["close"],
