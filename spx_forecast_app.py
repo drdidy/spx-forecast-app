@@ -2137,14 +2137,14 @@ CSS_STYLES = """
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
-/* Indicator Cards - Equal height guaranteed */
+/* Indicator Cards - Equal height guaranteed with enhanced icons */
 .indicator-card {
-    background: var(--bg-card);
+    background: linear-gradient(145deg, var(--bg-card) 0%, var(--bg-panel) 100%);
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: 20px;
+    border-radius: var(--radius-xl);
+    padding: 24px;
     height: 100%;
-    min-height: 160px;
+    min-height: 180px;
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
@@ -2158,43 +2158,62 @@ CSS_STYLES = """
     inset: 0;
     background: var(--gradient-card);
     pointer-events: none;
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
+}
+
+.indicator-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--gradient-premium);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    opacity: 0;
+    transition: opacity 0.3s ease;
 }
 
 .indicator-card:hover {
     border-color: var(--border-accent);
-    box-shadow: var(--shadow-glow-cyan);
+    box-shadow: var(--shadow-glow-cyan), var(--shadow-md);
+    transform: translateY(-3px);
+}
+
+.indicator-card:hover::after {
+    opacity: 1;
 }
 
 .indicator-header {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-    padding-bottom: 14px;
+    gap: 14px;
+    margin-bottom: 18px;
+    padding-bottom: 16px;
     border-bottom: 1px solid var(--border-subtle);
     position: relative;
     z-index: 1;
 }
 
 .indicator-icon {
-    width: 36px;
-    height: 36px;
+    width: 48px;
+    height: 48px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--bg-card) 100%);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    font-size: var(--text-md);
+    background: linear-gradient(135deg, rgba(0, 245, 212, 0.1) 0%, rgba(0, 187, 249, 0.05) 100%);
+    border: 1px solid var(--accent-cyan);
+    border-radius: var(--radius-lg);
+    font-size: 1.5rem;
+    box-shadow: 0 0 15px rgba(0, 245, 212, 0.2);
 }
 
 .indicator-title {
     font-family: var(--font-display);
-    font-size: var(--text-sm);
+    font-size: var(--text-md);
     font-weight: 700;
     color: var(--text-bright);
-    letter-spacing: 0.5px;
+    letter-spacing: 1px;
 }
 
 .indicator-row {
@@ -2252,64 +2271,155 @@ CSS_STYLES = """
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   SECTION HEADERS - Premium Dividers
+   SECTION HEADERS - Premium Dividers with Large Icons
    ═══════════════════════════════════════════════════════════════════════════ */
 .section-header {
     display: flex;
+    flex-direction: column;
     align-items: center;
     gap: 16px;
-    margin: 44px 0 24px 0;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border-subtle);
+    margin: 56px 0 32px 0;
+    padding: 32px 0;
     position: relative;
+    text-align: center;
 }
 
 .section-header::before {
     content: '';
     position: absolute;
-    bottom: -1px;
-    left: 0;
-    width: 120px;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
     height: 3px;
     background: var(--gradient-premium);
-    box-shadow: 0 0 15px rgba(0, 245, 212, 0.4);
+    box-shadow: 0 0 20px rgba(0, 245, 212, 0.5);
     border-radius: 2px;
 }
 
+.section-header::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 120px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+}
+
 .section-icon {
-    width: 56px;
-    height: 56px;
+    width: 80px;
+    height: 80px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, rgba(0, 245, 212, 0.15) 0%, rgba(0, 187, 249, 0.1) 100%);
-    border: 2px solid var(--accent-cyan);
-    border-radius: var(--radius-lg);
-    font-size: 1.8rem;
-    box-shadow: 0 0 25px rgba(0, 245, 212, 0.3), inset 0 0 20px rgba(0, 245, 212, 0.1);
+    background: linear-gradient(145deg, rgba(0, 245, 212, 0.12) 0%, rgba(0, 187, 249, 0.08) 50%, rgba(155, 93, 229, 0.06) 100%);
+    border: 2px solid transparent;
+    border-image: var(--gradient-premium) 1;
+    border-radius: 20px;
+    font-size: 2.5rem;
+    box-shadow: 
+        0 0 40px rgba(0, 245, 212, 0.25),
+        0 0 80px rgba(0, 245, 212, 0.1),
+        inset 0 0 30px rgba(0, 245, 212, 0.08);
     color: var(--accent-cyan);
-    text-shadow: 0 0 15px var(--accent-cyan);
+    text-shadow: 0 0 20px var(--accent-cyan);
+    animation: iconFloat 4s ease-in-out infinite;
+    position: relative;
+}
+
+.section-icon::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 24px;
+    background: var(--gradient-premium);
+    opacity: 0.3;
+    filter: blur(8px);
+    z-index: -1;
     animation: iconGlow 3s ease-in-out infinite;
 }
 
+@keyframes iconFloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+}
+
 @keyframes iconGlow {
-    0%, 100% { box-shadow: 0 0 20px rgba(0, 245, 212, 0.25), inset 0 0 15px rgba(0, 245, 212, 0.1); }
-    50% { box-shadow: 0 0 35px rgba(0, 245, 212, 0.4), inset 0 0 25px rgba(0, 245, 212, 0.15); }
+    0%, 100% { opacity: 0.2; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.05); }
 }
 
 .section-title {
     font-family: 'Orbitron', sans-serif !important;
-    font-size: 1.4rem !important;
+    font-size: 1.5rem !important;
     font-weight: 700 !important;
     color: var(--text-bright) !important;
     margin: 0 !important;
-    letter-spacing: 2px !important;
+    letter-spacing: 3px !important;
     text-transform: uppercase !important;
-    text-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+    text-shadow: 0 0 30px rgba(255, 255, 255, 0.15);
+    background: linear-gradient(135deg, var(--text-bright) 0%, var(--accent-cyan) 50%, var(--text-bright) 100%);
+    background-size: 200% 200%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: titleShimmer 6s ease-in-out infinite;
+}
+
+@keyframes titleShimmer {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+}
+
+/* Section-specific icon colors */
+.section-icon-bullish {
+    background: linear-gradient(145deg, rgba(0, 214, 125, 0.15) 0%, rgba(0, 255, 136, 0.08) 100%);
+    border-color: var(--bull);
+    color: var(--bull);
+    text-shadow: 0 0 20px var(--bull-glow);
+    box-shadow: 
+        0 0 40px rgba(0, 214, 125, 0.25),
+        0 0 80px rgba(0, 214, 125, 0.1),
+        inset 0 0 30px rgba(0, 214, 125, 0.08);
+}
+
+.section-icon-bearish {
+    background: linear-gradient(145deg, rgba(255, 82, 99, 0.15) 0%, rgba(255, 51, 102, 0.08) 100%);
+    border-color: var(--bear);
+    color: var(--bear);
+    text-shadow: 0 0 20px var(--bear-glow);
+    box-shadow: 
+        0 0 40px rgba(255, 82, 99, 0.25),
+        0 0 80px rgba(255, 82, 99, 0.1),
+        inset 0 0 30px rgba(255, 82, 99, 0.08);
+}
+
+.section-icon-gold {
+    background: linear-gradient(145deg, rgba(254, 228, 64, 0.15) 0%, rgba(245, 184, 0, 0.08) 100%);
+    border-color: var(--accent-gold);
+    color: var(--accent-gold);
+    text-shadow: 0 0 20px rgba(254, 228, 64, 0.5);
+    box-shadow: 
+        0 0 40px rgba(254, 228, 64, 0.25),
+        0 0 80px rgba(254, 228, 64, 0.1),
+        inset 0 0 30px rgba(254, 228, 64, 0.08);
+}
+
+.section-icon-purple {
+    background: linear-gradient(145deg, rgba(155, 93, 229, 0.15) 0%, rgba(139, 92, 246, 0.08) 100%);
+    border-color: var(--accent-purple);
+    color: var(--accent-purple);
+    text-shadow: 0 0 20px rgba(155, 93, 229, 0.5);
+    box-shadow: 
+        0 0 40px rgba(155, 93, 229, 0.25),
+        0 0 80px rgba(155, 93, 229, 0.1),
+        inset 0 0 30px rgba(155, 93, 229, 0.08);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   METRIC CARDS - Top Row KPIs
+   METRIC CARDS - Top Row KPIs with Icons
    ═══════════════════════════════════════════════════════════════════════════ */
 .metric-card {
     background: linear-gradient(145deg, var(--bg-card) 0%, var(--bg-panel) 100%);
@@ -2318,10 +2428,11 @@ CSS_STYLES = """
     padding: 22px 26px;
     text-align: center;
     height: 100%;
-    min-height: 120px;
+    min-height: 140px;
     display: flex;
     flex-direction: column;
     justify-content: center;
+    align-items: center;
     position: relative;
     overflow: hidden;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -2341,7 +2452,7 @@ CSS_STYLES = """
     top: 0;
     left: 0;
     right: 0;
-    height: 2px;
+    height: 3px;
     background: var(--gradient-cyber);
     opacity: 0;
     transition: opacity 0.3s ease;
@@ -2355,6 +2466,18 @@ CSS_STYLES = """
 
 .metric-card:hover::after {
     opacity: 1;
+}
+
+.metric-icon {
+    font-size: 2rem;
+    margin-bottom: 8px;
+    filter: drop-shadow(0 0 10px rgba(0, 245, 212, 0.3));
+    animation: metricIconPulse 3s ease-in-out infinite;
+}
+
+@keyframes metricIconPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
 }
 
 .metric-label {
@@ -3109,16 +3232,16 @@ CSS_STYLES = """
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   SESSION CARDS
+   SESSION CARDS - Global Market Sessions with Large Icons
    ═══════════════════════════════════════════════════════════════════════════ */
 .session-card {
-    background: var(--bg-card);
+    background: linear-gradient(145deg, var(--bg-card) 0%, var(--bg-panel) 100%);
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: 20px;
+    border-radius: var(--radius-xl);
+    padding: 24px 20px;
     text-align: center;
     height: 100%;
-    min-height: 140px;
+    min-height: 180px;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     overflow: hidden;
@@ -3132,28 +3255,51 @@ CSS_STYLES = """
     pointer-events: none;
 }
 
+.session-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--gradient-premium);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
 .session-card:hover {
     border-color: var(--border-accent);
-    transform: translateY(-3px);
-    box-shadow: var(--shadow-glow-cyan);
+    transform: translateY(-5px);
+    box-shadow: var(--shadow-glow-cyan), var(--shadow-md);
+}
+
+.session-card:hover::after {
+    opacity: 1;
 }
 
 .session-icon {
-    font-size: var(--text-xl);
-    margin-bottom: 10px;
+    font-size: 2.5rem;
+    margin-bottom: 12px;
     position: relative;
     z-index: 1;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
+    animation: sessionIconBounce 3s ease-in-out infinite;
+}
+
+@keyframes sessionIconBounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
 }
 
 .session-name {
     font-family: var(--font-display);
-    font-size: var(--text-sm);
+    font-size: var(--text-md);
     font-weight: 700;
     color: var(--text-bright);
     margin-bottom: 14px;
     position: relative;
     z-index: 1;
-    letter-spacing: 0.5px;
+    letter-spacing: 1px;
 }
 
 .session-data {
@@ -4065,14 +4211,16 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.markdown(f'<div class="metric-card"><div class="metric-label">SPX Index</div><div class="metric-value accent">{current_spx:,.2f}</div><div class="metric-delta">ES {current_es:,.2f}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><div class="metric-icon">💹</div><div class="metric-label">SPX Index</div><div class="metric-value accent">{current_spx:,.2f}</div><div class="metric-delta">ES {current_es:,.2f}</div></div>', unsafe_allow_html=True)
     with col2:
         vix_color = "puts" if vix > 20 else "calls" if vix < 15 else ""
-        st.markdown(f'<div class="metric-card"><div class="metric-label">VIX Index</div><div class="metric-value {vix_color}">{vix:.2f}</div><div class="metric-delta">Volatility</div></div>', unsafe_allow_html=True)
+        vix_icon = "🔥" if vix > 20 else "😴" if vix < 15 else "⚡"
+        st.markdown(f'<div class="metric-card"><div class="metric-icon">{vix_icon}</div><div class="metric-label">VIX Index</div><div class="metric-value {vix_color}">{vix:.2f}</div><div class="metric-delta">Volatility</div></div>', unsafe_allow_html=True)
     with col3:
-        st.markdown(f'<div class="metric-card"><div class="metric-label">Position</div><div class="metric-value">{position.value}</div><div class="metric-delta">In Channel</div></div>', unsafe_allow_html=True)
+        pos_icon = "⬆️" if position.value == "ABOVE" else "⬇️" if position.value == "BELOW" else "↔️"
+        st.markdown(f'<div class="metric-card"><div class="metric-icon">{pos_icon}</div><div class="metric-label">Position</div><div class="metric-value">{position.value}</div><div class="metric-delta">In Channel</div></div>', unsafe_allow_html=True)
     with col4:
-        st.markdown(f'<div class="metric-card"><div class="metric-label">Time</div><div class="metric-value">{now.strftime("%I:%M")}</div><div class="metric-delta live-indicator"><span class="live-dot"></span> {now.strftime("%p CT")}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><div class="metric-icon">⏰</div><div class="metric-label">Time</div><div class="metric-value">{now.strftime("%I:%M")}</div><div class="metric-delta live-indicator"><span class="live-dot"></span> {now.strftime("%p CT")}</div></div>', unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # TODAY'S BIAS
