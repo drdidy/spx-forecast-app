@@ -4211,16 +4211,16 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.markdown(f'<div class="metric-card"><div class="metric-icon">💹</div><div class="metric-label">SPX Index</div><div class="metric-value accent">{current_spx:,.2f}</div><div class="metric-delta">ES {current_es:,.2f}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><div class="metric-icon">📈</div><div class="metric-label">SPX Index</div><div class="metric-value accent">{current_spx:,.2f}</div><div class="metric-delta">ES {current_es:,.2f}</div></div>', unsafe_allow_html=True)
     with col2:
         vix_color = "puts" if vix > 20 else "calls" if vix < 15 else ""
-        vix_icon = "🔥" if vix > 20 else "😴" if vix < 15 else "⚡"
+        vix_icon = "🌋" if vix > 20 else "🧊" if vix < 15 else "🌊"
         st.markdown(f'<div class="metric-card"><div class="metric-icon">{vix_icon}</div><div class="metric-label">VIX Index</div><div class="metric-value {vix_color}">{vix:.2f}</div><div class="metric-delta">Volatility</div></div>', unsafe_allow_html=True)
     with col3:
-        pos_icon = "⬆️" if position.value == "ABOVE" else "⬇️" if position.value == "BELOW" else "↔️"
+        pos_icon = "🔼" if position.value == "ABOVE" else "🔽" if position.value == "BELOW" else "⚖️"
         st.markdown(f'<div class="metric-card"><div class="metric-icon">{pos_icon}</div><div class="metric-label">Position</div><div class="metric-value">{position.value}</div><div class="metric-delta">In Channel</div></div>', unsafe_allow_html=True)
     with col4:
-        st.markdown(f'<div class="metric-card"><div class="metric-icon">⏰</div><div class="metric-label">Time</div><div class="metric-value">{now.strftime("%I:%M")}</div><div class="metric-delta live-indicator"><span class="live-dot"></span> {now.strftime("%p CT")}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><div class="metric-icon">🕐</div><div class="metric-label">Time</div><div class="metric-value">{now.strftime("%I:%M")}</div><div class="metric-delta live-indicator"><span class="live-dot"></span> {now.strftime("%p CT")}</div></div>', unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # TODAY'S BIAS
