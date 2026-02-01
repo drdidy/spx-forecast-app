@@ -3316,9 +3316,16 @@ def sidebar():
         st.markdown("#### 📅 Trading Session")
         trading_date = st.date_input("Trading Date", value=date.today())
         
-        col1, col2 = st.columns(2)
-        ref_hour = col1.selectbox("Ref Hour", options=list(range(8, 12)), index=1, format_func=lambda x: f"{x}:00")
-        ref_min = col2.selectbox("Ref Min", options=[0, 15, 30, 45], index=0, format_func=lambda x: f":{x:02d}")
+        # Reference time with 30-minute granularity
+        ref_time_options = []
+        for h in range(8, 12):
+            for m in [0, 30]:
+                ref_time_options.append(f"{h}:{m:02d}")
+        
+        ref_time_str = st.selectbox("Reference Time (CT)", options=ref_time_options, index=ref_time_options.index("9:00") if "9:00" in ref_time_options else 2, help="Time to calculate levels for")
+        ref_parts = ref_time_str.split(":")
+        ref_hour = int(ref_parts[0])
+        ref_min = int(ref_parts[1])
         
         st.divider()
         
@@ -3413,12 +3420,43 @@ def sidebar():
         st.markdown("#### 🌙 Overnight Session (ES)")
         use_manual_overnight = st.checkbox("Manual ON Session Override", value=False)
         if use_manual_overnight:
+            # Overnight time options (5:00 PM previous day to 8:30 AM trading day)
+            on_time_options = []
+            # Evening hours (17:00 - 23:30)
+            for h in range(17, 24):
+                for m in [0, 30]:
+                    on_time_options.append(f"{h}:{m:02d}")
+            # Morning hours (00:00 - 08:30)
+            for h in range(0, 9):
+                for m in [0, 30]:
+                    if h == 8 and m == 30:
+                        on_time_options.append(f"{h}:{m:02d}")
+                        break
+                    on_time_options.append(f"{h}:{m:02d}")
+            
             col1, col2 = st.columns(2)
-            on_high = col1.number_input("ON High", value=6090.0, step=0.5)
-            on_low = col2.number_input("ON Low", value=6055.0, step=0.5)
+            on_high = col1.number_input("ON High (ES)", value=6090.0, step=0.5)
+            on_low = col2.number_input("ON Low (ES)", value=6055.0, step=0.5)
+            
+            col3, col4 = st.columns(2)
+            on_high_time_str = col3.selectbox("High Time (CT)", options=on_time_options, index=on_time_options.index("2:00") if "2:00" in on_time_options else 18, help="Time when overnight high occurred")
+            on_low_time_str = col4.selectbox("Low Time (CT)", options=on_time_options, index=on_time_options.index("4:00") if "4:00" in on_time_options else 22, help="Time when overnight low occurred")
+            
+            # Parse times
+            on_high_parts = on_high_time_str.split(":")
+            on_high_hour = int(on_high_parts[0])
+            on_high_min = int(on_high_parts[1])
+            
+            on_low_parts = on_low_time_str.split(":")
+            on_low_hour = int(on_low_parts[0])
+            on_low_min = int(on_low_parts[1])
         else:
             on_high = None
             on_low = None
+            on_high_hour = 2
+            on_high_min = 0
+            on_low_hour = 4
+            on_low_min = 0
         
         st.divider()
         
@@ -3429,22 +3467,55 @@ def sidebar():
         use_manual_sessions = st.checkbox("Manual Session Override", value=False)
         
         if use_manual_sessions:
+            # Time options for overnight sessions
+            def get_session_time_options(start_hour, end_hour, crosses_midnight=False):
+                options = []
+                if crosses_midnight:
+                    for h in range(start_hour, 24):
+                        for m in [0, 30]:
+                            options.append(f"{h}:{m:02d}")
+                    for h in range(0, end_hour + 1):
+                        for m in [0, 30]:
+                            if h == end_hour and m == 30:
+                                break
+                            options.append(f"{h}:{m:02d}")
+                else:
+                    for h in range(start_hour, end_hour + 1):
+                        for m in [0, 30]:
+                            options.append(f"{h}:{m:02d}")
+                return options
+            
+            sydney_times = get_session_time_options(17, 20)  # 5 PM - 8:30 PM
+            tokyo_times = get_session_time_options(21, 1, crosses_midnight=True)  # 9 PM - 1:30 AM
+            london_times = get_session_time_options(2, 5)  # 2 AM - 5 AM
+            
             st.markdown("##### Sydney (5-8:30 PM CT)")
             col1, col2 = st.columns(2)
-            sydney_high = col1.number_input("Syd High", value=6075.0, step=0.5, key="syd_h")
-            sydney_low = col2.number_input("Syd Low", value=6060.0, step=0.5, key="syd_l")
+            sydney_high = col1.number_input("High", value=6075.0, step=0.5, key="syd_h")
+            sydney_low = col2.number_input("Low", value=6060.0, step=0.5, key="syd_l")
+            col3, col4 = st.columns(2)
+            sydney_high_time = col3.selectbox("High Time", options=sydney_times, index=2, key="syd_ht", help="Time of session high")
+            sydney_low_time = col4.selectbox("Low Time", options=sydney_times, index=4, key="syd_lt", help="Time of session low")
             
             st.markdown("##### Tokyo (9 PM - 1:30 AM CT)")
             col1, col2 = st.columns(2)
-            tokyo_high = col1.number_input("Tok High", value=6080.0, step=0.5, key="tok_h")
-            tokyo_low = col2.number_input("Tok Low", value=6055.0, step=0.5, key="tok_l")
+            tokyo_high = col1.number_input("High", value=6080.0, step=0.5, key="tok_h")
+            tokyo_low = col2.number_input("Low", value=6055.0, step=0.5, key="tok_l")
+            col3, col4 = st.columns(2)
+            tokyo_high_time = col3.selectbox("High Time", options=tokyo_times, index=2, key="tok_ht", help="Time of session high")
+            tokyo_low_time = col4.selectbox("Low Time", options=tokyo_times, index=6, key="tok_lt", help="Time of session low")
             
             st.markdown("##### London (2-5 AM CT)")
             col1, col2 = st.columns(2)
-            london_high = col1.number_input("Lon High", value=6085.0, step=0.5, key="lon_h")
-            london_low = col2.number_input("Lon Low", value=6050.0, step=0.5, key="lon_l")
+            london_high = col1.number_input("High", value=6085.0, step=0.5, key="lon_h")
+            london_low = col2.number_input("Low", value=6050.0, step=0.5, key="lon_l")
+            col3, col4 = st.columns(2)
+            london_high_time = col3.selectbox("High Time", options=london_times, index=2, key="lon_ht", help="Time of session high")
+            london_low_time = col4.selectbox("Low Time", options=london_times, index=4, key="lon_lt", help="Time of session low")
         else:
             sydney_high = sydney_low = tokyo_high = tokyo_low = london_high = london_low = None
+            sydney_high_time = sydney_low_time = tokyo_high_time = tokyo_low_time = None
+            london_high_time = london_low_time = None
         
         st.divider()
         
@@ -3509,11 +3580,11 @@ def sidebar():
         "manual_vix": manual_vix,
         "manual_vix_range": {"low": manual_vix_low, "high": manual_vix_high} if use_manual_vix_range else None,
         "manual_prior": {"highest_wick": prior_highest_wick, "lowest_close": prior_lowest_close, "close": prior_close, "hw_hour": prior_hw_hour, "hw_min": prior_hw_min, "lc_hour": prior_lc_hour, "lc_min": prior_lc_min} if use_manual_prior else None,
-        "manual_overnight": {"high": on_high, "low": on_low} if use_manual_overnight else None,
+        "manual_overnight": {"high": on_high, "low": on_low, "high_hour": on_high_hour, "high_min": on_high_min, "low_hour": on_low_hour, "low_min": on_low_min} if use_manual_overnight else None,
         "manual_sessions": {
-            "sydney": {"high": sydney_high, "low": sydney_low},
-            "tokyo": {"high": tokyo_high, "low": tokyo_low},
-            "london": {"high": london_high, "low": london_low}
+            "sydney": {"high": sydney_high, "low": sydney_low, "high_time": sydney_high_time, "low_time": sydney_low_time},
+            "tokyo": {"high": tokyo_high, "low": tokyo_low, "high_time": tokyo_high_time, "low_time": tokyo_low_time},
+            "london": {"high": london_high, "low": london_low, "high_time": london_high_time, "low_time": london_low_time}
         } if use_manual_sessions else None,
         "manual_es": manual_es,
     }
@@ -3540,24 +3611,43 @@ def main():
         # If user selects Saturday/Sunday, use Monday as actual trading date
         actual_trading_date = get_actual_trading_day(inputs["trading_date"])
         
+        # Helper to parse time string and create datetime
+        def parse_session_time(time_str, base_date, overnight_day):
+            """Parse time string like '18:00' and return proper datetime.
+            Times >= 17:00 are on overnight_day, times < 17:00 are on base_date (trading day)."""
+            if time_str is None:
+                return None
+            parts = time_str.split(":")
+            hour = int(parts[0])
+            minute = int(parts[1])
+            # Evening times (5 PM onwards) are on the prior day
+            if hour >= 17:
+                return CT.localize(datetime.combine(overnight_day, time(hour, minute)))
+            else:
+                return CT.localize(datetime.combine(base_date, time(hour, minute)))
+        
         # --- Session Data ---
         if inputs["manual_sessions"] is not None:
             m = inputs["manual_sessions"]
             overnight_day = get_prior_trading_day(actual_trading_date)
+            
             sydney = {
-                "high": m["sydney"]["high"], "low": m["sydney"]["low"],
-                "high_time": CT.localize(datetime.combine(overnight_day, time(18, 0))),
-                "low_time": CT.localize(datetime.combine(overnight_day, time(19, 0)))
+                "high": m["sydney"]["high"], 
+                "low": m["sydney"]["low"],
+                "high_time": parse_session_time(m["sydney"].get("high_time"), actual_trading_date, overnight_day) or CT.localize(datetime.combine(overnight_day, time(18, 0))),
+                "low_time": parse_session_time(m["sydney"].get("low_time"), actual_trading_date, overnight_day) or CT.localize(datetime.combine(overnight_day, time(19, 0)))
             }
             tokyo = {
-                "high": m["tokyo"]["high"], "low": m["tokyo"]["low"],
-                "high_time": CT.localize(datetime.combine(overnight_day, time(23, 0))),
-                "low_time": CT.localize(datetime.combine(actual_trading_date, time(0, 30)))
+                "high": m["tokyo"]["high"], 
+                "low": m["tokyo"]["low"],
+                "high_time": parse_session_time(m["tokyo"].get("high_time"), actual_trading_date, overnight_day) or CT.localize(datetime.combine(overnight_day, time(23, 0))),
+                "low_time": parse_session_time(m["tokyo"].get("low_time"), actual_trading_date, overnight_day) or CT.localize(datetime.combine(actual_trading_date, time(0, 30)))
             }
             london = {
-                "high": m["london"]["high"], "low": m["london"]["low"],
-                "high_time": CT.localize(datetime.combine(actual_trading_date, time(3, 0))),
-                "low_time": CT.localize(datetime.combine(actual_trading_date, time(4, 0)))
+                "high": m["london"]["high"], 
+                "low": m["london"]["low"],
+                "high_time": parse_session_time(m["london"].get("high_time"), actual_trading_date, overnight_day) or CT.localize(datetime.combine(actual_trading_date, time(3, 0))),
+                "low_time": parse_session_time(m["london"].get("low_time"), actual_trading_date, overnight_day) or CT.localize(datetime.combine(actual_trading_date, time(4, 0)))
             }
         else:
             es_candles = fetch_es_candles()
