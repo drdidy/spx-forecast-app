@@ -4630,45 +4630,28 @@ def main():
     st.markdown("""
     <div class="hero-banner">
         <div class="prophet-logo">
-            <!-- Layer 1: Particle Fields -->
             <div class="particle-field"></div>
             <div class="particle-field-inner"></div>
-            
-            <!-- Layer 2: Triple Orbital Rings (The 3 Systems) -->
             <div class="orbital-ring-1"></div>
             <div class="orbital-ring-2"></div>
             <div class="orbital-ring-3"></div>
-            
-            <!-- Layer 9: Ambient Glow (behind pyramid) -->
             <div class="ambient-glow"></div>
-            
-            <!-- Layer 3: The Holographic Pyramid -->
             <div class="pyramid-container">
                 <div class="pyramid-base"></div>
                 <div class="pyramid-main"></div>
                 <div class="pyramid-layer-2"></div>
                 <div class="pyramid-layer-3"></div>
-                
-                <!-- Layer 4: Energy Vertices -->
                 <div class="vertex-top"></div>
                 <div class="vertex-left"></div>
                 <div class="vertex-right"></div>
                 <div class="vertex-center"></div>
-                
-                <!-- Layer 5: Energy Beams -->
                 <div class="energy-beam-left"></div>
                 <div class="energy-beam-right"></div>
                 <div class="energy-beam-base"></div>
-                
-                <!-- Layer 6: Scan Lines -->
                 <div class="scan-line"></div>
                 <div class="scan-line-2"></div>
-                
-                <!-- Layer 7: Data Streams -->
                 <div class="data-stream-left"></div>
                 <div class="data-stream-right"></div>
-                
-                <!-- Layer 8: Pillar Labels -->
                 <div class="pillar-label-left">RTH</div>
                 <div class="pillar-label-right">O/N</div>
                 <div class="pillar-label-center">VIX</div>
