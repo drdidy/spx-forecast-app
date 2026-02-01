@@ -612,22 +612,29 @@ def fetch_prior_day_rth(trading_date):
     RTH is 8:30 AM - 3:00 PM CT (9:30 AM - 4:00 PM ET)
     
     Returns:
-    - highest_wick: The highest high (wick) of any RTH candle
-    - lowest_close: The lowest close of any RTH candle
+    - primary_high_wick: The highest high (wick) of any RTH candle
+    - secondary_high_wick: Lower high wick made AFTER primary (1hr+ gap), or None
+    - primary_low_open: The lowest open of any BULLISH RTH candle (buyers defended)
+    - secondary_low_open: Higher low open made AFTER primary (1hr+ gap, bullish), or None
     """
     result = {
+        "primary_high_wick": None, "primary_high_wick_time": None,
+        "secondary_high_wick": None, "secondary_high_wick_time": None,
+        "primary_low_open": None, "primary_low_open_time": None,
+        "secondary_low_open": None, "secondary_low_open_time": None,
+        "high": None, "low": None, "close": None,
+        "available": False,
+        # Legacy keys for backward compatibility
         "highest_wick": None, "highest_wick_time": None,
         "lowest_close": None, "lowest_close_time": None,
-        "high": None, "low": None, "close": None,
-        "available": False
     }
     try:
         prior_day = get_prior_trading_day(trading_date)
         
-        # Fetch 5-minute candles for ES futures from Yahoo
+        # Fetch 30-minute candles for ES futures from Yahoo (matches our trading blocks)
         es = yf.Ticker("ES=F")
         # Get 5 days of data to ensure we have the prior day
-        df = es.history(period="5d", interval="5m")
+        df = es.history(period="5d", interval="30m")
         
         if df is not None and not df.empty:
             # Convert index to CT timezone
@@ -641,69 +648,175 @@ def fetch_prior_day_rth(trading_date):
             rth_end = CT.localize(datetime.combine(prior_day, time(15, 0)))
             
             # Filter to prior day RTH
-            rth_df = df[(df.index >= rth_start) & (df.index <= rth_end)]
+            rth_df = df[(df.index >= rth_start) & (df.index <= rth_end)].copy()
             
-            if not rth_df.empty and len(rth_df) > 5:
-                # Highest Wick = highest high of any candle
-                high_idx = rth_df['High'].idxmax()
-                result["highest_wick"] = round(float(rth_df.loc[high_idx, 'High']), 2)
-                result["highest_wick_time"] = high_idx
+            if not rth_df.empty and len(rth_df) > 3:
+                # ─────────────────────────────────────────────────────────────
+                # PRIMARY HIGH WICK: Highest high of any candle
+                # ─────────────────────────────────────────────────────────────
+                primary_high_idx = rth_df['High'].idxmax()
+                result["primary_high_wick"] = round(float(rth_df.loc[primary_high_idx, 'High']), 2)
+                result["primary_high_wick_time"] = primary_high_idx
                 
-                # Lowest Close = lowest close of any candle (NOT lowest wick)
-                lowest_close_idx = rth_df['Close'].idxmin()
-                result["lowest_close"] = round(float(rth_df.loc[lowest_close_idx, 'Close']), 2)
-                result["lowest_close_time"] = lowest_close_idx
+                # ─────────────────────────────────────────────────────────────
+                # SECONDARY HIGH WICK: Lower high made 1hr+ after primary
+                # ─────────────────────────────────────────────────────────────
+                min_gap = timedelta(hours=1)
+                secondary_high_search = rth_df[rth_df.index >= primary_high_idx + min_gap]
+                if not secondary_high_search.empty:
+                    # Find highest wick after primary (must be lower than primary)
+                    secondary_high_candidates = secondary_high_search[
+                        secondary_high_search['High'] < result["primary_high_wick"]
+                    ]
+                    if not secondary_high_candidates.empty:
+                        sec_high_idx = secondary_high_candidates['High'].idxmax()
+                        result["secondary_high_wick"] = round(float(secondary_high_candidates.loc[sec_high_idx, 'High']), 2)
+                        result["secondary_high_wick_time"] = sec_high_idx
+                
+                # ─────────────────────────────────────────────────────────────
+                # PRIMARY LOW OPEN: Lowest open of any BULLISH candle
+                # Bullish = Close > Open (buyers stepped in and defended)
+                # ─────────────────────────────────────────────────────────────
+                bullish_candles = rth_df[rth_df['Close'] > rth_df['Open']]
+                if not bullish_candles.empty:
+                    primary_low_idx = bullish_candles['Open'].idxmin()
+                    result["primary_low_open"] = round(float(bullish_candles.loc[primary_low_idx, 'Open']), 2)
+                    result["primary_low_open_time"] = primary_low_idx
+                    
+                    # ─────────────────────────────────────────────────────────
+                    # SECONDARY LOW OPEN: Higher low open made 1hr+ after primary (bullish)
+                    # ─────────────────────────────────────────────────────────
+                    secondary_low_search = bullish_candles[bullish_candles.index >= primary_low_idx + min_gap]
+                    if not secondary_low_search.empty:
+                        # Find lowest open after primary (must be higher than primary)
+                        secondary_low_candidates = secondary_low_search[
+                            secondary_low_search['Open'] > result["primary_low_open"]
+                        ]
+                        if not secondary_low_candidates.empty:
+                            sec_low_idx = secondary_low_candidates['Open'].idxmin()
+                            result["secondary_low_open"] = round(float(secondary_low_candidates.loc[sec_low_idx, 'Open']), 2)
+                            result["secondary_low_open_time"] = sec_low_idx
                 
                 # Also store overall H/L/C for display
-                result["high"] = result["highest_wick"]
+                result["high"] = result["primary_high_wick"]
                 result["low"] = round(float(rth_df['Low'].min()), 2)
                 result["close"] = round(float(rth_df.iloc[-1]['Close']), 2)
                 result["available"] = True
+                
+                # Legacy keys for backward compatibility
+                result["highest_wick"] = result["primary_high_wick"]
+                result["highest_wick_time"] = result["primary_high_wick_time"]
+                result["lowest_close"] = result["primary_low_open"]  # Now uses low open
+                result["lowest_close_time"] = result["primary_low_open_time"]
+                
     except Exception as e:
         pass
     return result
 
 def calc_prior_day_targets(prior_rth, ref_time):
-    """Calculate BOTH ascending and descending targets from prior day anchors.
+    """Calculate BOTH ascending and descending targets from ALL prior day anchors.
     
-    From HIGHEST WICK:
+    From PRIMARY HIGH WICK:
     - Ascending line (+0.52/30min) = Resistance (SELL point)
     - Descending line (-0.52/30min) = Support (BUY point)
     
-    From LOWEST CLOSE:
+    From SECONDARY HIGH WICK (if exists):
+    - Ascending line (+0.52/30min) = Resistance (SELL point)
+    - Descending line (-0.52/30min) = Support (BUY point)
+    
+    From PRIMARY LOW OPEN:
     - Ascending line (+0.52/30min) = Support (BUY point)
     - Descending line (-0.52/30min) = Resistance (SELL point)
     
-    Returns dict with all four targets.
+    From SECONDARY LOW OPEN (if exists):
+    - Ascending line (+0.52/30min) = Support (BUY point)
+    - Descending line (-0.52/30min) = Resistance (SELL point)
+    
+    Returns dict with all eight targets (4 pivots x 2 directions).
     """
     result = {
         "available": False,
+        # Primary High Wick
+        "primary_high_wick": None,
+        "primary_high_wick_time": None,
+        "primary_high_wick_ascending": None,
+        "primary_high_wick_descending": None,
+        # Secondary High Wick
+        "secondary_high_wick": None,
+        "secondary_high_wick_time": None,
+        "secondary_high_wick_ascending": None,
+        "secondary_high_wick_descending": None,
+        # Primary Low Open
+        "primary_low_open": None,
+        "primary_low_open_time": None,
+        "primary_low_open_ascending": None,
+        "primary_low_open_descending": None,
+        # Secondary Low Open
+        "secondary_low_open": None,
+        "secondary_low_open_time": None,
+        "secondary_low_open_ascending": None,
+        "secondary_low_open_descending": None,
+        # Legacy keys for backward compatibility
         "highest_wick": None,
-        "highest_wick_ascending": None,  # SELL point (resistance)
-        "highest_wick_descending": None,  # BUY point (support)
+        "highest_wick_ascending": None,
+        "highest_wick_descending": None,
         "lowest_close": None,
-        "lowest_close_ascending": None,   # BUY point (support)
-        "lowest_close_descending": None,  # SELL point (resistance)
+        "lowest_close_ascending": None,
+        "lowest_close_descending": None,
     }
     
-    if not prior_rth["available"]:
+    if not prior_rth.get("available"):
         return result
     
     result["available"] = True
-    result["highest_wick"] = prior_rth["highest_wick"]
-    result["lowest_close"] = prior_rth["lowest_close"]
     
-    # Calculate blocks from highest wick time (using trading blocks for cross-day)
-    if prior_rth["highest_wick"] is not None and prior_rth["highest_wick_time"]:
-        blocks = trading_blocks_between(prior_rth["highest_wick_time"], ref_time)
-        result["highest_wick_ascending"] = round(prior_rth["highest_wick"] + SLOPE * blocks, 2)
-        result["highest_wick_descending"] = round(prior_rth["highest_wick"] - SLOPE * blocks, 2)
+    # ─────────────────────────────────────────────────────────────────────────
+    # PRIMARY HIGH WICK
+    # ─────────────────────────────────────────────────────────────────────────
+    if prior_rth.get("primary_high_wick") is not None and prior_rth.get("primary_high_wick_time"):
+        result["primary_high_wick"] = prior_rth["primary_high_wick"]
+        result["primary_high_wick_time"] = prior_rth["primary_high_wick_time"]
+        blocks = trading_blocks_between(prior_rth["primary_high_wick_time"], ref_time)
+        result["primary_high_wick_ascending"] = round(prior_rth["primary_high_wick"] + SLOPE * blocks, 2)
+        result["primary_high_wick_descending"] = round(prior_rth["primary_high_wick"] - SLOPE * blocks, 2)
+        # Legacy
+        result["highest_wick"] = result["primary_high_wick"]
+        result["highest_wick_ascending"] = result["primary_high_wick_ascending"]
+        result["highest_wick_descending"] = result["primary_high_wick_descending"]
     
-    # Calculate blocks from lowest close time (using trading blocks for cross-day)
-    if prior_rth["lowest_close"] is not None and prior_rth["lowest_close_time"]:
-        blocks = trading_blocks_between(prior_rth["lowest_close_time"], ref_time)
-        result["lowest_close_ascending"] = round(prior_rth["lowest_close"] + SLOPE * blocks, 2)
-        result["lowest_close_descending"] = round(prior_rth["lowest_close"] - SLOPE * blocks, 2)
+    # ─────────────────────────────────────────────────────────────────────────
+    # SECONDARY HIGH WICK
+    # ─────────────────────────────────────────────────────────────────────────
+    if prior_rth.get("secondary_high_wick") is not None and prior_rth.get("secondary_high_wick_time"):
+        result["secondary_high_wick"] = prior_rth["secondary_high_wick"]
+        result["secondary_high_wick_time"] = prior_rth["secondary_high_wick_time"]
+        blocks = trading_blocks_between(prior_rth["secondary_high_wick_time"], ref_time)
+        result["secondary_high_wick_ascending"] = round(prior_rth["secondary_high_wick"] + SLOPE * blocks, 2)
+        result["secondary_high_wick_descending"] = round(prior_rth["secondary_high_wick"] - SLOPE * blocks, 2)
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # PRIMARY LOW OPEN
+    # ─────────────────────────────────────────────────────────────────────────
+    if prior_rth.get("primary_low_open") is not None and prior_rth.get("primary_low_open_time"):
+        result["primary_low_open"] = prior_rth["primary_low_open"]
+        result["primary_low_open_time"] = prior_rth["primary_low_open_time"]
+        blocks = trading_blocks_between(prior_rth["primary_low_open_time"], ref_time)
+        result["primary_low_open_ascending"] = round(prior_rth["primary_low_open"] + SLOPE * blocks, 2)
+        result["primary_low_open_descending"] = round(prior_rth["primary_low_open"] - SLOPE * blocks, 2)
+        # Legacy
+        result["lowest_close"] = result["primary_low_open"]
+        result["lowest_close_ascending"] = result["primary_low_open_ascending"]
+        result["lowest_close_descending"] = result["primary_low_open_descending"]
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # SECONDARY LOW OPEN
+    # ─────────────────────────────────────────────────────────────────────────
+    if prior_rth.get("secondary_low_open") is not None and prior_rth.get("secondary_low_open_time"):
+        result["secondary_low_open"] = prior_rth["secondary_low_open"]
+        result["secondary_low_open_time"] = prior_rth["secondary_low_open_time"]
+        blocks = trading_blocks_between(prior_rth["secondary_low_open_time"], ref_time)
+        result["secondary_low_open_ascending"] = round(prior_rth["secondary_low_open"] + SLOPE * blocks, 2)
+        result["secondary_low_open_descending"] = round(prior_rth["secondary_low_open"] - SLOPE * blocks, 2)
     
     return result
 
@@ -3375,10 +3488,6 @@ def sidebar():
         st.markdown("#### 📈 Prior Day RTH (ES)")
         use_manual_prior = st.checkbox("Manual Prior Day Override", value=False)
         if use_manual_prior:
-            col1, col2 = st.columns(2)
-            prior_highest_wick = col1.number_input("Highest Wick (ES)", value=6100.0, step=0.5, help="Highest high of any RTH candle")
-            prior_lowest_close = col2.number_input("Lowest Close (ES)", value=6050.0, step=0.5, help="Lowest close of any RTH candle")
-            
             # Time inputs with 30-minute granularity (RTH: 8:30 AM - 3:00 PM CT)
             time_options = []
             for h in range(8, 16):
@@ -3389,28 +3498,60 @@ def sidebar():
                         continue  # RTH ends at 3:00
                     time_options.append(f"{h}:{m:02d}")
             
-            col3, col4 = st.columns(2)
-            hw_time_str = col3.selectbox("HW Time", options=time_options, index=time_options.index("12:00") if "12:00" in time_options else 7, help="Time when highest wick occurred (CT)")
-            lc_time_str = col4.selectbox("LC Time", options=time_options, index=time_options.index("12:00") if "12:00" in time_options else 7, help="Time when lowest close occurred (CT)")
+            st.markdown("##### Primary High Wick")
+            col1, col2 = st.columns(2)
+            prior_primary_hw = col1.number_input("Price (ES)", value=6100.0, step=0.5, key="p_hw", help="Highest high of any RTH candle")
+            p_hw_time_str = col2.selectbox("Time", options=time_options, index=time_options.index("9:30") if "9:30" in time_options else 2, key="p_hw_t", help="Time when primary high wick occurred (CT)")
+            
+            st.markdown("##### Secondary High Wick")
+            has_secondary_hw = st.checkbox("Has Secondary High Wick", value=False, key="has_s_hw")
+            if has_secondary_hw:
+                col1, col2 = st.columns(2)
+                prior_secondary_hw = col1.number_input("Price (ES)", value=6090.0, step=0.5, key="s_hw", help="Lower high wick made after primary")
+                s_hw_time_str = col2.selectbox("Time", options=time_options, index=time_options.index("14:30") if "14:30" in time_options else 10, key="s_hw_t", help="Time when secondary high wick occurred (CT)")
+            else:
+                prior_secondary_hw = None
+                s_hw_time_str = "12:00"
+            
+            st.markdown("##### Primary Low Open")
+            col1, col2 = st.columns(2)
+            prior_primary_lo = col1.number_input("Price (ES)", value=6050.0, step=0.5, key="p_lo", help="Lowest open of any BULLISH RTH candle")
+            p_lo_time_str = col2.selectbox("Time", options=time_options, index=time_options.index("12:00") if "12:00" in time_options else 7, key="p_lo_t", help="Time when primary low open occurred (CT)")
+            
+            st.markdown("##### Secondary Low Open")
+            has_secondary_lo = st.checkbox("Has Secondary Low Open", value=False, key="has_s_lo")
+            if has_secondary_lo:
+                col1, col2 = st.columns(2)
+                prior_secondary_lo = col1.number_input("Price (ES)", value=6060.0, step=0.5, key="s_lo", help="Higher low open made after primary (bullish candle)")
+                s_lo_time_str = col2.selectbox("Time", options=time_options, index=time_options.index("14:30") if "14:30" in time_options else 10, key="s_lo_t", help="Time when secondary low open occurred (CT)")
+            else:
+                prior_secondary_lo = None
+                s_lo_time_str = "12:00"
+            
+            st.markdown("##### RTH Close")
+            prior_close = st.number_input("RTH Close (ES)", value=6075.0, step=0.5, help="Final RTH close")
             
             # Parse time strings
-            hw_parts = hw_time_str.split(":")
-            prior_hw_hour = int(hw_parts[0])
-            prior_hw_min = int(hw_parts[1])
+            def parse_time_str(t_str):
+                parts = t_str.split(":")
+                return int(parts[0]), int(parts[1])
             
-            lc_parts = lc_time_str.split(":")
-            prior_lc_hour = int(lc_parts[0])
-            prior_lc_min = int(lc_parts[1])
-            
-            prior_close = st.number_input("RTH Close (ES)", value=6075.0, step=0.5, help="Final RTH close")
+            p_hw_hour, p_hw_min = parse_time_str(p_hw_time_str)
+            s_hw_hour, s_hw_min = parse_time_str(s_hw_time_str)
+            p_lo_hour, p_lo_min = parse_time_str(p_lo_time_str)
+            s_lo_hour, s_lo_min = parse_time_str(s_lo_time_str)
         else:
-            prior_highest_wick = None
-            prior_lowest_close = None
-            prior_hw_hour = 12
-            prior_hw_min = 0
-            prior_lc_hour = 12
-            prior_lc_min = 0
+            prior_primary_hw = None
+            prior_secondary_hw = None
+            prior_primary_lo = None
+            prior_secondary_lo = None
+            p_hw_hour, p_hw_min = 9, 30
+            s_hw_hour, s_hw_min = 14, 30
+            p_lo_hour, p_lo_min = 12, 0
+            s_lo_hour, s_lo_min = 14, 30
             prior_close = None
+            has_secondary_hw = False
+            has_secondary_lo = False
         
         st.divider()
         
@@ -3579,7 +3720,22 @@ def sidebar():
         # Manual overrides
         "manual_vix": manual_vix,
         "manual_vix_range": {"low": manual_vix_low, "high": manual_vix_high} if use_manual_vix_range else None,
-        "manual_prior": {"highest_wick": prior_highest_wick, "lowest_close": prior_lowest_close, "close": prior_close, "hw_hour": prior_hw_hour, "hw_min": prior_hw_min, "lc_hour": prior_lc_hour, "lc_min": prior_lc_min} if use_manual_prior else None,
+        "manual_prior": {
+            "primary_high_wick": prior_primary_hw, 
+            "secondary_high_wick": prior_secondary_hw if has_secondary_hw else None,
+            "primary_low_open": prior_primary_lo, 
+            "secondary_low_open": prior_secondary_lo if has_secondary_lo else None,
+            "close": prior_close, 
+            "p_hw_hour": p_hw_hour, "p_hw_min": p_hw_min,
+            "s_hw_hour": s_hw_hour, "s_hw_min": s_hw_min,
+            "p_lo_hour": p_lo_hour, "p_lo_min": p_lo_min,
+            "s_lo_hour": s_lo_hour, "s_lo_min": s_lo_min,
+            # Legacy keys for backward compatibility
+            "highest_wick": prior_primary_hw,
+            "lowest_close": prior_primary_lo,
+            "hw_hour": p_hw_hour, "hw_min": p_hw_min,
+            "lc_hour": p_lo_hour, "lc_min": p_lo_min,
+        } if use_manual_prior else None,
         "manual_overnight": {"high": on_high, "low": on_low, "high_hour": on_high_hour, "high_min": on_high_min, "low_hour": on_low_hour, "low_min": on_low_min} if use_manual_overnight else None,
         "manual_sessions": {
             "sydney": {"high": sydney_high, "low": sydney_low, "high_time": sydney_high_time, "low_time": sydney_low_time},
@@ -3713,19 +3869,41 @@ def main():
         
         if inputs["manual_prior"] is not None:
             prior_day = get_prior_trading_day(actual_trading_date)
-            hw_hour = inputs["manual_prior"].get("hw_hour", 12)
-            hw_min = inputs["manual_prior"].get("hw_min", 0)
-            lc_hour = inputs["manual_prior"].get("lc_hour", 12)
-            lc_min = inputs["manual_prior"].get("lc_min", 0)
+            m = inputs["manual_prior"]
+            
+            # Parse all pivot times
+            p_hw_hour = m.get("p_hw_hour", m.get("hw_hour", 9))
+            p_hw_min = m.get("p_hw_min", m.get("hw_min", 30))
+            s_hw_hour = m.get("s_hw_hour", 14)
+            s_hw_min = m.get("s_hw_min", 30)
+            p_lo_hour = m.get("p_lo_hour", m.get("lc_hour", 12))
+            p_lo_min = m.get("p_lo_min", m.get("lc_min", 0))
+            s_lo_hour = m.get("s_lo_hour", 14)
+            s_lo_min = m.get("s_lo_min", 30)
+            
             prior_rth = {
-                "highest_wick": inputs["manual_prior"]["highest_wick"],
-                "highest_wick_time": CT.localize(datetime.combine(prior_day, time(hw_hour, hw_min))),
-                "lowest_close": inputs["manual_prior"]["lowest_close"],
-                "lowest_close_time": CT.localize(datetime.combine(prior_day, time(lc_hour, lc_min))),
-                "high": inputs["manual_prior"]["highest_wick"],
-                "low": inputs["manual_prior"]["lowest_close"],
-                "close": inputs["manual_prior"]["close"],
-                "available": True
+                # Primary High Wick
+                "primary_high_wick": m.get("primary_high_wick", m.get("highest_wick")),
+                "primary_high_wick_time": CT.localize(datetime.combine(prior_day, time(p_hw_hour, p_hw_min))),
+                # Secondary High Wick
+                "secondary_high_wick": m.get("secondary_high_wick"),
+                "secondary_high_wick_time": CT.localize(datetime.combine(prior_day, time(s_hw_hour, s_hw_min))) if m.get("secondary_high_wick") else None,
+                # Primary Low Open
+                "primary_low_open": m.get("primary_low_open", m.get("lowest_close")),
+                "primary_low_open_time": CT.localize(datetime.combine(prior_day, time(p_lo_hour, p_lo_min))),
+                # Secondary Low Open
+                "secondary_low_open": m.get("secondary_low_open"),
+                "secondary_low_open_time": CT.localize(datetime.combine(prior_day, time(s_lo_hour, s_lo_min))) if m.get("secondary_low_open") else None,
+                # Overall stats
+                "high": m.get("primary_high_wick", m.get("highest_wick")),
+                "low": m.get("primary_low_open", m.get("lowest_close")),
+                "close": m.get("close"),
+                "available": True,
+                # Legacy keys for backward compatibility
+                "highest_wick": m.get("primary_high_wick", m.get("highest_wick")),
+                "highest_wick_time": CT.localize(datetime.combine(prior_day, time(p_hw_hour, p_hw_min))),
+                "lowest_close": m.get("primary_low_open", m.get("lowest_close")),
+                "lowest_close_time": CT.localize(datetime.combine(prior_day, time(p_lo_hour, p_lo_min))),
             }
         else:
             prior_rth = fetch_prior_day_rth(actual_trading_date)
@@ -3983,75 +4161,163 @@ def main():
         st.markdown('<div class="alert-box alert-box-danger"><span class="alert-icon">❌</span><div class="alert-content"><div class="alert-title">Dual Levels Unavailable</div><div class="alert-text">Missing overnight session data</div></div></div>', unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # PRIOR DAY INTERMEDIATE LEVELS
+    # PRIOR DAY INTERMEDIATE LEVELS (4 Pivots x 2 Directions = 8 Levels)
     # ═══════════════════════════════════════════════════════════════════════════
     st.markdown('<div class="section-header"><div class="section-icon">◎</div><h2 class="section-title">Prior Day Intermediate Levels</h2></div>', unsafe_allow_html=True)
     
-    if prior_targets["available"] and prior_targets["highest_wick"] is not None and prior_targets["lowest_close"] is not None:
-        # Convert ES targets to SPX
-        hw_anchor_spx = round(prior_targets["highest_wick"] - offset, 2)
-        lc_anchor_spx = round(prior_targets["lowest_close"] - offset, 2)
-        hw_asc = round(prior_targets["highest_wick_ascending"] - offset, 2) if prior_targets["highest_wick_ascending"] else None
-        hw_desc = round(prior_targets["highest_wick_descending"] - offset, 2) if prior_targets["highest_wick_descending"] else None
-        lc_asc = round(prior_targets["lowest_close_ascending"] - offset, 2) if prior_targets["lowest_close_ascending"] else None
-        lc_desc = round(prior_targets["lowest_close_descending"] - offset, 2) if prior_targets["lowest_close_descending"] else None
+    if prior_targets["available"]:
+        # Convert all ES targets to SPX
+        def to_spx(val):
+            return round(val - offset, 2) if val is not None else None
         
-        # Only display if all values are available
-        if all([hw_asc, hw_desc, lc_asc, lc_desc]):
-            st.markdown(f'''
-            <div class="prior-levels-container">
-                <div class="prior-levels-section">
-                    <div class="prior-levels-header">
-                        <span class="prior-levels-icon">📍</span>
-                        <span class="prior-levels-title">From Highest Wick</span>
-                        <span class="prior-levels-anchor">{hw_anchor_spx:,.2f}</span>
-                    </div>
-                    <div class="prior-levels-grid">
-                        <div class="prior-level-item prior-level-sell">
-                            <div class="prior-level-direction">↗ Ascending</div>
-                            <div class="prior-level-value">{hw_asc:,.2f}</div>
-                            <div class="prior-level-action">SELL (Resistance)</div>
+        # Primary High Wick
+        p_hw = to_spx(prior_targets.get("primary_high_wick"))
+        p_hw_asc = to_spx(prior_targets.get("primary_high_wick_ascending"))
+        p_hw_desc = to_spx(prior_targets.get("primary_high_wick_descending"))
+        
+        # Secondary High Wick
+        s_hw = to_spx(prior_targets.get("secondary_high_wick"))
+        s_hw_asc = to_spx(prior_targets.get("secondary_high_wick_ascending"))
+        s_hw_desc = to_spx(prior_targets.get("secondary_high_wick_descending"))
+        
+        # Primary Low Open
+        p_lo = to_spx(prior_targets.get("primary_low_open"))
+        p_lo_asc = to_spx(prior_targets.get("primary_low_open_ascending"))
+        p_lo_desc = to_spx(prior_targets.get("primary_low_open_descending"))
+        
+        # Secondary Low Open
+        s_lo = to_spx(prior_targets.get("secondary_low_open"))
+        s_lo_asc = to_spx(prior_targets.get("secondary_low_open_ascending"))
+        s_lo_desc = to_spx(prior_targets.get("secondary_low_open_descending"))
+        
+        # ─────────────────────────────────────────────────────────────────────
+        # PRIMARY PIVOTS (Expandable)
+        # ─────────────────────────────────────────────────────────────────────
+        with st.expander("📍 **PRIMARY PIVOTS** (High Wick & Low Open)", expanded=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if p_hw is not None and p_hw_asc is not None and p_hw_desc is not None:
+                    st.markdown(f'''
+                    <div class="prior-levels-section" style="margin-bottom:0;">
+                        <div class="prior-levels-header">
+                            <span class="prior-levels-icon">🔺</span>
+                            <span class="prior-levels-title">Primary High Wick</span>
+                            <span class="prior-levels-anchor">{p_hw:,.2f}</span>
                         </div>
-                        <div class="prior-level-item prior-level-buy">
-                            <div class="prior-level-direction">↘ Descending</div>
-                            <div class="prior-level-value">{hw_desc:,.2f}</div>
-                            <div class="prior-level-action">BUY (Support)</div>
+                        <div class="prior-levels-grid">
+                            <div class="prior-level-item prior-level-sell">
+                                <div class="prior-level-direction">↗ Ascending</div>
+                                <div class="prior-level-value">{p_hw_asc:,.2f}</div>
+                                <div class="prior-level-action">SELL (Resistance)</div>
+                            </div>
+                            <div class="prior-level-item prior-level-buy">
+                                <div class="prior-level-direction">↘ Descending</div>
+                                <div class="prior-level-value">{p_hw_desc:,.2f}</div>
+                                <div class="prior-level-action">BUY (Support)</div>
+                            </div>
                         </div>
                     </div>
-                    <div class="prior-levels-note">Use when price opened ABOVE prior day high</div>
+                    ''', unsafe_allow_html=True)
+                else:
+                    st.markdown('<div style="padding:20px;text-align:center;color:var(--text-muted);">Primary High Wick: N/A</div>', unsafe_allow_html=True)
+            
+            with col2:
+                if p_lo is not None and p_lo_asc is not None and p_lo_desc is not None:
+                    st.markdown(f'''
+                    <div class="prior-levels-section" style="margin-bottom:0;">
+                        <div class="prior-levels-header">
+                            <span class="prior-levels-icon">🔻</span>
+                            <span class="prior-levels-title">Primary Low Open</span>
+                            <span class="prior-levels-anchor">{p_lo:,.2f}</span>
+                        </div>
+                        <div class="prior-levels-grid">
+                            <div class="prior-level-item prior-level-buy">
+                                <div class="prior-level-direction">↗ Ascending</div>
+                                <div class="prior-level-value">{p_lo_asc:,.2f}</div>
+                                <div class="prior-level-action">BUY (Support)</div>
+                            </div>
+                            <div class="prior-level-item prior-level-sell">
+                                <div class="prior-level-direction">↘ Descending</div>
+                                <div class="prior-level-value">{p_lo_desc:,.2f}</div>
+                                <div class="prior-level-action">SELL (Resistance)</div>
+                            </div>
+                        </div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                else:
+                    st.markdown('<div style="padding:20px;text-align:center;color:var(--text-muted);">Primary Low Open: N/A<br><small>(No bullish candle found)</small></div>', unsafe_allow_html=True)
+        
+        # ─────────────────────────────────────────────────────────────────────
+        # SECONDARY PIVOTS (Expandable)
+        # ─────────────────────────────────────────────────────────────────────
+        has_secondary = s_hw is not None or s_lo is not None
+        secondary_label = "📍 **SECONDARY PIVOTS** (Lower High & Higher Low)" if has_secondary else "📍 **SECONDARY PIVOTS** (None Detected)"
+        
+        with st.expander(secondary_label, expanded=has_secondary):
+            if not has_secondary:
+                st.markdown('''
+                <div style="padding:20px;text-align:center;color:var(--text-muted);">
+                    <div style="font-size:1.2rem;margin-bottom:8px;">No Secondary Pivots Detected</div>
+                    <div style="font-size:0.85rem;">Secondary pivots require a rejection 1+ hour after the primary pivot</div>
                 </div>
-                <div class="prior-levels-section">
-                    <div class="prior-levels-header">
-                        <span class="prior-levels-icon">📍</span>
-                        <span class="prior-levels-title">From Lowest Close</span>
-                        <span class="prior-levels-anchor">{lc_anchor_spx:,.2f}</span>
-                    </div>
-                    <div class="prior-levels-grid">
-                        <div class="prior-level-item prior-level-buy">
-                            <div class="prior-level-direction">↗ Ascending</div>
-                            <div class="prior-level-value">{lc_asc:,.2f}</div>
-                            <div class="prior-level-action">BUY (Support)</div>
+                ''', unsafe_allow_html=True)
+            else:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if s_hw is not None and s_hw_asc is not None and s_hw_desc is not None:
+                        st.markdown(f'''
+                        <div class="prior-levels-section" style="margin-bottom:0;opacity:0.9;">
+                            <div class="prior-levels-header">
+                                <span class="prior-levels-icon">🔸</span>
+                                <span class="prior-levels-title">Secondary High Wick</span>
+                                <span class="prior-levels-anchor">{s_hw:,.2f}</span>
+                            </div>
+                            <div class="prior-levels-grid">
+                                <div class="prior-level-item prior-level-sell">
+                                    <div class="prior-level-direction">↗ Ascending</div>
+                                    <div class="prior-level-value">{s_hw_asc:,.2f}</div>
+                                    <div class="prior-level-action">SELL (Resistance)</div>
+                                </div>
+                                <div class="prior-level-item prior-level-buy">
+                                    <div class="prior-level-direction">↘ Descending</div>
+                                    <div class="prior-level-value">{s_hw_desc:,.2f}</div>
+                                    <div class="prior-level-action">BUY (Support)</div>
+                                </div>
+                            </div>
+                            <div class="prior-levels-note">Lower high after primary rejection</div>
                         </div>
-                        <div class="prior-level-item prior-level-sell">
-                            <div class="prior-level-direction">↘ Descending</div>
-                            <div class="prior-level-value">{lc_desc:,.2f}</div>
-                            <div class="prior-level-action">SELL (Resistance)</div>
+                        ''', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<div style="padding:20px;text-align:center;color:var(--text-muted);">Secondary High Wick: N/A</div>', unsafe_allow_html=True)
+                
+                with col2:
+                    if s_lo is not None and s_lo_asc is not None and s_lo_desc is not None:
+                        st.markdown(f'''
+                        <div class="prior-levels-section" style="margin-bottom:0;opacity:0.9;">
+                            <div class="prior-levels-header">
+                                <span class="prior-levels-icon">🔹</span>
+                                <span class="prior-levels-title">Secondary Low Open</span>
+                                <span class="prior-levels-anchor">{s_lo:,.2f}</span>
+                            </div>
+                            <div class="prior-levels-grid">
+                                <div class="prior-level-item prior-level-buy">
+                                    <div class="prior-level-direction">↗ Ascending</div>
+                                    <div class="prior-level-value">{s_lo_asc:,.2f}</div>
+                                    <div class="prior-level-action">BUY (Support)</div>
+                                </div>
+                                <div class="prior-level-item prior-level-sell">
+                                    <div class="prior-level-direction">↘ Descending</div>
+                                    <div class="prior-level-value">{s_lo_desc:,.2f}</div>
+                                    <div class="prior-level-action">SELL (Resistance)</div>
+                                </div>
+                            </div>
+                            <div class="prior-levels-note">Higher low after primary defense (bullish)</div>
                         </div>
-                    </div>
-                    <div class="prior-levels-note">Use when price opened BELOW prior day low</div>
-                </div>
-            </div>
-            ''', unsafe_allow_html=True)
-        else:
-            st.markdown('''
-            <div class="alert-box" style="background: rgba(255,215,0,0.1); border: 1px solid rgba(255,215,0,0.3);">
-                <span style="font-size:1.2rem;">⚠️</span>
-                <div>
-                    <div style="font-weight:600;color:var(--accent-gold);margin-bottom:4px;">Prior Day Data Incomplete</div>
-                    <div style="font-size:0.85rem;color:var(--text-secondary);">Some values missing - use Manual Override in sidebar</div>
-                </div>
-            </div>
-            ''', unsafe_allow_html=True)
+                        ''', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<div style="padding:20px;text-align:center;color:var(--text-muted);">Secondary Low Open: N/A</div>', unsafe_allow_html=True)
     else:
         st.markdown('''
         <div class="alert-box" style="background: rgba(255,215,0,0.1); border: 1px solid rgba(255,215,0,0.3);">
