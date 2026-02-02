@@ -4224,7 +4224,10 @@ def sidebar():
         # BASIC SETTINGS
         # ─────────────────────────────────────────────────────────────────────
         st.markdown("#### 📅 Trading Session")
-        trading_date = st.date_input("Trading Date", value=date.today())
+        # Use CT timezone for today's date to avoid timezone issues
+        ct_now = datetime.now(CT)
+        ct_today = ct_now.date()
+        trading_date = st.date_input("Trading Date", value=ct_today)
         
         # Reference time with 30-minute granularity
         ref_time_options = []
