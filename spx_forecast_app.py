@@ -1412,9 +1412,214 @@ def analyze_market_state(current_spx, ceiling_spx, floor_spx, channel_type, reta
     return result
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# EXPLOSIVE MOVE DETECTOR
+# ═══════════════════════════════════════════════════════════════════════════════
+def detect_explosive_potential(current_spx, dual_levels, prior_targets, channel_type,
+                                vix_spread, ema_data, overnight_range, prior_day_range,
+                                gap_analysis):
+    """
+    Detect conditions that precede explosive moves (20x+ premium potential).
+    
+    Key factors:
+    1. Target Distance - How far is the profit target if structure breaks?
+    2. Sentiment Extreme - Is the crowd positioned wrong?
+    3. Range Compression - Is volatility coiled?
+    4. EMA Extension - Is price overextended?
+    5. Gap Vulnerability - Did we gap into a weak position?
+    
+    Returns dict with explosive_score (0-100) and alerts.
+    """
+    
+    result = {
+        "explosive_score": 0,
+        "alerts": [],
+        "factors": [],
+        "direction_bias": None,  # CALLS or PUTS
+        "target_distance": None,
+        "potential_move": None,
+        "conviction": "LOW"
+    }
+    
+    if not dual_levels or not current_spx:
+        return result
+    
+    score = 0
+    factors = []
+    alerts = []
+    
+    asc_floor = dual_levels.get("asc_floor", 0)
+    desc_ceiling = dual_levels.get("desc_ceiling", 0)
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # FACTOR 1: TARGET DISTANCE (Most Important!)
+    # If structure breaks, how far is the target?
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    bearish_target = None
+    bullish_target = None
+    
+    if prior_targets and prior_targets.get("available"):
+        # Bearish target: descending line from prior low
+        bearish_target = prior_targets.get("primary_low_open_descending")
+        # Bullish target: ascending line from prior high  
+        bullish_target = prior_targets.get("primary_high_wick_ascending")
+    
+    # Calculate distances
+    dist_to_bearish_target = abs(current_spx - bearish_target) if bearish_target else 0
+    dist_to_bullish_target = abs(current_spx - bullish_target) if bullish_target else 0
+    dist_to_asc_floor = abs(current_spx - asc_floor)
+    dist_to_desc_ceiling = abs(current_spx - desc_ceiling)
+    
+    # BEARISH EXPLOSIVE: Close to ascending floor + far bearish target
+    if dist_to_asc_floor < 20 and dist_to_bearish_target > 50:
+        runway = dist_to_bearish_target
+        score += min(35, int(runway / 2))  # Up to 35 points
+        factors.append(f"🎯 BEARISH RUNWAY: {runway:.0f} pts to target ({bearish_target:.2f})")
+        result["target_distance"] = runway
+        result["potential_move"] = "BEARISH"
+        if runway > 80:
+            alerts.append(f"🔥 MASSIVE BEARISH TARGET: {runway:.0f} pts below if floor breaks!")
+    
+    # BULLISH EXPLOSIVE: Close to descending ceiling + far bullish target
+    if dist_to_desc_ceiling < 20 and dist_to_bullish_target > 50:
+        runway = dist_to_bullish_target
+        score += min(35, int(runway / 2))  # Up to 35 points
+        factors.append(f"🎯 BULLISH RUNWAY: {runway:.0f} pts to target ({bullish_target:.2f})")
+        result["target_distance"] = runway
+        result["potential_move"] = "BULLISH"
+        if runway > 80:
+            alerts.append(f"🚀 MASSIVE BULLISH TARGET: {runway:.0f} pts above if ceiling breaks!")
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # FACTOR 2: SENTIMENT EXTREME (Fade the Crowd)
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    if vix_spread is not None:
+        if vix_spread <= -2.5:
+            # Extreme complacency - bearish setup
+            score += 20
+            factors.append(f"😴 EXTREME COMPLACENCY: VIX spread {vix_spread:.2f} (crowd bullish)")
+            if result["potential_move"] == "BEARISH":
+                alerts.append("⚠️ SENTIMENT ALIGNED: Crowd bullish + bearish structure = FADE SETUP")
+                score += 10  # Bonus for alignment
+        elif vix_spread >= 2.5:
+            # Extreme fear - bullish setup
+            score += 20
+            factors.append(f"😱 EXTREME FEAR: VIX spread {vix_spread:.2f} (crowd bearish)")
+            if result["potential_move"] == "BULLISH":
+                alerts.append("⚠️ SENTIMENT ALIGNED: Crowd bearish + bullish structure = FADE SETUP")
+                score += 10  # Bonus for alignment
+        elif vix_spread <= -1.5:
+            score += 10
+            factors.append(f"📊 Elevated complacency: VIX spread {vix_spread:.2f}")
+        elif vix_spread >= 1.5:
+            score += 10
+            factors.append(f"📊 Elevated fear: VIX spread {vix_spread:.2f}")
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # FACTOR 3: RANGE COMPRESSION (Volatility Coiling)
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    if overnight_range and overnight_range < 25:
+        score += 15
+        factors.append(f"🔄 COMPRESSED OVERNIGHT: Only {overnight_range:.1f} pts (expansion likely)")
+        alerts.append("📊 Tight overnight range = BREAKOUT CONDITIONS")
+    elif overnight_range and overnight_range < 35:
+        score += 8
+        factors.append(f"📉 Narrow overnight: {overnight_range:.1f} pts")
+    
+    if prior_day_range and prior_day_range < 40:
+        score += 10
+        factors.append(f"📊 Compressed prior day: {prior_day_range:.1f} pts")
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # FACTOR 4: EMA EXTENSION (Rubber Band Effect)
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    if ema_data:
+        ema_200 = ema_data.get("ema_200")
+        if ema_200 and current_spx:
+            pct_from_ema = ((current_spx - ema_200) / ema_200) * 100
+            
+            if pct_from_ema > 1.5:
+                score += 15
+                factors.append(f"📈 EXTENDED ABOVE 200 EMA: +{pct_from_ema:.1f}% (pullback vulnerable)")
+                if result["potential_move"] == "BEARISH":
+                    alerts.append("🎯 MEAN REVERSION SETUP: Extended + bearish structure")
+            elif pct_from_ema < -1.5:
+                score += 15
+                factors.append(f"📉 EXTENDED BELOW 200 EMA: {pct_from_ema:.1f}% (bounce vulnerable)")
+                if result["potential_move"] == "BULLISH":
+                    alerts.append("🎯 MEAN REVERSION SETUP: Oversold + bullish structure")
+            elif pct_from_ema > 0.8:
+                score += 5
+                factors.append(f"📊 Above 200 EMA: +{pct_from_ema:.1f}%")
+            elif pct_from_ema < -0.8:
+                score += 5
+                factors.append(f"📊 Below 200 EMA: {pct_from_ema:.1f}%")
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # FACTOR 5: GAP VULNERABILITY
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    if gap_analysis:
+        if gap_analysis.get("into_floor"):
+            score += 10
+            factors.append("⬇️ GAPPED INTO FLOOR: Weak open, breakdown risk")
+            if result["potential_move"] == "BEARISH":
+                score += 5
+        if gap_analysis.get("into_ceiling"):
+            score += 10
+            factors.append("⬆️ GAPPED INTO CEILING: Weak open, rejection risk")
+            if result["potential_move"] == "BULLISH":
+                score += 5
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # FACTOR 6: STRUCTURE ALREADY BROKEN
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    below_floor = current_spx < asc_floor
+    above_ceiling = current_spx > desc_ceiling
+    
+    if channel_type == ChannelType.ASCENDING and below_floor:
+        score += 15
+        factors.append("💥 STRUCTURE BROKEN: Below ascending floor - continuation likely")
+        result["potential_move"] = "BEARISH"
+        alerts.append("🚨 BREAKDOWN IN PROGRESS: Look for continuation to targets")
+    
+    if channel_type == ChannelType.DESCENDING and above_ceiling:
+        score += 15
+        factors.append("💥 STRUCTURE BROKEN: Above descending ceiling - continuation likely")
+        result["potential_move"] = "BULLISH"
+        alerts.append("🚨 BREAKOUT IN PROGRESS: Look for continuation to targets")
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # CALCULATE FINAL SCORE AND CONVICTION
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    result["explosive_score"] = min(100, score)
+    result["factors"] = factors
+    result["alerts"] = alerts
+    
+    if score >= 70:
+        result["conviction"] = "EXTREME"
+        result["direction_bias"] = "PUTS" if result["potential_move"] == "BEARISH" else "CALLS"
+    elif score >= 50:
+        result["conviction"] = "HIGH"
+        result["direction_bias"] = "PUTS" if result["potential_move"] == "BEARISH" else "CALLS"
+    elif score >= 30:
+        result["conviction"] = "MODERATE"
+    else:
+        result["conviction"] = "LOW"
+    
+    return result
+
+
 def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reason,
                             retail_bias, ema_bias, vix_position, vix, 
-                            session_tests, gap_analysis, prior_close_analysis, vix_structure):
+                            session_tests, gap_analysis, prior_close_analysis, vix_structure,
+                            prior_targets=None):
     """
     OPTION C: Dual Channel Decision Engine
     
@@ -1580,14 +1785,25 @@ def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reas
     # ASCENDING DOMINANT
     if channel_type == ChannelType.ASCENDING:
         if below_asc_floor:
-            # Structure broken
-            result["primary"] = make_trade("Breakdown Continuation", "PUTS", asc_floor, asc_floor + 10,
+            # Structure broken - target descending line from prior RTH low
+            price_target_text = ""
+            if prior_targets and prior_targets.get("available"):
+                desc_target = prior_targets.get("primary_low_open_descending")
+                if desc_target:
+                    price_target_text = f" • Target: {desc_target:.2f} (desc from prior low)"
+            
+            result["primary"] = make_trade("Ascending Floor Rejection", "PUTS", asc_floor, asc_floor + 10,
                 f"Sell rallies to broken floor {asc_floor:.2f}",
-                f"Structure broken • {len(puts_factors)} factors", calc_conf("PUTS", True), True)
+                f"Structure broken{price_target_text} • {len(puts_factors)} factors", calc_conf("PUTS", True), True)
             result["secondary"] = make_trade("Floor Reclaim", "CALLS", asc_floor, asc_floor - 10,
                 f"ONLY if price reclaims {asc_floor:.2f}",
                 "Recovery scenario", calc_conf("CALLS", True, True), False)
             result["position_summary"] = f"⚠️ BELOW ascending floor ({asc_floor:.2f}) - BEARISH bias"
+            
+            # Add price target to result
+            if price_target_text:
+                result["price_target"] = desc_target
+                result["price_target_desc"] = "Descending line from prior RTH low"
         else:
             result["primary"] = make_trade("Ascending Floor Bounce", "CALLS", asc_floor, asc_floor - 10,
                 f"Wait for price at {asc_floor:.2f}",
@@ -1600,14 +1816,25 @@ def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reas
     # DESCENDING DOMINANT
     elif channel_type == ChannelType.DESCENDING:
         if above_desc_ceiling:
-            # Structure broken
-            result["primary"] = make_trade("Breakout Continuation", "CALLS", desc_ceiling, desc_ceiling - 10,
+            # Structure broken - target ascending line from prior RTH high
+            price_target_text = ""
+            if prior_targets and prior_targets.get("available"):
+                asc_target = prior_targets.get("primary_high_wick_ascending")
+                if asc_target:
+                    price_target_text = f" • Target: {asc_target:.2f} (asc from prior high)"
+            
+            result["primary"] = make_trade("Descending Ceiling Bounce", "CALLS", desc_ceiling, desc_ceiling - 10,
                 f"Buy dips to broken ceiling {desc_ceiling:.2f}",
-                f"Structure broken • {len(calls_factors)} factors", calc_conf("CALLS", True), True)
+                f"Structure broken{price_target_text} • {len(calls_factors)} factors", calc_conf("CALLS", True), True)
             result["secondary"] = make_trade("Failed Breakout", "PUTS", desc_ceiling, desc_ceiling + 10,
                 f"ONLY if price fails below {desc_ceiling:.2f}",
                 "Rejection scenario", calc_conf("PUTS", True, True), False)
             result["position_summary"] = f"🚀 ABOVE descending ceiling ({desc_ceiling:.2f}) - BULLISH bias"
+            
+            # Add price target to result
+            if price_target_text:
+                result["price_target"] = asc_target
+                result["price_target_desc"] = "Ascending line from prior RTH high"
         else:
             result["primary"] = make_trade("Desc Ceiling Rejection", "PUTS", desc_ceiling, desc_ceiling + 10,
                 f"Wait for price at {desc_ceiling:.2f}",
@@ -4773,7 +5000,28 @@ def main():
     decision = analyze_market_state_v2(
         current_spx, dual_levels_spx, channel_type, channel_reason,
         retail_data["bias"], ema_data["ema_bias"], vix_pos, vix,
-        session_tests, gap_analysis, prior_close_validation, vix_term
+        session_tests, gap_analysis, prior_close_validation, vix_term,
+        prior_targets
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # EXPLOSIVE MOVE DETECTOR
+    # ═══════════════════════════════════════════════════════════════════════════
+    overnight_range = None
+    if overnight:
+        overnight_range = overnight.get("high", 0) - overnight.get("low", 0)
+    
+    prior_day_range = None
+    if prior_rth and prior_rth.get("available"):
+        p_high = prior_rth.get("primary_high_wick")
+        p_low = prior_rth.get("primary_low_open")
+        if p_high and p_low:
+            prior_day_range = p_high - p_low
+    
+    explosive = detect_explosive_potential(
+        current_spx, dual_levels_spx, prior_targets, channel_type,
+        retail_data.get("spread"), ema_data, overnight_range, prior_day_range,
+        gap_analysis
     )
     
     # ═══════════════════════════════════════════════════════════════════════════
@@ -4888,6 +5136,55 @@ def main():
         cross_class = "calls" if ema_data["ema_cross"] == "BULLISH" else "puts"
         cross_icon = "✓" if ema_data["ema_cross"] == "BULLISH" else "✗"
         st.markdown(f'<div class="glass-card"><div class="bias-pill bias-pill-{cross_class}"><span>{cross_icon}</span><span>8/21 {ema_data["ema_cross"]}</span></div><p style="margin-top:10px;color:var(--text-secondary);font-size:0.875rem;">{"8 EMA > 21 EMA" if ema_data["ema_cross"] == "BULLISH" else "8 EMA < 21 EMA"}</p></div>', unsafe_allow_html=True)
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # EXPLOSIVE MOVE ALERT (Show prominently if score is high)
+    # ═══════════════════════════════════════════════════════════════════════════
+    if explosive["explosive_score"] >= 40:
+        score = explosive["explosive_score"]
+        conviction = explosive["conviction"]
+        direction = explosive.get("direction_bias", "")
+        target_dist = explosive.get("target_distance", 0)
+        
+        # Determine alert styling
+        if score >= 70:
+            alert_class = "danger"
+            score_icon = "🔥"
+            score_label = "EXTREME"
+        elif score >= 50:
+            alert_class = "warning"
+            score_icon = "⚡"
+            score_label = "HIGH"
+        else:
+            alert_class = "info"
+            score_icon = "📊"
+            score_label = "MODERATE"
+        
+        direction_icon = "🐻" if direction == "PUTS" else "🐂" if direction == "CALLS" else "⚖️"
+        
+        # Build factors list
+        factors_html = ""
+        for factor in explosive["factors"][:5]:  # Show top 5 factors
+            factors_html += f'<div style="font-size:0.8rem;color:var(--text-secondary);margin-top:4px;">• {factor}</div>'
+        
+        # Build alerts list
+        alerts_html = ""
+        for alert in explosive["alerts"][:3]:  # Show top 3 alerts
+            alerts_html += f'<div style="font-size:0.85rem;color:var(--accent-gold);margin-top:6px;font-weight:600;">{alert}</div>'
+        
+        target_text = f" | Target: {target_dist:.0f} pts" if target_dist else ""
+        
+        st.markdown(f'''
+        <div class="alert-box alert-box-{alert_class}" style="border:2px solid;">
+            <div class="alert-icon-large">{direction_icon}</div>
+            <div class="alert-content">
+                <div class="alert-title" style="font-size:1.2rem;">{score_icon} EXPLOSIVE POTENTIAL: {score_label} ({score}/100)</div>
+                <div class="alert-text">Direction Bias: <strong>{direction or "NEUTRAL"}</strong>{target_text}</div>
+                {factors_html}
+                {alerts_html}
+            </div>
+        </div>
+        ''', unsafe_allow_html=True)
     
     # Retail positioning alert
     if retail_data["positioning"] != "BALANCED":
