@@ -5138,21 +5138,20 @@ def main():
         st.markdown(f'<div class="glass-card"><div class="bias-pill bias-pill-{cross_class}"><span>{cross_icon}</span><span>8/21 {ema_data["ema_cross"]}</span></div><p style="margin-top:10px;color:var(--text-secondary);font-size:0.875rem;">{"8 EMA > 21 EMA" if ema_data["ema_cross"] == "BULLISH" else "8 EMA < 21 EMA"}</p></div>', unsafe_allow_html=True)
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # EXPLOSIVE MOVE ALERT (Show prominently if score is high)
+    # EXPLOSIVE MOVE ALERT (Clean & Bold)
     # ═══════════════════════════════════════════════════════════════════════════
     if explosive["explosive_score"] >= 40:
         score = explosive["explosive_score"]
-        conviction = explosive["conviction"]
         direction = explosive.get("direction_bias", "")
         target_dist = explosive.get("target_distance", 0)
         
-        # Determine alert styling
+        # Determine styling
         if score >= 70:
             alert_class = "danger"
             score_icon = "🔥"
             score_label = "EXTREME"
         elif score >= 50:
-            alert_class = "warning"
+            alert_class = "warning" 
             score_icon = "⚡"
             score_label = "HIGH"
         else:
@@ -5161,27 +5160,16 @@ def main():
             score_label = "MODERATE"
         
         direction_icon = "🐻" if direction == "PUTS" else "🐂" if direction == "CALLS" else "⚖️"
-        
-        # Build factors list
-        factors_html = ""
-        for factor in explosive["factors"][:5]:  # Show top 5 factors
-            factors_html += f'<div style="font-size:0.8rem;color:var(--text-secondary);margin-top:4px;">• {factor}</div>'
-        
-        # Build alerts list
-        alerts_html = ""
-        for alert in explosive["alerts"][:3]:  # Show top 3 alerts
-            alerts_html += f'<div style="font-size:0.85rem;color:var(--accent-gold);margin-top:6px;font-weight:600;">{alert}</div>'
-        
-        target_text = f" | Target: {target_dist:.0f} pts" if target_dist else ""
+        target_text = f"{target_dist:.0f} pt runway" if target_dist else ""
         
         st.markdown(f'''
-        <div class="alert-box alert-box-{alert_class}" style="border:2px solid;">
-            <div class="alert-icon-large">{direction_icon}</div>
+        <div class="alert-box alert-box-{alert_class}" style="border-width:2px;">
+            <div class="alert-icon-large" style="font-size:4rem;">{direction_icon}</div>
             <div class="alert-content">
-                <div class="alert-title" style="font-size:1.2rem;">{score_icon} EXPLOSIVE POTENTIAL: {score_label} ({score}/100)</div>
-                <div class="alert-text">Direction Bias: <strong>{direction or "NEUTRAL"}</strong>{target_text}</div>
-                {factors_html}
-                {alerts_html}
+                <div class="alert-title" style="font-size:1.3rem;">{score_icon} EXPLOSIVE POTENTIAL: {score_label}</div>
+                <div class="alert-values" style="font-size:1.1rem;margin-top:8px;border:none;padding:0;">
+                    Score: <strong>{score}/100</strong> &nbsp;|&nbsp; Bias: <strong>{direction or "NEUTRAL"}</strong>{f" &nbsp;|&nbsp; {target_text}" if target_text else ""}
+                </div>
             </div>
         </div>
         ''', unsafe_allow_html=True)
