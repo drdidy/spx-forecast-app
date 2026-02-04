@@ -5958,56 +5958,60 @@ def main():
             trade_status = p.get("trade_status", "PENDING")
             
             if trade_status == "TRIGGERED" and p.get("live_current_premium"):
-                # Trade has triggered - show current premium and profit
                 premium_label = "Current Premium (LIVE)"
                 current_prem = p["live_current_premium"]
                 profit_pct = p.get("current_profit_pct", 0)
                 profit_dollars = p.get("current_profit_dollars", 0)
                 profit_color = "var(--bull)" if profit_pct >= 0 else "var(--bear)"
                 profit_sign = "+" if profit_pct >= 0 else ""
-                premium_note = f'<div style="font-size:0.7rem;color:{profit_color};margin-top:4px;font-weight:600;">P/L: {profit_sign}{profit_pct:.1f}% ({profit_sign}${profit_dollars:,.0f})</div>'
+                premium_note = f'P/L: {profit_sign}{profit_pct:.1f}% ({profit_sign}${profit_dollars:,.0f})'
+                premium_note_style = f'font-size:0.7rem;color:{profit_color};margin-top:4px;font-weight:600;'
                 premium_value = current_prem
-                # Show TRIGGERED badge
-                status_badge = '<div style="background:var(--bull);color:#000;padding:4px 12px;border-radius:20px;font-size:0.7rem;font-weight:700;display:inline-block;margin-bottom:8px;">✓ TRADE TRIGGERED</div>'
+                show_triggered = True
             elif p.get("real_premium"):
-                # Trade pending - show projected entry premium
                 premium_label = "Entry Premium (LIVE)"
-                premium_value = p["entry_premium"]
-                premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${p["current_premium"]:.2f} @ SPX {p["current_spx"]:,.0f}</div>'
-                status_badge = ""
+                premium_value = p.get("entry_premium", 0)
+                current_prem_display = p.get("current_premium", 0)
+                current_spx_display = p.get("current_spx", 0)
+                premium_note = f'Current: ${current_prem_display:.2f} @ SPX {current_spx_display:,.0f}'
+                premium_note_style = 'font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;'
+                show_triggered = False
             else:
                 premium_label = "Entry Premium (EST)"
-                premium_value = p["entry_premium"]
+                premium_value = p.get("entry_premium", 0)
                 premium_note = ""
-                status_badge = ""
-                # Show debug info if we tried to fetch but failed
+                premium_note_style = ""
+                show_triggered = False
                 if p.get("polygon_ticker"):
-                    premium_note = f'<div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px;">Polygon: {p.get("polygon_error", "No data")}</div>'
+                    premium_note = f'Polygon: {p.get("polygon_error", "No data")}'
+                    premium_note_style = 'font-size:0.65rem;color:var(--text-muted);margin-top:4px;'
             
-            st.markdown(f'''
-            <div class="trade-card trade-card-{tc}">
-                <div class="trade-header">
-                    <div class="trade-name">{di} {p["name"]}</div>
-                    <div class="trade-confidence trade-confidence-{p["confidence"].lower()}">{p["confidence"]} CONFIDENCE</div>
-                </div>
-                {status_badge}
-                <div class="trade-contract trade-contract-{tc}">{p["contract"]}</div>
-                <div class="trade-grid">
-                    <div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${premium_value:.2f}</div>{premium_note}</div>
-                    <div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{p["entry_level"]:,.2f}</div></div>
-                    <div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{p["stop_level"]:,.2f}</div></div>
-                </div>
-                <div class="trade-targets">
-                    <div class="targets-header">◎ Profit Targets</div>
-                    <div class="targets-grid">
-                        <div class="target-item"><div class="target-label">50%</div><div class="target-price">${t["t1"]["price"]:.2f}</div><div class="target-profit">+${t["t1"]["profit_dollars"]:,.0f}</div></div>
-                        <div class="target-item"><div class="target-label">75%</div><div class="target-price">${t["t2"]["price"]:.2f}</div><div class="target-profit">+${t["t2"]["profit_dollars"]:,.0f}</div></div>
-                        <div class="target-item"><div class="target-label">100%</div><div class="target-price">${t["t3"]["price"]:.2f}</div><div class="target-profit">+${t["t3"]["profit_dollars"]:,.0f}</div></div>
-                    </div>
-                </div>
-                <div class="trade-trigger"><div class="trigger-label">◈ Entry Trigger</div><div class="trigger-text">{p["trigger"]}</div></div>
-            </div>
-            ''', unsafe_allow_html=True)
+            # Build HTML in parts
+            card_html = f'<div class="trade-card trade-card-{tc}">'
+            card_html += f'<div class="trade-header"><div class="trade-name">{di} {p["name"]}</div>'
+            card_html += f'<div class="trade-confidence trade-confidence-{p["confidence"].lower()}">{p["confidence"]} CONFIDENCE</div></div>'
+            
+            if show_triggered:
+                card_html += '<div style="background:var(--bull);color:#000;padding:4px 12px;border-radius:20px;font-size:0.7rem;font-weight:700;display:inline-block;margin-bottom:8px;">✓ TRADE TRIGGERED</div>'
+            
+            card_html += f'<div class="trade-contract trade-contract-{tc}">{p["contract"]}</div>'
+            card_html += '<div class="trade-grid">'
+            card_html += f'<div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${premium_value:.2f}</div>'
+            if premium_note:
+                card_html += f'<div style="{premium_note_style}">{premium_note}</div>'
+            card_html += '</div>'
+            card_html += f'<div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{p["entry_level"]:,.2f}</div></div>'
+            card_html += f'<div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{p["stop_level"]:,.2f}</div></div>'
+            card_html += '</div>'
+            card_html += '<div class="trade-targets"><div class="targets-header">◎ Profit Targets</div><div class="targets-grid">'
+            card_html += f'<div class="target-item"><div class="target-label">50%</div><div class="target-price">${t["t1"]["price"]:.2f}</div><div class="target-profit">+${t["t1"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">75%</div><div class="target-price">${t["t2"]["price"]:.2f}</div><div class="target-profit">+${t["t2"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">100%</div><div class="target-price">${t["t3"]["price"]:.2f}</div><div class="target-profit">+${t["t3"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += '</div></div>'
+            card_html += f'<div class="trade-trigger"><div class="trigger-label">◈ Entry Trigger</div><div class="trigger-text">{p["trigger"]}</div></div>'
+            card_html += '</div>'
+            
+            st.markdown(card_html, unsafe_allow_html=True)
             with st.expander("📋 Trade Rationale"):
                 st.write(p["rationale"])
             # Debug: Show Polygon API details during RTH
@@ -6051,46 +6055,51 @@ Calculated Entry Premium: {p.get('calc_result')}
                 profit_dollars = a.get("current_profit_dollars", 0)
                 profit_color = "var(--bull)" if profit_pct >= 0 else "var(--bear)"
                 profit_sign = "+" if profit_pct >= 0 else ""
-                premium_note = f'<div style="font-size:0.7rem;color:{profit_color};margin-top:4px;font-weight:600;">P/L: {profit_sign}{profit_pct:.1f}% ({profit_sign}${profit_dollars:,.0f})</div>'
+                premium_note = f'P/L: {profit_sign}{profit_pct:.1f}% ({profit_sign}${profit_dollars:,.0f})'
+                premium_note_style = f'font-size:0.7rem;color:{profit_color};margin-top:4px;font-weight:600;'
                 premium_value = current_prem
-                status_badge = '<div style="background:var(--bull);color:#000;padding:4px 12px;border-radius:20px;font-size:0.7rem;font-weight:700;display:inline-block;margin-bottom:8px;">✓ TRADE TRIGGERED</div>'
+                show_triggered = True
             elif a.get("real_premium"):
                 premium_label = "Entry Premium (LIVE)"
                 premium_value = a.get("entry_premium", 0)
                 current_prem_display = a.get("current_premium", 0)
                 current_spx_display = a.get("current_spx", 0)
-                premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${current_prem_display:.2f} @ SPX {current_spx_display:,.0f}</div>'
-                status_badge = ""
+                premium_note = f'Current: ${current_prem_display:.2f} @ SPX {current_spx_display:,.0f}'
+                premium_note_style = 'font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;'
+                show_triggered = False
             else:
                 premium_label = "Entry Premium (EST)"
                 premium_value = a.get("entry_premium", 0)
                 premium_note = ""
-                status_badge = ""
+                premium_note_style = ""
+                show_triggered = False
             
-            st.markdown(f'''
-            <div class="trade-card trade-card-{tc}" style="border-style: dashed;">
-                <div class="trade-header">
-                    <div class="trade-name">{di} {a["name"]}</div>
-                    <div class="trade-confidence trade-confidence-{a["confidence"].lower()}">{a["confidence"]} CONFIDENCE</div>
-                </div>
-                {status_badge}
-                <div class="trade-contract trade-contract-{tc}">{a["contract"]}</div>
-                <div class="trade-grid">
-                    <div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${premium_value:.2f}</div>{premium_note}</div>
-                    <div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{a["entry_level"]:,.2f}</div></div>
-                    <div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{a["stop_level"]:,.2f}</div></div>
-                </div>
-                <div class="trade-targets">
-                    <div class="targets-header">◎ Profit Targets</div>
-                    <div class="targets-grid">
-                        <div class="target-item"><div class="target-label">50%</div><div class="target-price">${t["t1"]["price"]:.2f}</div><div class="target-profit">+${t["t1"]["profit_dollars"]:,.0f}</div></div>
-                        <div class="target-item"><div class="target-label">75%</div><div class="target-price">${t["t2"]["price"]:.2f}</div><div class="target-profit">+${t["t2"]["profit_dollars"]:,.0f}</div></div>
-                        <div class="target-item"><div class="target-label">100%</div><div class="target-price">${t["t3"]["price"]:.2f}</div><div class="target-profit">+${t["t3"]["profit_dollars"]:,.0f}</div></div>
-                    </div>
-                </div>
-                <div class="trade-trigger"><div class="trigger-label">◈ Entry Trigger</div><div class="trigger-text">{a["trigger"]}</div></div>
-            </div>
-            ''', unsafe_allow_html=True)
+            # Build HTML in parts to avoid f-string issues
+            card_html = f'<div class="trade-card trade-card-{tc}" style="border-style: dashed;">'
+            card_html += f'<div class="trade-header"><div class="trade-name">{di} {a["name"]}</div>'
+            card_html += f'<div class="trade-confidence trade-confidence-{a["confidence"].lower()}">{a["confidence"]} CONFIDENCE</div></div>'
+            
+            if show_triggered:
+                card_html += '<div style="background:var(--bull);color:#000;padding:4px 12px;border-radius:20px;font-size:0.7rem;font-weight:700;display:inline-block;margin-bottom:8px;">✓ TRADE TRIGGERED</div>'
+            
+            card_html += f'<div class="trade-contract trade-contract-{tc}">{a["contract"]}</div>'
+            card_html += '<div class="trade-grid">'
+            card_html += f'<div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${premium_value:.2f}</div>'
+            if premium_note:
+                card_html += f'<div style="{premium_note_style}">{premium_note}</div>'
+            card_html += '</div>'
+            card_html += f'<div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{a["entry_level"]:,.2f}</div></div>'
+            card_html += f'<div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{a["stop_level"]:,.2f}</div></div>'
+            card_html += '</div>'
+            card_html += '<div class="trade-targets"><div class="targets-header">◎ Profit Targets</div><div class="targets-grid">'
+            card_html += f'<div class="target-item"><div class="target-label">50%</div><div class="target-price">${t["t1"]["price"]:.2f}</div><div class="target-profit">+${t["t1"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">75%</div><div class="target-price">${t["t2"]["price"]:.2f}</div><div class="target-profit">+${t["t2"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">100%</div><div class="target-price">${t["t3"]["price"]:.2f}</div><div class="target-profit">+${t["t3"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += '</div></div>'
+            card_html += f'<div class="trade-trigger"><div class="trigger-label">◈ Entry Trigger</div><div class="trigger-text">{a["trigger"]}</div></div>'
+            card_html += '</div>'
+            
+            st.markdown(card_html, unsafe_allow_html=True)
             with st.expander("📋 Trade Rationale"):
                 st.write(a["rationale"])
         
@@ -6112,44 +6121,51 @@ Calculated Entry Premium: {p.get('calc_result')}
                 profit_dollars = s.get("current_profit_dollars", 0)
                 profit_color = "var(--bull)" if profit_pct >= 0 else "var(--bear)"
                 profit_sign = "+" if profit_pct >= 0 else ""
-                premium_note = f'<div style="font-size:0.7rem;color:{profit_color};margin-top:4px;font-weight:600;">P/L: {profit_sign}{profit_pct:.1f}% ({profit_sign}${profit_dollars:,.0f})</div>'
+                premium_note = f'P/L: {profit_sign}{profit_pct:.1f}% ({profit_sign}${profit_dollars:,.0f})'
+                premium_note_style = f'font-size:0.7rem;color:{profit_color};margin-top:4px;font-weight:600;'
                 premium_value = current_prem
-                status_badge = '<div style="background:var(--bull);color:#000;padding:4px 12px;border-radius:20px;font-size:0.7rem;font-weight:700;display:inline-block;margin-bottom:8px;">✓ TRADE TRIGGERED</div>'
+                show_triggered = True
             elif s.get("real_premium"):
                 premium_label = "Entry Premium (LIVE)"
-                premium_value = s["entry_premium"]
-                premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${s["current_premium"]:.2f} @ SPX {s["current_spx"]:,.0f}</div>'
-                status_badge = ""
+                premium_value = s.get("entry_premium", 0)
+                current_prem_display = s.get("current_premium", 0)
+                current_spx_display = s.get("current_spx", 0)
+                premium_note = f'Current: ${current_prem_display:.2f} @ SPX {current_spx_display:,.0f}'
+                premium_note_style = 'font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;'
+                show_triggered = False
             else:
                 premium_label = "Entry Premium (EST)"
-                premium_value = s["entry_premium"]
+                premium_value = s.get("entry_premium", 0)
                 premium_note = ""
-                status_badge = ""
+                premium_note_style = ""
+                show_triggered = False
             
-            st.markdown(f'''
-            <div class="trade-card trade-card-{tc}" style="opacity: 0.85;">
-                <div class="trade-header">
-                    <div class="trade-name">{di} {s["name"]}</div>
-                    <div class="trade-confidence trade-confidence-{s["confidence"].lower()}">{s["confidence"]} CONFIDENCE</div>
-                </div>
-                {status_badge}
-                <div class="trade-contract trade-contract-{tc}">{s["contract"]}</div>
-                <div class="trade-grid">
-                    <div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${premium_value:.2f}</div>{premium_note}</div>
-                    <div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{s["entry_level"]:,.2f}</div></div>
-                    <div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{s["stop_level"]:,.2f}</div></div>
-                </div>
-                <div class="trade-targets">
-                    <div class="targets-header">◎ Profit Targets</div>
-                    <div class="targets-grid">
-                        <div class="target-item"><div class="target-label">50%</div><div class="target-price">${t["t1"]["price"]:.2f}</div><div class="target-profit">+${t["t1"]["profit_dollars"]:,.0f}</div></div>
-                        <div class="target-item"><div class="target-label">75%</div><div class="target-price">${t["t2"]["price"]:.2f}</div><div class="target-profit">+${t["t2"]["profit_dollars"]:,.0f}</div></div>
-                        <div class="target-item"><div class="target-label">100%</div><div class="target-price">${t["t3"]["price"]:.2f}</div><div class="target-profit">+${t["t3"]["profit_dollars"]:,.0f}</div></div>
-                    </div>
-                </div>
-                <div class="trade-trigger"><div class="trigger-label">◈ Entry Trigger</div><div class="trigger-text">{s["trigger"]}</div></div>
-            </div>
-            ''', unsafe_allow_html=True)
+            # Build HTML in parts
+            card_html = f'<div class="trade-card trade-card-{tc}" style="opacity: 0.85;">'
+            card_html += f'<div class="trade-header"><div class="trade-name">{di} {s["name"]}</div>'
+            card_html += f'<div class="trade-confidence trade-confidence-{s["confidence"].lower()}">{s["confidence"]} CONFIDENCE</div></div>'
+            
+            if show_triggered:
+                card_html += '<div style="background:var(--bull);color:#000;padding:4px 12px;border-radius:20px;font-size:0.7rem;font-weight:700;display:inline-block;margin-bottom:8px;">✓ TRADE TRIGGERED</div>'
+            
+            card_html += f'<div class="trade-contract trade-contract-{tc}">{s["contract"]}</div>'
+            card_html += '<div class="trade-grid">'
+            card_html += f'<div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${premium_value:.2f}</div>'
+            if premium_note:
+                card_html += f'<div style="{premium_note_style}">{premium_note}</div>'
+            card_html += '</div>'
+            card_html += f'<div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{s["entry_level"]:,.2f}</div></div>'
+            card_html += f'<div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{s["stop_level"]:,.2f}</div></div>'
+            card_html += '</div>'
+            card_html += '<div class="trade-targets"><div class="targets-header">◎ Profit Targets</div><div class="targets-grid">'
+            card_html += f'<div class="target-item"><div class="target-label">50%</div><div class="target-price">${t["t1"]["price"]:.2f}</div><div class="target-profit">+${t["t1"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">75%</div><div class="target-price">${t["t2"]["price"]:.2f}</div><div class="target-profit">+${t["t2"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">100%</div><div class="target-price">${t["t3"]["price"]:.2f}</div><div class="target-profit">+${t["t3"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += '</div></div>'
+            card_html += f'<div class="trade-trigger"><div class="trigger-label">◈ Entry Trigger</div><div class="trigger-text">{s["trigger"]}</div></div>'
+            card_html += '</div>'
+            
+            st.markdown(card_html, unsafe_allow_html=True)
             with st.expander("📋 Trade Rationale"):
                 st.write(s["rationale"])
     
