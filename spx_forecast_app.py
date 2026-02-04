@@ -5693,11 +5693,12 @@ def main():
             t = p["targets"]
             
             # Show real vs estimated indicator
-            premium_label = "Entry Premium"
-            premium_note = ""
             if p.get("real_premium"):
                 premium_label = "Entry Premium (LIVE)"
                 premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${p["current_premium"]:.2f} @ SPX {p["current_spx"]:,.0f}</div>'
+            else:
+                premium_label = "Entry Premium (EST)"
+                premium_note = ""
             
             st.markdown(f'''
             <div class="trade-card trade-card-{tc}">
@@ -5733,11 +5734,12 @@ def main():
             di = "↗" if a["direction"] == "CALLS" else "↘"
             t = a["targets"]
             
-            premium_label = "Entry Premium"
-            premium_note = ""
             if a.get("real_premium"):
                 premium_label = "Entry Premium (LIVE)"
                 premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${a["current_premium"]:.2f} @ SPX {a["current_spx"]:,.0f}</div>'
+            else:
+                premium_label = "Entry Premium (EST)"
+                premium_note = ""
             
             st.markdown(f'''
             <div class="trade-card trade-card-{tc}" style="border-style: dashed;">
@@ -5773,11 +5775,12 @@ def main():
             di = "↗" if s["direction"] == "CALLS" else "↘"
             t = s["targets"]
             
-            premium_label = "Entry Premium"
-            premium_note = ""
             if s.get("real_premium"):
                 premium_label = "Entry Premium (LIVE)"
                 premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${s["current_premium"]:.2f} @ SPX {s["current_spx"]:,.0f}</div>'
+            else:
+                premium_label = "Entry Premium (EST)"
+                premium_note = ""
             
             st.markdown(f'''
             <div class="trade-card trade-card-{tc}" style="opacity: 0.85;">
