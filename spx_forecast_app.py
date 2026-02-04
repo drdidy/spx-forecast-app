@@ -1060,6 +1060,95 @@ def _determine_channel_from_comparison(asian_high, asian_low, london_high, londo
     reason = f"{london_name} = {asian_name} range (no expansion)"
     return ChannelType.CONTRACTING, reason, true_high, true_low, high_time, low_time
 
+
+def validate_and_adjust_pivots(channel_type, upper_pivot, lower_pivot, upper_time, lower_time, 
+                                sessions_data, ref_time):
+    """
+    Validate that no price broke through the projected channel lines during building phase.
+    If price broke through, adjust the pivot to the new extreme.
+    
+    Rule: No price can exist outside the channel before 5:30 AM lock.
+    - If price broke BELOW ascending floor line → new lower_pivot = that low
+    - If price broke ABOVE descending ceiling line → new upper_pivot = that high
+    
+    Args:
+        channel_type: ASCENDING, DESCENDING, MIXED, etc.
+        upper_pivot, lower_pivot: Current pivot prices
+        upper_time, lower_time: When pivots were made
+        sessions_data: Dict with sydney, tokyo, london session data
+        ref_time: Reference time for projection
+    
+    Returns:
+        Adjusted (upper_pivot, lower_pivot, upper_time, lower_time)
+    """
+    
+    if not sessions_data or channel_type in [ChannelType.UNDETERMINED, ChannelType.CONTRACTING]:
+        return upper_pivot, lower_pivot, upper_time, lower_time
+    
+    # Collect all session lows and highs with their times
+    all_lows = []
+    all_highs = []
+    
+    for session_name in ["sydney", "tokyo", "london"]:
+        session = sessions_data.get(session_name)
+        if session:
+            all_lows.append((session["low"], session.get("low_time"), session_name))
+            all_highs.append((session["high"], session.get("high_time"), session_name))
+    
+    adjusted_lower = lower_pivot
+    adjusted_lower_time = lower_time
+    adjusted_upper = upper_pivot
+    adjusted_upper_time = upper_time
+    
+    # For ASCENDING channel: Check if any price broke below the ascending floor line
+    if channel_type == ChannelType.ASCENDING:
+        for low_price, low_time_val, session_name in all_lows:
+            if low_time_val and lower_time and low_time_val > lower_time:
+                # Calculate where the ascending floor would be at this time
+                blocks = blocks_between(lower_time, low_time_val)
+                projected_floor = adjusted_lower + SLOPE * blocks
+                
+                # If price went below the projected floor, this becomes new pivot
+                if low_price < projected_floor:
+                    adjusted_lower = low_price
+                    adjusted_lower_time = low_time_val
+    
+    # For DESCENDING channel: Check if any price broke above the descending ceiling line
+    elif channel_type == ChannelType.DESCENDING:
+        for high_price, high_time_val, session_name in all_highs:
+            if high_time_val and upper_time and high_time_val > upper_time:
+                # Calculate where the descending ceiling would be at this time
+                blocks = blocks_between(upper_time, high_time_val)
+                projected_ceiling = adjusted_upper - SLOPE * blocks
+                
+                # If price went above the projected ceiling, this becomes new pivot
+                if high_price > projected_ceiling:
+                    adjusted_upper = high_price
+                    adjusted_upper_time = high_time_val
+    
+    # For MIXED channel: Check both directions
+    elif channel_type == ChannelType.MIXED:
+        # Check ascending floor breaks
+        for low_price, low_time_val, session_name in all_lows:
+            if low_time_val and lower_time and low_time_val > lower_time:
+                blocks = blocks_between(lower_time, low_time_val)
+                projected_floor = adjusted_lower + SLOPE * blocks
+                if low_price < projected_floor:
+                    adjusted_lower = low_price
+                    adjusted_lower_time = low_time_val
+        
+        # Check descending ceiling breaks
+        for high_price, high_time_val, session_name in all_highs:
+            if high_time_val and upper_time and high_time_val > upper_time:
+                blocks = blocks_between(upper_time, high_time_val)
+                projected_ceiling = adjusted_upper - SLOPE * blocks
+                if high_price > projected_ceiling:
+                    adjusted_upper = high_price
+                    adjusted_upper_time = high_time_val
+    
+    return adjusted_upper, adjusted_lower, adjusted_upper_time, adjusted_lower_time
+
+
 def calc_channel_levels(upper_pivot, lower_pivot, upper_time, lower_time, ref_time, channel_type):
     if upper_pivot is None or lower_pivot is None:
         return None, None
@@ -4872,8 +4961,15 @@ def main():
     current_spx = round(current_es - offset, 2)
     channel_type, channel_reason, upper_pivot, lower_pivot, upper_time, lower_time = determine_channel(sydney, tokyo, london)
     
-    # Reference time uses actual trading day
+    # Validate and adjust pivots - ensure no price broke through projected lines during building
+    sessions_data = {"sydney": sydney, "tokyo": tokyo, "london": london}
     ref_time_dt = CT.localize(datetime.combine(actual_trading_date, time(*inputs["ref_time"])))
+    upper_pivot, lower_pivot, upper_time, lower_time = validate_and_adjust_pivots(
+        channel_type, upper_pivot, lower_pivot, upper_time, lower_time, 
+        sessions_data, ref_time_dt
+    )
+    
+    # Calculate channel levels with validated pivots
     ceiling_es, floor_es = calc_channel_levels(upper_pivot, lower_pivot, upper_time, lower_time, ref_time_dt, channel_type)
     
     if ceiling_es is None:
