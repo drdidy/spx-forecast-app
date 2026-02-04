@@ -2250,10 +2250,15 @@ CSS_STYLES = """
     50% { opacity: 0.6; }
 }
 
-/* Hide Streamlit defaults */
-#MainMenu, footer, .stDeployButton {
+/* Hide Streamlit defaults (keep MainMenu visible for settings access) */
+footer, .stDeployButton {
     display: none !important;
     visibility: hidden !important;
+}
+
+/* Style the MainMenu to match theme */
+#MainMenu {
+    color: var(--text-primary) !important;
 }
 
 /* Premium Scrollbar */
