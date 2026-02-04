@@ -268,6 +268,146 @@ def estimate_0dte_premium(spot, strike, hours_to_expiry, vix, opt_type):
     return max(round(premium, 2), 0.05)
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# REAL SPX OPTIONS PREMIUM - Polygon API
+# ═══════════════════════════════════════════════════════════════════════════════
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_real_option_premium(strike, opt_type, trading_date):
+    """
+    Fetch REAL SPX 0DTE option premium from Polygon.
+    
+    Args:
+        strike: Strike price (e.g., 6050)
+        opt_type: "CALL" or "PUT"
+        trading_date: The trading date (for 0DTE expiry)
+    
+    Returns:
+        Dict with bid, ask, mid, last, delta (if available)
+    """
+    result = {
+        "available": False,
+        "bid": None,
+        "ask": None,
+        "mid": None,
+        "last": None,
+        "delta": None,
+        "underlying_price": None
+    }
+    
+    try:
+        # Format: O:SPXW{YYMMDD}{C/P}{STRIKE with 8 digits}
+        # Strike is multiplied by 1000 and padded (e.g., 6050 -> 00605000)
+        date_str = trading_date.strftime("%y%m%d")
+        opt_letter = "C" if opt_type == "CALL" else "P"
+        strike_str = f"{int(strike * 1000):08d}"
+        
+        ticker = f"O:SPXW{date_str}{opt_letter}{strike_str}"
+        
+        # Use snapshot endpoint for current quote
+        url = f"{POLYGON_BASE_URL}/v3/snapshot/options/SPX/{ticker}"
+        params = {"apiKey": POLYGON_API_KEY}
+        
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("results"):
+                r = data["results"]
+                
+                # Get quote data
+                if r.get("last_quote"):
+                    q = r["last_quote"]
+                    result["bid"] = q.get("bid")
+                    result["ask"] = q.get("ask")
+                    if result["bid"] and result["ask"]:
+                        result["mid"] = round((result["bid"] + result["ask"]) / 2, 2)
+                
+                # Get last trade
+                if r.get("last_trade"):
+                    result["last"] = r["last_trade"].get("price")
+                
+                # Get Greeks
+                if r.get("greeks"):
+                    result["delta"] = r["greeks"].get("delta")
+                
+                # Get underlying price
+                if r.get("underlying_asset"):
+                    result["underlying_price"] = r["underlying_asset"].get("price")
+                
+                result["available"] = result["mid"] is not None or result["last"] is not None
+    except Exception as e:
+        pass
+    
+    return result
+
+
+def calculate_premium_at_entry(current_premium, current_spx, entry_spx, strike, opt_type, delta=None):
+    """
+    Calculate what an option premium will be when SPX reaches entry level.
+    
+    For CALLS at ascending floor:
+    - SPX drops to floor → CALL premium DECREASES (cheaper entry!)
+    
+    For PUTS at descending ceiling:
+    - SPX rises to ceiling → PUT premium DECREASES (cheaper entry!)
+    
+    Uses delta approximation: ΔPremium ≈ delta × ΔSPX
+    
+    Args:
+        current_premium: Current option price
+        current_spx: Current SPX price
+        entry_spx: Entry level (floor for calls, ceiling for puts)
+        strike: Option strike
+        opt_type: "CALL" or "PUT"
+        delta: Option delta (if available, otherwise estimate)
+    
+    Returns:
+        Estimated premium at entry level
+    """
+    if current_premium is None or current_spx is None or entry_spx is None:
+        return None
+    
+    spx_move = entry_spx - current_spx  # Negative if dropping to floor, positive if rising to ceiling
+    
+    # Estimate delta if not provided
+    if delta is None:
+        # Rough delta estimate based on moneyness
+        if opt_type == "CALL":
+            otm = strike - current_spx
+            if otm <= 0:  # ITM
+                delta = 0.60
+            elif otm <= 10:
+                delta = 0.45
+            elif otm <= 20:
+                delta = 0.30
+            elif otm <= 30:
+                delta = 0.20
+            else:
+                delta = 0.10
+        else:  # PUT
+            otm = current_spx - strike
+            if otm <= 0:  # ITM
+                delta = -0.60
+            elif otm <= 10:
+                delta = -0.45
+            elif otm <= 20:
+                delta = -0.30
+            elif otm <= 30:
+                delta = -0.20
+            else:
+                delta = -0.10
+    
+    # Premium change = delta × SPX move
+    # For calls: if SPX drops (negative move), premium drops (delta positive)
+    # For puts: if SPX rises (positive move), premium drops (delta negative)
+    premium_change = delta * spx_move
+    
+    # New premium (with floor of $0.05)
+    new_premium = max(0.05, current_premium + premium_change)
+    
+    return round(new_premium, 2)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # DATA FETCHING - Yahoo Finance
 # ═══════════════════════════════════════════════════════════════════════════════
 @st.cache_data(ttl=60, show_spinner=False)
@@ -5475,6 +5615,11 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     # TRADE SETUPS (Option C - Primary + Secondary)
     # ═══════════════════════════════════════════════════════════════════════════
+    
+    # Check if we're in RTH (8:30 AM - 3:00 PM CT) for real premium fetching
+    ct_now = datetime.now(CT)
+    is_rth = 8.5 <= (ct_now.hour + ct_now.minute/60) < 15  # 8:30 AM to 3:00 PM
+    
     if decision["no_trade"]:
         st.markdown('<div class="section-header"><div class="section-icon">🎲</div><h2 class="section-title">Trade Setup</h2></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="no-trade-card"><div class="no-trade-icon">⊘</div><div class="no-trade-title">NO TRADE</div><div class="no-trade-reason">{decision["no_trade_reason"]}</div></div>', unsafe_allow_html=True)
@@ -5492,14 +5637,68 @@ def main():
             </div>
             ''', unsafe_allow_html=True)
         
+        # Function to get real or estimated premium for a trade
+        def get_trade_premium(trade, current_spx, trading_date, is_rth):
+            """Get real premium during RTH, estimated otherwise."""
+            if not trade:
+                return trade
+            
+            strike = trade["strike"]
+            opt_type = "CALL" if trade["direction"] == "CALLS" else "PUT"
+            entry_level = trade["entry_level"]
+            
+            if is_rth and current_spx:
+                # Fetch real premium from Polygon
+                real_data = fetch_real_option_premium(strike, opt_type, trading_date)
+                
+                if real_data["available"]:
+                    current_premium = real_data["mid"] or real_data["last"]
+                    delta = real_data["delta"]
+                    underlying = real_data["underlying_price"] or current_spx
+                    
+                    # Calculate what premium will be at entry level
+                    entry_premium = calculate_premium_at_entry(
+                        current_premium, underlying, entry_level, strike, opt_type, delta
+                    )
+                    
+                    if entry_premium:
+                        # Update trade with real premium data
+                        trade = trade.copy()
+                        trade["entry_premium"] = entry_premium
+                        trade["real_premium"] = True
+                        trade["current_premium"] = current_premium
+                        trade["current_spx"] = underlying
+                        
+                        # Recalculate targets
+                        t1 = round(entry_premium * 1.50, 2)
+                        t2 = round(entry_premium * 1.75, 2)
+                        t3 = round(entry_premium * 2.00, 2)
+                        trade["targets"] = {
+                            "t1": {"price": t1, "profit_pct": 50, "profit_dollars": round((t1 - entry_premium) * 100, 0)},
+                            "t2": {"price": t2, "profit_pct": 75, "profit_dollars": round((t2 - entry_premium) * 100, 0)},
+                            "t3": {"price": t3, "profit_pct": 100, "profit_dollars": round((t3 - entry_premium) * 100, 0)},
+                        }
+            
+            return trade
+        
+        # Update primary trade with real premium if in RTH
+        p = get_trade_premium(decision["primary"], current_spx, actual_trading_date, is_rth)
+        
         # PRIMARY TRADE
         st.markdown('<div class="section-header"><div class="section-icon icon-rocket">🚀</div><h2 class="section-title">PRIMARY Trade Setup</h2></div>', unsafe_allow_html=True)
         
-        p = decision["primary"]
         if p:
             tc = "calls" if p["direction"] == "CALLS" else "puts"
             di = "↗" if p["direction"] == "CALLS" else "↘"
             t = p["targets"]
+            
+            # Show real vs estimated indicator
+            premium_label = "Entry Premium"
+            premium_note = ""
+            if p.get("real_premium"):
+                premium_label = "Entry Premium (LIVE)"
+                premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${p["current_premium"]:.2f} @ SPX {p["current_spx"]:,.0f}</div>'
+            
             st.markdown(f'''
             <div class="trade-card trade-card-{tc}">
                 <div class="trade-header">
@@ -5508,7 +5707,7 @@ def main():
                 </div>
                 <div class="trade-contract trade-contract-{tc}">{p["contract"]}</div>
                 <div class="trade-grid">
-                    <div class="trade-metric"><div class="trade-metric-label">Entry Premium</div><div class="trade-metric-value">${p["entry_premium"]:.2f}</div></div>
+                    <div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${p["entry_premium"]:.2f}</div>{premium_note}</div>
                     <div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{p["entry_level"]:,.2f}</div></div>
                     <div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{p["stop_level"]:,.2f}</div></div>
                 </div>
@@ -5528,11 +5727,18 @@ def main():
         
         # ALTERNATE TRADE (If structure breaks)
         if decision.get("alternate"):
+            a = get_trade_premium(decision["alternate"], current_spx, actual_trading_date, is_rth)
             st.markdown('<div class="section-header"><div class="section-icon">⚡</div><h2 class="section-title">ALTERNATE: If Structure Breaks</h2></div>', unsafe_allow_html=True)
-            a = decision["alternate"]
             tc = "calls" if a["direction"] == "CALLS" else "puts"
             di = "↗" if a["direction"] == "CALLS" else "↘"
             t = a["targets"]
+            
+            premium_label = "Entry Premium"
+            premium_note = ""
+            if a.get("real_premium"):
+                premium_label = "Entry Premium (LIVE)"
+                premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${a["current_premium"]:.2f} @ SPX {a["current_spx"]:,.0f}</div>'
+            
             st.markdown(f'''
             <div class="trade-card trade-card-{tc}" style="border-style: dashed;">
                 <div class="trade-header">
@@ -5541,7 +5747,7 @@ def main():
                 </div>
                 <div class="trade-contract trade-contract-{tc}">{a["contract"]}</div>
                 <div class="trade-grid">
-                    <div class="trade-metric"><div class="trade-metric-label">Entry Premium</div><div class="trade-metric-value">${a["entry_premium"]:.2f}</div></div>
+                    <div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${a["entry_premium"]:.2f}</div>{premium_note}</div>
                     <div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{a["entry_level"]:,.2f}</div></div>
                     <div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{a["stop_level"]:,.2f}</div></div>
                 </div>
@@ -5561,11 +5767,18 @@ def main():
         
         # SECONDARY TRADE (other side of channel)
         if decision.get("secondary"):
+            s = get_trade_premium(decision["secondary"], current_spx, actual_trading_date, is_rth)
             st.markdown('<div class="section-header"><div class="section-icon icon-rotate">🔄</div><h2 class="section-title">SECONDARY Trade Setup</h2></div>', unsafe_allow_html=True)
-            s = decision["secondary"]
             tc = "calls" if s["direction"] == "CALLS" else "puts"
             di = "↗" if s["direction"] == "CALLS" else "↘"
             t = s["targets"]
+            
+            premium_label = "Entry Premium"
+            premium_note = ""
+            if s.get("real_premium"):
+                premium_label = "Entry Premium (LIVE)"
+                premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${s["current_premium"]:.2f} @ SPX {s["current_spx"]:,.0f}</div>'
+            
             st.markdown(f'''
             <div class="trade-card trade-card-{tc}" style="opacity: 0.85;">
                 <div class="trade-header">
@@ -5574,7 +5787,7 @@ def main():
                 </div>
                 <div class="trade-contract trade-contract-{tc}">{s["contract"]}</div>
                 <div class="trade-grid">
-                    <div class="trade-metric"><div class="trade-metric-label">Entry Premium</div><div class="trade-metric-value">${s["entry_premium"]:.2f}</div></div>
+                    <div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${s["entry_premium"]:.2f}</div>{premium_note}</div>
                     <div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{s["entry_level"]:,.2f}</div></div>
                     <div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{s["stop_level"]:,.2f}</div></div>
                 </div>
