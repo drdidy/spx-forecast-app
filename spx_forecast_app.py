@@ -5544,8 +5544,8 @@ def main():
         ceiling_adjusted = dual_levels_spx.get("ceiling_was_adjusted", False)
         original_asc_floor = dual_levels_spx.get("original_asc_floor")
         original_desc_ceiling = dual_levels_spx.get("original_desc_ceiling")
-        floor_adj_session = dual_levels_spx.get("floor_adjustment_session", "").upper()
-        ceiling_adj_session = dual_levels_spx.get("ceiling_adjustment_session", "").upper()
+        floor_adj_session = (dual_levels_spx.get("floor_adjustment_session") or "").upper()
+        ceiling_adj_session = (dual_levels_spx.get("ceiling_adjustment_session") or "").upper()
         
         # Show adjustment alert if floor was adjusted
         if floor_adjusted and original_asc_floor:
