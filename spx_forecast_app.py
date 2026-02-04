@@ -356,7 +356,7 @@ def fetch_vix_polygon():
     return None
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_vix_overnight_range(trading_date, zone_start_hour=2, zone_start_min=0, zone_end_hour=6, zone_end_min=0):
+def fetch_vix_overnight_range(trading_date, zone_start_hour=2, zone_start_min=0, zone_end_hour=5, zone_end_min=30):
     result = {"bottom": None, "top": None, "range_size": None, "available": False}
     try:
         date_str = trading_date.strftime("%Y-%m-%d")
@@ -4549,7 +4549,7 @@ def sidebar():
         st.markdown("##### Overnight Zone (CT)")
         col1, col2 = st.columns(2)
         vix_zone_start = col1.time_input("Zone Start", value=time(2, 0))
-        vix_zone_end = col2.time_input("Zone End", value=time(6, 0))
+        vix_zone_end = col2.time_input("Zone End", value=time(5, 30))
         
         use_manual_vix_range = st.checkbox("Manual VIX Range Override", value=False)
         if use_manual_vix_range:
