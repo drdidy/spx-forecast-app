@@ -5844,13 +5844,32 @@ def main():
         
         # Function to get real or estimated premium for a trade
         def get_trade_premium(trade, current_spx, trading_date, is_rth):
-            """Get real premium during RTH, estimated otherwise."""
+            """Get real premium during RTH, with logic for trade status."""
             if not trade:
                 return trade
             
             strike = trade["strike"]
             opt_type = "CALL" if trade["direction"] == "CALLS" else "PUT"
             entry_level = trade["entry_level"]
+            
+            # Determine if trade has already triggered
+            # For CALLS: Trade triggers when price drops TO the floor (entry), then rises
+            #            If current price > entry, we're either approaching or past target
+            # For PUTS: Trade triggers when price rises TO the ceiling (entry), then drops
+            #            If current price < entry, the trade has triggered and is in profit
+            
+            if opt_type == "CALL":
+                trade_triggered = current_spx > entry_level  # Price above entry = either not reached or past
+                # Actually for calls at floor: price drops to floor, then rises
+                # If price is BELOW floor, trade hasn't triggered yet (approaching)
+                # If price is ABOVE floor, either: never reached floor, or reached and bounced
+                # We need to check if price is moving toward or away from entry
+                trade_triggered = False  # For calls, we calculate entry premium (price dropping to floor)
+                
+            else:  # PUT
+                # For puts at ceiling: price rises to ceiling, then drops
+                # If current price < entry level, the trade has TRIGGERED (price dropped below entry)
+                trade_triggered = current_spx < entry_level
             
             if is_rth and current_spx:
                 # Fetch real premium from Polygon
@@ -5877,30 +5896,50 @@ def main():
                     trade["calc_underlying"] = underlying
                     trade["calc_entry_level"] = entry_level
                     trade["calc_delta_used"] = delta
+                    trade["trade_triggered"] = trade_triggered
                     
-                    # Calculate what premium will be at entry level
-                    entry_premium = calculate_premium_at_entry(
-                        current_premium, underlying, entry_level, strike, opt_type, delta
-                    )
-                    
-                    trade["calc_result"] = entry_premium
-                    
-                    if entry_premium:
-                        # Update trade with real premium data
-                        trade["entry_premium"] = entry_premium
+                    if trade_triggered:
+                        # Trade has already triggered! Show current premium, not projected entry
                         trade["real_premium"] = True
+                        trade["trade_status"] = "TRIGGERED"
                         trade["current_premium"] = current_premium
                         trade["current_spx"] = underlying
+                        # Don't update entry_premium - keep the estimated one for reference
+                        # But mark that we have live data
+                        trade["live_current_premium"] = current_premium
                         
-                        # Recalculate targets
-                        t1 = round(entry_premium * 1.50, 2)
-                        t2 = round(entry_premium * 1.75, 2)
-                        t3 = round(entry_premium * 2.00, 2)
-                        trade["targets"] = {
-                            "t1": {"price": t1, "profit_pct": 50, "profit_dollars": round((t1 - entry_premium) * 100, 0)},
-                            "t2": {"price": t2, "profit_pct": 75, "profit_dollars": round((t2 - entry_premium) * 100, 0)},
-                            "t3": {"price": t3, "profit_pct": 100, "profit_dollars": round((t3 - entry_premium) * 100, 0)},
-                        }
+                        # Calculate profit from estimated entry to current
+                        est_entry = trade["entry_premium"]
+                        if est_entry and current_premium:
+                            profit_pct = ((current_premium - est_entry) / est_entry) * 100
+                            profit_dollars = (current_premium - est_entry) * 100
+                            trade["current_profit_pct"] = round(profit_pct, 1)
+                            trade["current_profit_dollars"] = round(profit_dollars, 0)
+                    else:
+                        # Trade not yet triggered - calculate projected entry premium
+                        entry_premium = calculate_premium_at_entry(
+                            current_premium, underlying, entry_level, strike, opt_type, delta
+                        )
+                        
+                        trade["calc_result"] = entry_premium
+                        trade["trade_status"] = "PENDING"
+                        
+                        if entry_premium:
+                            # Update trade with real premium data
+                            trade["entry_premium"] = entry_premium
+                            trade["real_premium"] = True
+                            trade["current_premium"] = current_premium
+                            trade["current_spx"] = underlying
+                            
+                            # Recalculate targets based on projected entry
+                            t1 = round(entry_premium * 1.50, 2)
+                            t2 = round(entry_premium * 1.75, 2)
+                            t3 = round(entry_premium * 2.00, 2)
+                            trade["targets"] = {
+                                "t1": {"price": t1, "profit_pct": 50, "profit_dollars": round((t1 - entry_premium) * 100, 0)},
+                                "t2": {"price": t2, "profit_pct": 75, "profit_dollars": round((t2 - entry_premium) * 100, 0)},
+                                "t3": {"price": t3, "profit_pct": 100, "profit_dollars": round((t3 - entry_premium) * 100, 0)},
+                            }
             
             return trade
         
@@ -5915,13 +5954,32 @@ def main():
             di = "↗" if p["direction"] == "CALLS" else "↘"
             t = p["targets"]
             
-            # Show real vs estimated indicator
-            if p.get("real_premium"):
+            # Determine display based on trade status
+            trade_status = p.get("trade_status", "PENDING")
+            
+            if trade_status == "TRIGGERED" and p.get("live_current_premium"):
+                # Trade has triggered - show current premium and profit
+                premium_label = "Current Premium (LIVE)"
+                current_prem = p["live_current_premium"]
+                profit_pct = p.get("current_profit_pct", 0)
+                profit_dollars = p.get("current_profit_dollars", 0)
+                profit_color = "var(--bull)" if profit_pct >= 0 else "var(--bear)"
+                profit_sign = "+" if profit_pct >= 0 else ""
+                premium_note = f'<div style="font-size:0.7rem;color:{profit_color};margin-top:4px;font-weight:600;">P/L: {profit_sign}{profit_pct:.1f}% ({profit_sign}${profit_dollars:,.0f})</div>'
+                premium_value = current_prem
+                # Show TRIGGERED badge
+                status_badge = '<div style="background:var(--bull);color:#000;padding:4px 12px;border-radius:20px;font-size:0.7rem;font-weight:700;display:inline-block;margin-bottom:8px;">✓ TRADE TRIGGERED</div>'
+            elif p.get("real_premium"):
+                # Trade pending - show projected entry premium
                 premium_label = "Entry Premium (LIVE)"
+                premium_value = p["entry_premium"]
                 premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${p["current_premium"]:.2f} @ SPX {p["current_spx"]:,.0f}</div>'
+                status_badge = ""
             else:
                 premium_label = "Entry Premium (EST)"
+                premium_value = p["entry_premium"]
                 premium_note = ""
+                status_badge = ""
                 # Show debug info if we tried to fetch but failed
                 if p.get("polygon_ticker"):
                     premium_note = f'<div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px;">Polygon: {p.get("polygon_error", "No data")}</div>'
@@ -5932,9 +5990,10 @@ def main():
                     <div class="trade-name">{di} {p["name"]}</div>
                     <div class="trade-confidence trade-confidence-{p["confidence"].lower()}">{p["confidence"]} CONFIDENCE</div>
                 </div>
+                {status_badge}
                 <div class="trade-contract trade-contract-{tc}">{p["contract"]}</div>
                 <div class="trade-grid">
-                    <div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${p["entry_premium"]:.2f}</div>{premium_note}</div>
+                    <div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${premium_value:.2f}</div>{premium_note}</div>
                     <div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{p["entry_level"]:,.2f}</div></div>
                     <div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{p["stop_level"]:,.2f}</div></div>
                 </div>
@@ -5982,12 +6041,29 @@ Calculated Entry Premium: {p.get('calc_result')}
             di = "↗" if a["direction"] == "CALLS" else "↘"
             t = a["targets"]
             
-            if a.get("real_premium"):
+            # Determine display based on trade status
+            trade_status = a.get("trade_status", "PENDING")
+            
+            if trade_status == "TRIGGERED" and a.get("live_current_premium"):
+                premium_label = "Current Premium (LIVE)"
+                current_prem = a["live_current_premium"]
+                profit_pct = a.get("current_profit_pct", 0)
+                profit_dollars = a.get("current_profit_dollars", 0)
+                profit_color = "var(--bull)" if profit_pct >= 0 else "var(--bear)"
+                profit_sign = "+" if profit_pct >= 0 else ""
+                premium_note = f'<div style="font-size:0.7rem;color:{profit_color};margin-top:4px;font-weight:600;">P/L: {profit_sign}{profit_pct:.1f}% ({profit_sign}${profit_dollars:,.0f})</div>'
+                premium_value = current_prem
+                status_badge = '<div style="background:var(--bull);color:#000;padding:4px 12px;border-radius:20px;font-size:0.7rem;font-weight:700;display:inline-block;margin-bottom:8px;">✓ TRADE TRIGGERED</div>'
+            elif a.get("real_premium"):
                 premium_label = "Entry Premium (LIVE)"
+                premium_value = a["entry_premium"]
                 premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${a["current_premium"]:.2f} @ SPX {a["current_spx"]:,.0f}</div>'
+                status_badge = ""
             else:
                 premium_label = "Entry Premium (EST)"
+                premium_value = a["entry_premium"]
                 premium_note = ""
+                status_badge = ""
             
             st.markdown(f'''
             <div class="trade-card trade-card-{tc}" style="border-style: dashed;">
@@ -5995,9 +6071,10 @@ Calculated Entry Premium: {p.get('calc_result')}
                     <div class="trade-name">{di} {a["name"]}</div>
                     <div class="trade-confidence trade-confidence-{a["confidence"].lower()}">{a["confidence"]} CONFIDENCE</div>
                 </div>
+                {status_badge}
                 <div class="trade-contract trade-contract-{tc}">{a["contract"]}</div>
                 <div class="trade-grid">
-                    <div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${a["entry_premium"]:.2f}</div>{premium_note}</div>
+                    <div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${premium_value:.2f}</div>{premium_note}</div>
                     <div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{a["entry_level"]:,.2f}</div></div>
                     <div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{a["stop_level"]:,.2f}</div></div>
                 </div>
@@ -6023,12 +6100,29 @@ Calculated Entry Premium: {p.get('calc_result')}
             di = "↗" if s["direction"] == "CALLS" else "↘"
             t = s["targets"]
             
-            if s.get("real_premium"):
+            # Determine display based on trade status
+            trade_status = s.get("trade_status", "PENDING")
+            
+            if trade_status == "TRIGGERED" and s.get("live_current_premium"):
+                premium_label = "Current Premium (LIVE)"
+                current_prem = s["live_current_premium"]
+                profit_pct = s.get("current_profit_pct", 0)
+                profit_dollars = s.get("current_profit_dollars", 0)
+                profit_color = "var(--bull)" if profit_pct >= 0 else "var(--bear)"
+                profit_sign = "+" if profit_pct >= 0 else ""
+                premium_note = f'<div style="font-size:0.7rem;color:{profit_color};margin-top:4px;font-weight:600;">P/L: {profit_sign}{profit_pct:.1f}% ({profit_sign}${profit_dollars:,.0f})</div>'
+                premium_value = current_prem
+                status_badge = '<div style="background:var(--bull);color:#000;padding:4px 12px;border-radius:20px;font-size:0.7rem;font-weight:700;display:inline-block;margin-bottom:8px;">✓ TRADE TRIGGERED</div>'
+            elif s.get("real_premium"):
                 premium_label = "Entry Premium (LIVE)"
+                premium_value = s["entry_premium"]
                 premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${s["current_premium"]:.2f} @ SPX {s["current_spx"]:,.0f}</div>'
+                status_badge = ""
             else:
                 premium_label = "Entry Premium (EST)"
+                premium_value = s["entry_premium"]
                 premium_note = ""
+                status_badge = ""
             
             st.markdown(f'''
             <div class="trade-card trade-card-{tc}" style="opacity: 0.85;">
@@ -6036,9 +6130,10 @@ Calculated Entry Premium: {p.get('calc_result')}
                     <div class="trade-name">{di} {s["name"]}</div>
                     <div class="trade-confidence trade-confidence-{s["confidence"].lower()}">{s["confidence"]} CONFIDENCE</div>
                 </div>
+                {status_badge}
                 <div class="trade-contract trade-contract-{tc}">{s["contract"]}</div>
                 <div class="trade-grid">
-                    <div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${s["entry_premium"]:.2f}</div>{premium_note}</div>
+                    <div class="trade-metric"><div class="trade-metric-label">{premium_label}</div><div class="trade-metric-value">${premium_value:.2f}</div>{premium_note}</div>
                     <div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{s["entry_level"]:,.2f}</div></div>
                     <div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{s["stop_level"]:,.2f}</div></div>
                 </div>
