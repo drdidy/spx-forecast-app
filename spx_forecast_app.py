@@ -290,23 +290,48 @@ def fetch_real_option_premium(strike, opt_type, trading_date):
         "mid": None,
         "last": None,
         "delta": None,
-        "underlying_price": None
+        "underlying_price": None,
+        "ticker": None,
+        "error": None
     }
     
     try:
-        # Format: O:SPXW{YYMMDD}{C/P}{STRIKE with 8 digits}
-        # Strike is multiplied by 1000 and padded (e.g., 6050 -> 00605000)
+        # SPX options ticker format: O:SPXW{YYMMDD}{C/P}{STRIKE}
+        # Strike format: 8 digits, price * 1000, zero-padded
+        # Example: Strike 6050 -> 06050000 (6050.000)
         date_str = trading_date.strftime("%y%m%d")
         opt_letter = "C" if opt_type == "CALL" else "P"
-        strike_str = f"{int(strike * 1000):08d}"
+        
+        # Strike with 3 implied decimal places, 8 digits total
+        # 6050 -> 6050.000 -> 06050000
+        strike_int = int(strike * 1000)
+        strike_str = f"{strike_int:08d}"
         
         ticker = f"O:SPXW{date_str}{opt_letter}{strike_str}"
+        result["ticker"] = ticker
         
-        # Use snapshot endpoint for current quote
-        url = f"{POLYGON_BASE_URL}/v3/snapshot/options/SPX/{ticker}"
+        # Try the options snapshot endpoint
+        # Method 1: Direct ticker lookup
+        url = f"{POLYGON_BASE_URL}/v3/snapshot/options/SPXW/{ticker}"
         params = {"apiKey": POLYGON_API_KEY}
         
         response = requests.get(url, params=params, timeout=10)
+        
+        # If that doesn't work, try without the underlying
+        if response.status_code != 200:
+            url = f"{POLYGON_BASE_URL}/v3/snapshot/options/I:SPX/{ticker}"
+            response = requests.get(url, params=params, timeout=10)
+        
+        # Try the last trade endpoint as fallback
+        if response.status_code != 200:
+            url = f"{POLYGON_BASE_URL}/v2/last/trade/{ticker}"
+            response = requests.get(url, params=params, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("results"):
+                    result["last"] = data["results"].get("price") or data["results"].get("p")
+                    result["available"] = result["last"] is not None
+                    return result
         
         if response.status_code == 200:
             data = response.json()
@@ -334,8 +359,11 @@ def fetch_real_option_premium(strike, opt_type, trading_date):
                     result["underlying_price"] = r["underlying_asset"].get("price")
                 
                 result["available"] = result["mid"] is not None or result["last"] is not None
+        else:
+            result["error"] = f"HTTP {response.status_code}"
+            
     except Exception as e:
-        pass
+        result["error"] = str(e)
     
     return result
 
@@ -5651,6 +5679,12 @@ def main():
                 # Fetch real premium from Polygon
                 real_data = fetch_real_option_premium(strike, opt_type, trading_date)
                 
+                # Store debug info
+                trade = trade.copy()
+                trade["polygon_ticker"] = real_data.get("ticker")
+                trade["polygon_error"] = real_data.get("error")
+                trade["polygon_available"] = real_data.get("available")
+                
                 if real_data["available"]:
                     current_premium = real_data["mid"] or real_data["last"]
                     delta = real_data["delta"]
@@ -5663,7 +5697,6 @@ def main():
                     
                     if entry_premium:
                         # Update trade with real premium data
-                        trade = trade.copy()
                         trade["entry_premium"] = entry_premium
                         trade["real_premium"] = True
                         trade["current_premium"] = current_premium
@@ -5699,6 +5732,9 @@ def main():
             else:
                 premium_label = "Entry Premium (EST)"
                 premium_note = ""
+                # Show debug info if we tried to fetch but failed
+                if p.get("polygon_ticker"):
+                    premium_note = f'<div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px;">Polygon: {p.get("polygon_error", "No data")}</div>'
             
             st.markdown(f'''
             <div class="trade-card trade-card-{tc}">
@@ -5725,6 +5761,10 @@ def main():
             ''', unsafe_allow_html=True)
             with st.expander("📋 Trade Rationale"):
                 st.write(p["rationale"])
+            # Debug: Show Polygon API details during RTH
+            if is_rth and p.get("polygon_ticker"):
+                with st.expander("🔧 Polygon API Debug"):
+                    st.code(f"Ticker: {p.get('polygon_ticker')}\nAvailable: {p.get('polygon_available')}\nError: {p.get('polygon_error')}")
         
         # ALTERNATE TRADE (If structure breaks)
         if decision.get("alternate"):
