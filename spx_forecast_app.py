@@ -1619,7 +1619,7 @@ def detect_explosive_potential(current_spx, dual_levels, prior_targets, channel_
 def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reason,
                             retail_bias, ema_bias, vix_position, vix, 
                             session_tests, gap_analysis, prior_close_analysis, vix_structure,
-                            prior_targets=None):
+                            prior_targets=None, current_time=None):
     """
     OPTION C: Dual Channel Decision Engine
     
@@ -1627,9 +1627,15 @@ def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reas
     1. All 4 levels (asc_floor, asc_ceiling, desc_ceiling, desc_floor)
     2. Dominant channel detection with reasoning
     3. PRIMARY trade at dominant level (higher probability)
-    4. SECONDARY trade at other level (backup/hedge)
-    5. Structure break alerts
+    4. ALTERNATE trade if structure breaks at open
+    5. Structure break alerts (only after channel locks at 5:30 AM CT)
     6. Confluence-based confidence scoring
+    
+    Channel Building Timeline:
+    - 5:00 PM - 5:30 AM CT: Channel BUILDING (Sydney + Tokyo + London)
+    - 5:30 AM CT: Channel LOCKED
+    - 5:30 AM - 8:30 AM CT: Pre-RTH testing
+    - 8:30 AM CT: RTH Open - final assessment
     """
     
     if current_spx is None or dual_levels is None:
@@ -1639,11 +1645,31 @@ def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reas
             "dual_levels": None,
             "primary": None,
             "secondary": None,
+            "alternate": None,
             "structure_alerts": [],
             "calls_factors": [],
             "puts_factors": [],
-            "position_summary": "No data available"
+            "position_summary": "No data available",
+            "channel_status": "UNKNOWN"
         }
+    
+    # Determine channel status based on time
+    channel_locked = True  # Default to locked
+    channel_status = "LOCKED"
+    
+    if current_time:
+        ct_hour = current_time.hour
+        ct_minute = current_time.minute
+        ct_decimal = ct_hour + ct_minute / 60.0
+        
+        # Channel builds from 5 PM (17:00) to 5:30 AM (5:30)
+        # Before 5:30 AM = still building
+        if ct_decimal < 5.5:  # Before 5:30 AM
+            channel_locked = False
+            channel_status = "BUILDING"
+        elif ct_decimal >= 17.0:  # After 5 PM = new session building
+            channel_locked = False
+            channel_status = "BUILDING"
     
     # Extract levels
     asc_floor = dual_levels["asc_floor"]
@@ -1755,21 +1781,30 @@ def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reas
             }
         }
     
-    # Structure alerts
+    # Structure alerts - ONLY show "broken" if channel is locked (after 5:30 AM CT)
     structure_alerts = []
-    if channel_type == ChannelType.ASCENDING and below_asc_floor:
-        structure_alerts.append(f"⚠️ STRUCTURE BROKEN: Price below ascending floor ({asc_floor:.2f})")
-    if channel_type == ChannelType.DESCENDING and above_desc_ceiling:
-        structure_alerts.append(f"⚠️ STRUCTURE BROKEN: Price above descending ceiling ({desc_ceiling:.2f})")
+    if channel_locked:
+        if channel_type == ChannelType.ASCENDING and below_asc_floor:
+            structure_alerts.append(f"⚠️ STRUCTURE BROKEN: Price below ascending floor ({asc_floor:.2f})")
+        if channel_type == ChannelType.DESCENDING and above_desc_ceiling:
+            structure_alerts.append(f"⚠️ STRUCTURE BROKEN: Price above descending ceiling ({desc_ceiling:.2f})")
+    else:
+        # Channel still building - show informational message
+        if channel_type == ChannelType.ASCENDING and below_asc_floor:
+            structure_alerts.append(f"📊 CHANNEL BUILDING: Price currently below developing floor ({asc_floor:.2f})")
+        if channel_type == ChannelType.DESCENDING and above_desc_ceiling:
+            structure_alerts.append(f"📊 CHANNEL BUILDING: Price currently above developing ceiling ({desc_ceiling:.2f})")
     
     # Initialize result
     result = {
         "no_trade": False, "no_trade_reason": None,
         "channel_type": channel_type, "channel_reason": channel_reason,
+        "channel_status": channel_status,
+        "channel_locked": channel_locked,
         "dual_levels": dual_levels,
         "calls_factors": calls_factors, "puts_factors": puts_factors,
         "structure_alerts": structure_alerts,
-        "primary": None, "secondary": None, "position_summary": ""
+        "primary": None, "secondary": None, "alternate": None, "position_summary": ""
     }
     
     # No trade conditions
@@ -1784,65 +1819,83 @@ def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reas
     
     # ASCENDING DOMINANT
     if channel_type == ChannelType.ASCENDING:
-        if below_asc_floor:
-            # Structure broken - target descending line from prior RTH low
-            price_target_text = ""
-            if prior_targets and prior_targets.get("available"):
-                desc_target = prior_targets.get("primary_low_open_descending")
-                if desc_target:
-                    price_target_text = f" • Target: {desc_target:.2f} (desc from prior low)"
-            
+        # Get price target for break scenario
+        desc_target = None
+        price_target_text = ""
+        if prior_targets and prior_targets.get("available"):
+            desc_target = prior_targets.get("primary_low_open_descending")
+            if desc_target:
+                price_target_text = f" • Target: {desc_target:.2f} (desc from prior low)"
+        
+        if channel_locked and below_asc_floor:
+            # AFTER 5:30 AM and structure is broken - flip the trades
             result["primary"] = make_trade("Ascending Floor Rejection", "PUTS", asc_floor, asc_floor + 10,
                 f"Sell rallies to broken floor {asc_floor:.2f}",
                 f"Structure broken{price_target_text} • {len(puts_factors)} factors", calc_conf("PUTS", True), True)
-            result["secondary"] = make_trade("Floor Reclaim", "CALLS", asc_floor, asc_floor - 10,
+            result["alternate"] = make_trade("Floor Reclaim", "CALLS", asc_floor, asc_floor - 10,
                 f"ONLY if price reclaims {asc_floor:.2f}",
-                "Recovery scenario", calc_conf("CALLS", True, True), False)
+                "Recovery scenario - watch for failed breakdown", calc_conf("CALLS", True, True), False)
             result["position_summary"] = f"⚠️ BELOW ascending floor ({asc_floor:.2f}) - BEARISH bias"
-            
-            # Add price target to result
-            if price_target_text:
+            if desc_target:
                 result["price_target"] = desc_target
                 result["price_target_desc"] = "Descending line from prior RTH low"
         else:
+            # Structure intact OR channel still building - show both scenarios
             result["primary"] = make_trade("Ascending Floor Bounce", "CALLS", asc_floor, asc_floor - 10,
-                f"Wait for price at {asc_floor:.2f}",
+                f"Buy at floor {asc_floor:.2f}" if channel_locked else f"Buy at developing floor {asc_floor:.2f}",
                 f"KEY: Ascending floor • {len(calls_factors)} factors", calc_conf("CALLS", near_asc_floor), True)
+            result["alternate"] = make_trade("Floor Break → Rejection", "PUTS", asc_floor, asc_floor + 10,
+                f"IF floor {asc_floor:.2f} breaks at open",
+                f"Breakdown scenario{price_target_text} • {len(puts_factors)} factors", calc_conf("PUTS", False), False)
+            # Also keep secondary for ceiling
             result["secondary"] = make_trade("Desc Ceiling Rejection", "PUTS", desc_ceiling, desc_ceiling + 10,
                 f"If price reaches {desc_ceiling:.2f}",
                 f"Secondary level • {len(puts_factors)} factors", calc_conf("PUTS", near_desc_ceiling), False)
-            result["position_summary"] = f"{'✅ AT' if near_asc_floor else '📍 Wait for'} ascending floor ({asc_floor:.2f})"
+            
+            if channel_locked:
+                result["position_summary"] = f"{'✅ AT' if near_asc_floor else '📍 Wait for'} ascending floor ({asc_floor:.2f})"
+            else:
+                result["position_summary"] = f"🔄 CHANNEL BUILDING - Floor developing at {asc_floor:.2f}"
     
     # DESCENDING DOMINANT
     elif channel_type == ChannelType.DESCENDING:
-        if above_desc_ceiling:
-            # Structure broken - target ascending line from prior RTH high
-            price_target_text = ""
-            if prior_targets and prior_targets.get("available"):
-                asc_target = prior_targets.get("primary_high_wick_ascending")
-                if asc_target:
-                    price_target_text = f" • Target: {asc_target:.2f} (asc from prior high)"
-            
+        # Get price target for break scenario
+        asc_target = None
+        price_target_text = ""
+        if prior_targets and prior_targets.get("available"):
+            asc_target = prior_targets.get("primary_high_wick_ascending")
+            if asc_target:
+                price_target_text = f" • Target: {asc_target:.2f} (asc from prior high)"
+        
+        if channel_locked and above_desc_ceiling:
+            # AFTER 5:30 AM and structure is broken - flip the trades
             result["primary"] = make_trade("Descending Ceiling Bounce", "CALLS", desc_ceiling, desc_ceiling - 10,
                 f"Buy dips to broken ceiling {desc_ceiling:.2f}",
                 f"Structure broken{price_target_text} • {len(calls_factors)} factors", calc_conf("CALLS", True), True)
-            result["secondary"] = make_trade("Failed Breakout", "PUTS", desc_ceiling, desc_ceiling + 10,
+            result["alternate"] = make_trade("Failed Breakout", "PUTS", desc_ceiling, desc_ceiling + 10,
                 f"ONLY if price fails below {desc_ceiling:.2f}",
-                "Rejection scenario", calc_conf("PUTS", True, True), False)
+                "Rejection scenario - watch for failed breakout", calc_conf("PUTS", True, True), False)
             result["position_summary"] = f"🚀 ABOVE descending ceiling ({desc_ceiling:.2f}) - BULLISH bias"
-            
-            # Add price target to result
-            if price_target_text:
+            if asc_target:
                 result["price_target"] = asc_target
                 result["price_target_desc"] = "Ascending line from prior RTH high"
         else:
+            # Structure intact OR channel still building - show both scenarios
             result["primary"] = make_trade("Desc Ceiling Rejection", "PUTS", desc_ceiling, desc_ceiling + 10,
-                f"Wait for price at {desc_ceiling:.2f}",
+                f"Sell at ceiling {desc_ceiling:.2f}" if channel_locked else f"Sell at developing ceiling {desc_ceiling:.2f}",
                 f"KEY: Descending ceiling • {len(puts_factors)} factors", calc_conf("PUTS", near_desc_ceiling), True)
+            result["alternate"] = make_trade("Ceiling Break → Bounce", "CALLS", desc_ceiling, desc_ceiling - 10,
+                f"IF ceiling {desc_ceiling:.2f} breaks at open",
+                f"Breakout scenario{price_target_text} • {len(calls_factors)} factors", calc_conf("CALLS", False), False)
+            # Also keep secondary for floor
             result["secondary"] = make_trade("Ascending Floor Bounce", "CALLS", asc_floor, asc_floor - 10,
                 f"If price reaches {asc_floor:.2f}",
                 f"Secondary level • {len(calls_factors)} factors", calc_conf("CALLS", near_asc_floor), False)
-            result["position_summary"] = f"{'✅ AT' if near_desc_ceiling else '📍 Wait for'} descending ceiling ({desc_ceiling:.2f})"
+            
+            if channel_locked:
+                result["position_summary"] = f"{'✅ AT' if near_desc_ceiling else '📍 Wait for'} descending ceiling ({desc_ceiling:.2f})"
+            else:
+                result["position_summary"] = f"🔄 CHANNEL BUILDING - Ceiling developing at {desc_ceiling:.2f}"
     
     # MIXED
     elif channel_type == ChannelType.MIXED:
@@ -4996,12 +5049,15 @@ def main():
     # VIX term structure
     vix_term = fetch_vix_term_structure()
     
+    # Get current CT time for channel lock determination
+    ct_now = datetime.now(CT)
+    
     # OPTION C: Use the new dual-channel decision engine
     decision = analyze_market_state_v2(
         current_spx, dual_levels_spx, channel_type, channel_reason,
         retail_data["bias"], ema_data["ema_bias"], vix_pos, vix,
         session_tests, gap_analysis, prior_close_validation, vix_term,
-        prior_targets
+        prior_targets, ct_now
     )
     
     # ═══════════════════════════════════════════════════════════════════════════
@@ -5450,6 +5506,19 @@ def main():
         st.markdown('<div class="section-header"><div class="section-icon">🎲</div><h2 class="section-title">Trade Setup</h2></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="no-trade-card"><div class="no-trade-icon">⊘</div><div class="no-trade-title">NO TRADE</div><div class="no-trade-reason">{decision["no_trade_reason"]}</div></div>', unsafe_allow_html=True)
     else:
+        # Show channel status
+        channel_status = decision.get("channel_status", "LOCKED")
+        if channel_status == "BUILDING":
+            st.markdown(f'''
+            <div class="alert-box alert-box-info" style="margin-bottom:20px;">
+                <div class="alert-icon-large">🔄</div>
+                <div class="alert-content">
+                    <div class="alert-title">CHANNEL BUILDING</div>
+                    <div class="alert-values" style="border:none;padding:0;margin-top:4px;">London session in progress • Channel locks at 5:30 AM CT</div>
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
+        
         # PRIMARY TRADE
         st.markdown('<div class="section-header"><div class="section-icon icon-rocket">🚀</div><h2 class="section-title">PRIMARY Trade Setup</h2></div>', unsafe_allow_html=True)
         
@@ -5484,8 +5553,41 @@ def main():
             with st.expander("📋 Trade Rationale"):
                 st.write(p["rationale"])
         
-        # SECONDARY TRADE
-        if decision["secondary"]:
+        # ALTERNATE TRADE (If structure breaks)
+        if decision.get("alternate"):
+            st.markdown('<div class="section-header"><div class="section-icon">⚡</div><h2 class="section-title">ALTERNATE: If Structure Breaks</h2></div>', unsafe_allow_html=True)
+            a = decision["alternate"]
+            tc = "calls" if a["direction"] == "CALLS" else "puts"
+            di = "↗" if a["direction"] == "CALLS" else "↘"
+            t = a["targets"]
+            st.markdown(f'''
+            <div class="trade-card trade-card-{tc}" style="border-style: dashed;">
+                <div class="trade-header">
+                    <div class="trade-name">{di} {a["name"]}</div>
+                    <div class="trade-confidence trade-confidence-{a["confidence"].lower()}">{a["confidence"]} CONFIDENCE</div>
+                </div>
+                <div class="trade-contract trade-contract-{tc}">{a["contract"]}</div>
+                <div class="trade-grid">
+                    <div class="trade-metric"><div class="trade-metric-label">Entry Premium</div><div class="trade-metric-value">${a["entry_premium"]:.2f}</div></div>
+                    <div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{a["entry_level"]:,.2f}</div></div>
+                    <div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{a["stop_level"]:,.2f}</div></div>
+                </div>
+                <div class="trade-targets">
+                    <div class="targets-header">◎ Profit Targets</div>
+                    <div class="targets-grid">
+                        <div class="target-item"><div class="target-label">50%</div><div class="target-price">${t["t1"]["price"]:.2f}</div><div class="target-profit">+${t["t1"]["profit_dollars"]:,.0f}</div></div>
+                        <div class="target-item"><div class="target-label">75%</div><div class="target-price">${t["t2"]["price"]:.2f}</div><div class="target-profit">+${t["t2"]["profit_dollars"]:,.0f}</div></div>
+                        <div class="target-item"><div class="target-label">100%</div><div class="target-price">${t["t3"]["price"]:.2f}</div><div class="target-profit">+${t["t3"]["profit_dollars"]:,.0f}</div></div>
+                    </div>
+                </div>
+                <div class="trade-trigger"><div class="trigger-label">◈ Entry Trigger</div><div class="trigger-text">{a["trigger"]}</div></div>
+            </div>
+            ''', unsafe_allow_html=True)
+            with st.expander("📋 Trade Rationale"):
+                st.write(a["rationale"])
+        
+        # SECONDARY TRADE (other side of channel)
+        if decision.get("secondary"):
             st.markdown('<div class="section-header"><div class="section-icon icon-rotate">🔄</div><h2 class="section-title">SECONDARY Trade Setup</h2></div>', unsafe_allow_html=True)
             s = decision["secondary"]
             tc = "calls" if s["direction"] == "CALLS" else "puts"
