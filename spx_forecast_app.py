@@ -6056,12 +6056,14 @@ Calculated Entry Premium: {p.get('calc_result')}
                 status_badge = '<div style="background:var(--bull);color:#000;padding:4px 12px;border-radius:20px;font-size:0.7rem;font-weight:700;display:inline-block;margin-bottom:8px;">✓ TRADE TRIGGERED</div>'
             elif a.get("real_premium"):
                 premium_label = "Entry Premium (LIVE)"
-                premium_value = a["entry_premium"]
-                premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${a["current_premium"]:.2f} @ SPX {a["current_spx"]:,.0f}</div>'
+                premium_value = a.get("entry_premium", 0)
+                current_prem_display = a.get("current_premium", 0)
+                current_spx_display = a.get("current_spx", 0)
+                premium_note = f'<div style="font-size:0.7rem;color:var(--accent-cyan);margin-top:4px;">Current: ${current_prem_display:.2f} @ SPX {current_spx_display:,.0f}</div>'
                 status_badge = ""
             else:
                 premium_label = "Entry Premium (EST)"
-                premium_value = a["entry_premium"]
+                premium_value = a.get("entry_premium", 0)
                 premium_note = ""
                 status_badge = ""
             
