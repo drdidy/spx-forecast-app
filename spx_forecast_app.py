@@ -1251,11 +1251,14 @@ def validate_and_adjust_pivots(channel_type, upper_pivot, lower_pivot, upper_tim
                                 sessions_data, ref_time):
     """
     Validate that no price broke through the projected channel lines during building phase.
-    If price broke through, adjust the pivot to the new extreme.
+    If price broke through, adjust the pivot to the new extreme BUT ALSO TRACK THE ORIGINAL.
     
     Rule: No price can exist outside the channel before 5:30 AM lock.
     - If price broke BELOW ascending floor line → new lower_pivot = that low
     - If price broke ABOVE descending ceiling line → new upper_pivot = that high
+    
+    IMPORTANT: We track BOTH because the market often respects the ORIGINAL level
+    even after an overnight "break" (like today's Sydney floor example).
     
     Args:
         channel_type: ASCENDING, DESCENDING, MIXED, etc.
@@ -1265,11 +1268,39 @@ def validate_and_adjust_pivots(channel_type, upper_pivot, lower_pivot, upper_tim
         ref_time: Reference time for projection
     
     Returns:
-        Adjusted (upper_pivot, lower_pivot, upper_time, lower_time)
+        Dict with both original and adjusted pivots:
+        {
+            "upper_pivot": adjusted_upper,
+            "lower_pivot": adjusted_lower,
+            "upper_time": adjusted_upper_time,
+            "lower_time": adjusted_lower_time,
+            "original_upper_pivot": original_upper,
+            "original_lower_pivot": original_lower,
+            "original_upper_time": original_upper_time,
+            "original_lower_time": original_lower_time,
+            "floor_was_adjusted": bool,
+            "ceiling_was_adjusted": bool,
+            "adjustment_session": which session caused the adjustment
+        }
     """
     
+    result = {
+        "upper_pivot": upper_pivot,
+        "lower_pivot": lower_pivot,
+        "upper_time": upper_time,
+        "lower_time": lower_time,
+        "original_upper_pivot": upper_pivot,
+        "original_lower_pivot": lower_pivot,
+        "original_upper_time": upper_time,
+        "original_lower_time": lower_time,
+        "floor_was_adjusted": False,
+        "ceiling_was_adjusted": False,
+        "floor_adjustment_session": None,
+        "ceiling_adjustment_session": None,
+    }
+    
     if not sessions_data or channel_type in [ChannelType.UNDETERMINED, ChannelType.CONTRACTING]:
-        return upper_pivot, lower_pivot, upper_time, lower_time
+        return result
     
     # Collect all session lows and highs with their times
     all_lows = []
@@ -1298,6 +1329,8 @@ def validate_and_adjust_pivots(channel_type, upper_pivot, lower_pivot, upper_tim
                 if low_price < projected_floor:
                     adjusted_lower = low_price
                     adjusted_lower_time = low_time_val
+                    result["floor_was_adjusted"] = True
+                    result["floor_adjustment_session"] = session_name
     
     # For DESCENDING channel: Check if any price broke above the descending ceiling line
     elif channel_type == ChannelType.DESCENDING:
@@ -1311,6 +1344,8 @@ def validate_and_adjust_pivots(channel_type, upper_pivot, lower_pivot, upper_tim
                 if high_price > projected_ceiling:
                     adjusted_upper = high_price
                     adjusted_upper_time = high_time_val
+                    result["ceiling_was_adjusted"] = True
+                    result["ceiling_adjustment_session"] = session_name
     
     # For MIXED channel: Check both directions
     elif channel_type == ChannelType.MIXED:
@@ -1322,6 +1357,8 @@ def validate_and_adjust_pivots(channel_type, upper_pivot, lower_pivot, upper_tim
                 if low_price < projected_floor:
                     adjusted_lower = low_price
                     adjusted_lower_time = low_time_val
+                    result["floor_was_adjusted"] = True
+                    result["floor_adjustment_session"] = session_name
         
         # Check descending ceiling breaks
         for high_price, high_time_val, session_name in all_highs:
@@ -1331,8 +1368,15 @@ def validate_and_adjust_pivots(channel_type, upper_pivot, lower_pivot, upper_tim
                 if high_price > projected_ceiling:
                     adjusted_upper = high_price
                     adjusted_upper_time = high_time_val
+                    result["ceiling_was_adjusted"] = True
+                    result["ceiling_adjustment_session"] = session_name
     
-    return adjusted_upper, adjusted_lower, adjusted_upper_time, adjusted_lower_time
+    result["upper_pivot"] = adjusted_upper
+    result["lower_pivot"] = adjusted_lower
+    result["upper_time"] = adjusted_upper_time
+    result["lower_time"] = adjusted_lower_time
+    
+    return result
 
 
 def calc_channel_levels(upper_pivot, lower_pivot, upper_time, lower_time, ref_time, channel_type):
@@ -5148,15 +5192,37 @@ def main():
     channel_type, channel_reason, upper_pivot, lower_pivot, upper_time, lower_time = determine_channel(sydney, tokyo, london)
     
     # Validate and adjust pivots - ensure no price broke through projected lines during building
+    # This also tracks ORIGINAL pivots for cases like today where market respects original level
     sessions_data = {"sydney": sydney, "tokyo": tokyo, "london": london}
     ref_time_dt = CT.localize(datetime.combine(actual_trading_date, time(*inputs["ref_time"])))
-    upper_pivot, lower_pivot, upper_time, lower_time = validate_and_adjust_pivots(
+    pivot_validation = validate_and_adjust_pivots(
         channel_type, upper_pivot, lower_pivot, upper_time, lower_time, 
         sessions_data, ref_time_dt
     )
     
-    # Calculate channel levels with validated pivots
+    # Extract adjusted pivots (these are used for channel calculation)
+    upper_pivot = pivot_validation["upper_pivot"]
+    lower_pivot = pivot_validation["lower_pivot"]
+    upper_time = pivot_validation["upper_time"]
+    lower_time = pivot_validation["lower_time"]
+    
+    # Also store original pivots for display
+    original_upper_pivot = pivot_validation["original_upper_pivot"]
+    original_lower_pivot = pivot_validation["original_lower_pivot"]
+    original_upper_time = pivot_validation["original_upper_time"]
+    original_lower_time = pivot_validation["original_lower_time"]
+    floor_was_adjusted = pivot_validation["floor_was_adjusted"]
+    ceiling_was_adjusted = pivot_validation["ceiling_was_adjusted"]
+    floor_adjustment_session = pivot_validation["floor_adjustment_session"]
+    ceiling_adjustment_session = pivot_validation["ceiling_adjustment_session"]
+    
+    # Calculate channel levels with validated (adjusted) pivots
     ceiling_es, floor_es = calc_channel_levels(upper_pivot, lower_pivot, upper_time, lower_time, ref_time_dt, channel_type)
+    
+    # Also calculate ORIGINAL channel levels (before adjustment)
+    original_ceiling_es, original_floor_es = calc_channel_levels(
+        original_upper_pivot, original_lower_pivot, original_upper_time, original_lower_time, ref_time_dt, channel_type
+    )
     
     if ceiling_es is None:
         ceiling_es, floor_es = 6080, 6040
@@ -5165,10 +5231,19 @@ def main():
     floor_spx = round(floor_es - offset, 2)
     position = get_position(current_es, ceiling_es, floor_es)
     
+    # Original levels in SPX (for display when adjusted)
+    original_ceiling_spx = round(original_ceiling_es - offset, 2) if original_ceiling_es else ceiling_spx
+    original_floor_spx = round(original_floor_es - offset, 2) if original_floor_es else floor_spx
+    
     # ─────────────────────────────────────────────────────────────────────────
     # DUAL CHANNEL LEVELS (Option C - Always show BOTH ascending and descending)
     # ─────────────────────────────────────────────────────────────────────────
     dual_levels_es = calc_dual_channel_levels(upper_pivot, lower_pivot, upper_time, lower_time, ref_time_dt)
+    
+    # Also calculate ORIGINAL dual levels
+    original_dual_levels_es = calc_dual_channel_levels(
+        original_upper_pivot, original_lower_pivot, original_upper_time, original_lower_time, ref_time_dt
+    )
     
     # Convert to SPX
     dual_levels_spx = None
@@ -5182,7 +5257,18 @@ def main():
             "overnight_low": dual_levels_es["overnight_low"],
             "blocks_high": dual_levels_es["blocks_high"],
             "blocks_low": dual_levels_es["blocks_low"],
+            # Add original levels if adjusted
+            "floor_was_adjusted": floor_was_adjusted,
+            "ceiling_was_adjusted": ceiling_was_adjusted,
+            "floor_adjustment_session": floor_adjustment_session,
+            "ceiling_adjustment_session": ceiling_adjustment_session,
         }
+        
+        # Add original levels if they were adjusted
+        if floor_was_adjusted and original_dual_levels_es:
+            dual_levels_spx["original_asc_floor"] = round(original_dual_levels_es["asc_floor"] - offset, 2)
+        if ceiling_was_adjusted and original_dual_levels_es:
+            dual_levels_spx["original_desc_ceiling"] = round(original_dual_levels_es["desc_ceiling"] - offset, 2)
     
     # Calculate prior day targets (both ascending and descending from each anchor)
     prior_targets = calc_prior_day_targets(prior_rth, ref_time_dt)
@@ -5453,13 +5539,66 @@ def main():
         # Position summary
         st.markdown(f'<div class="levels-container"><div style="padding:14px 16px;background:linear-gradient(90deg,var(--bg-elevated) 0%,transparent 100%);border-radius:10px;margin-bottom:16px;border-left:4px solid var(--accent-cyan);"><span style="font-family:Share Tech Mono,monospace;font-size:0.9rem;color:var(--text-primary);">{pos_summary}</span></div></div>', unsafe_allow_html=True)
         
+        # Check if floor or ceiling was adjusted
+        floor_adjusted = dual_levels_spx.get("floor_was_adjusted", False)
+        ceiling_adjusted = dual_levels_spx.get("ceiling_was_adjusted", False)
+        original_asc_floor = dual_levels_spx.get("original_asc_floor")
+        original_desc_ceiling = dual_levels_spx.get("original_desc_ceiling")
+        floor_adj_session = dual_levels_spx.get("floor_adjustment_session", "").upper()
+        ceiling_adj_session = dual_levels_spx.get("ceiling_adjustment_session", "").upper()
+        
+        # Show adjustment alert if floor was adjusted
+        if floor_adjusted and original_asc_floor:
+            st.markdown(f'''
+            <div class="alert-box alert-box-info" style="margin-bottom:16px;">
+                <span class="alert-icon">🔄</span>
+                <div class="alert-content">
+                    <div class="alert-title">Floor Adjusted by {floor_adj_session}</div>
+                    <div class="alert-text">Original floor: {original_asc_floor:,.2f} → Adjusted floor: {asc_floor:,.2f}<br>
+                    <strong>Note:</strong> Market may still respect original level (like today!)</div>
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
+        
+        if ceiling_adjusted and original_desc_ceiling:
+            st.markdown(f'''
+            <div class="alert-box alert-box-info" style="margin-bottom:16px;">
+                <span class="alert-icon">🔄</span>
+                <div class="alert-content">
+                    <div class="alert-title">Ceiling Adjusted by {ceiling_adj_session}</div>
+                    <div class="alert-text">Original ceiling: {original_desc_ceiling:,.2f} → Adjusted ceiling: {desc_ceiling:,.2f}<br>
+                    <strong>Note:</strong> Market may still respect original level!</div>
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
+        
         # Ascending Channel Header
         asc_label = "↗ ASCENDING CHANNEL (DOMINANT)" if is_ascending else "↗ ASCENDING CHANNEL"
         st.markdown(f'<div style="font-size:0.8rem;color:var(--bull);text-transform:uppercase;letter-spacing:1px;margin:16px 0 8px 0;font-weight:600;">{asc_label}</div>', unsafe_allow_html=True)
         
-        # Ascending Floor Row
+        # Ascending Floor Row - show BOTH if adjusted
         if is_ascending:
-            st.markdown(f'<div class="levels-container" style="border-left:3px solid var(--bull);"><div class="level-row"><div class="level-label floor"><span>▼</span><span>ASC FLOOR</span></div><div class="level-value floor">{asc_floor:,.2f}</div><div class="level-note">CALLS entry • {dist_asc_floor:+.1f} pts</div></div></div>', unsafe_allow_html=True)
+            if floor_adjusted and original_asc_floor:
+                # Show both original and adjusted
+                dist_original = current_spx - original_asc_floor
+                st.markdown(f'''
+                <div class="levels-container" style="border-left:3px solid var(--bull);">
+                    <div class="level-row">
+                        <div class="level-label floor"><span>▼</span><span>ASC FLOOR (ADJ)</span></div>
+                        <div class="level-value floor">{asc_floor:,.2f}</div>
+                        <div class="level-note">CALLS entry • {dist_asc_floor:+.1f} pts</div>
+                    </div>
+                </div>
+                <div class="levels-container" style="border-left:3px dashed var(--accent-gold);margin-top:-8px;opacity:0.85;">
+                    <div class="level-row">
+                        <div class="level-label" style="color:var(--accent-gold);"><span>▼</span><span>ORIGINAL FLOOR</span></div>
+                        <div class="level-value" style="color:var(--accent-gold);">{original_asc_floor:,.2f}</div>
+                        <div class="level-note" style="color:var(--accent-gold);">May still act as support • {dist_original:+.1f} pts</div>
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="levels-container" style="border-left:3px solid var(--bull);"><div class="level-row"><div class="level-label floor"><span>▼</span><span>ASC FLOOR</span></div><div class="level-value floor">{asc_floor:,.2f}</div><div class="level-note">CALLS entry • {dist_asc_floor:+.1f} pts</div></div></div>', unsafe_allow_html=True)
         else:
             st.markdown(f'<div class="levels-container" style="opacity:0.7;"><div class="level-row"><div class="level-label floor"><span>▼</span><span>ASC FLOOR</span></div><div class="level-value floor">{asc_floor:,.2f}</div><div class="level-note">CALLS entry • {dist_asc_floor:+.1f} pts</div></div></div>', unsafe_allow_html=True)
         
@@ -5473,9 +5612,29 @@ def main():
         desc_label = "↘ DESCENDING CHANNEL (DOMINANT)" if is_descending else "↘ DESCENDING CHANNEL"
         st.markdown(f'<div style="font-size:0.8rem;color:var(--bear);text-transform:uppercase;letter-spacing:1px;margin:16px 0 8px 0;font-weight:600;">{desc_label}</div>', unsafe_allow_html=True)
         
-        # Descending Ceiling Row
+        # Descending Ceiling Row - show BOTH if adjusted
         if is_descending:
-            st.markdown(f'<div class="levels-container" style="border-left:3px solid var(--bear);"><div class="level-row"><div class="level-label ceiling"><span>▲</span><span>DESC CEIL</span></div><div class="level-value ceiling">{desc_ceiling:,.2f}</div><div class="level-note">PUTS entry • {dist_desc_ceiling:+.1f} pts</div></div></div>', unsafe_allow_html=True)
+            if ceiling_adjusted and original_desc_ceiling:
+                # Show both original and adjusted
+                dist_original = current_spx - original_desc_ceiling
+                st.markdown(f'''
+                <div class="levels-container" style="border-left:3px solid var(--bear);">
+                    <div class="level-row">
+                        <div class="level-label ceiling"><span>▲</span><span>DESC CEIL (ADJ)</span></div>
+                        <div class="level-value ceiling">{desc_ceiling:,.2f}</div>
+                        <div class="level-note">PUTS entry • {dist_desc_ceiling:+.1f} pts</div>
+                    </div>
+                </div>
+                <div class="levels-container" style="border-left:3px dashed var(--accent-gold);margin-top:-8px;opacity:0.85;">
+                    <div class="level-row">
+                        <div class="level-label" style="color:var(--accent-gold);"><span>▲</span><span>ORIGINAL CEIL</span></div>
+                        <div class="level-value" style="color:var(--accent-gold);">{original_desc_ceiling:,.2f}</div>
+                        <div class="level-note" style="color:var(--accent-gold);">May still act as resistance • {dist_original:+.1f} pts</div>
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="levels-container" style="border-left:3px solid var(--bear);"><div class="level-row"><div class="level-label ceiling"><span>▲</span><span>DESC CEIL</span></div><div class="level-value ceiling">{desc_ceiling:,.2f}</div><div class="level-note">PUTS entry • {dist_desc_ceiling:+.1f} pts</div></div></div>', unsafe_allow_html=True)
         else:
             st.markdown(f'<div class="levels-container" style="opacity:0.7;"><div class="level-row"><div class="level-label ceiling"><span>▲</span><span>DESC CEIL</span></div><div class="level-value ceiling">{desc_ceiling:,.2f}</div><div class="level-note">PUTS entry • {dist_desc_ceiling:+.1f} pts</div></div></div>', unsafe_allow_html=True)
         
@@ -5702,16 +5861,29 @@ def main():
                 trade["polygon_ticker"] = real_data.get("ticker")
                 trade["polygon_error"] = real_data.get("error")
                 trade["polygon_available"] = real_data.get("available")
+                trade["polygon_bid"] = real_data.get("bid")
+                trade["polygon_ask"] = real_data.get("ask")
+                trade["polygon_mid"] = real_data.get("mid")
+                trade["polygon_last"] = real_data.get("last")
+                trade["polygon_delta"] = real_data.get("delta")
                 
                 if real_data["available"]:
                     current_premium = real_data["mid"] or real_data["last"]
                     delta = real_data["delta"]
                     underlying = real_data["underlying_price"] or current_spx
                     
+                    # Store for debug
+                    trade["calc_current_premium"] = current_premium
+                    trade["calc_underlying"] = underlying
+                    trade["calc_entry_level"] = entry_level
+                    trade["calc_delta_used"] = delta
+                    
                     # Calculate what premium will be at entry level
                     entry_premium = calculate_premium_at_entry(
                         current_premium, underlying, entry_level, strike, opt_type, delta
                     )
+                    
+                    trade["calc_result"] = entry_premium
                     
                     if entry_premium:
                         # Update trade with real premium data
@@ -5782,7 +5954,25 @@ def main():
             # Debug: Show Polygon API details during RTH
             if is_rth and p.get("polygon_ticker"):
                 with st.expander("🔧 Polygon API Debug"):
-                    st.code(f"Ticker: {p.get('polygon_ticker')}\nAvailable: {p.get('polygon_available')}\nError: {p.get('polygon_error')}")
+                    debug_text = f"""Ticker: {p.get('polygon_ticker')}
+Available: {p.get('polygon_available')}
+Error: {p.get('polygon_error')}
+
+--- Raw Data ---
+Bid: {p.get('polygon_bid')}
+Ask: {p.get('polygon_ask')}
+Mid: {p.get('polygon_mid')}
+Last: {p.get('polygon_last')}
+Delta: {p.get('polygon_delta')}
+
+--- Calculation ---
+Current Premium: {p.get('calc_current_premium')}
+Current SPX: {p.get('calc_underlying')}
+Entry Level: {p.get('calc_entry_level')}
+Delta Used: {p.get('calc_delta_used')}
+Calculated Entry Premium: {p.get('calc_result')}
+"""
+                    st.code(debug_text)
         
         # ALTERNATE TRADE (If structure breaks)
         if decision.get("alternate"):
