@@ -33,11 +33,6 @@ SLOPE = 0.52
 VIX_SLOPE = 0.04  # VIX channel: 0.04 per 6 30-minute blocks
 SAVE_FILE = "spx_prophet_inputs.json"
 
-# Legacy API keys (fallback)
-# Legacy API keys (NO LONGER NEEDED - using Tastytrade + Yahoo)
-# POLYGON_API_KEY = "DEPRECATED"
-# POLYGON_BASE_URL = "https://api.polygon.io"
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # TASTYTRADE CONFIGURATION - PRIMARY DATA SOURCE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -49,7 +44,7 @@ def get_tastytrade_config():
             "client_secret": st.secrets.get("tastytrade", {}).get("client_secret"),
             "refresh_token": st.secrets.get("tastytrade", {}).get("refresh_token"),
         }
-    except:
+    except Exception:
         return {"client_id": None, "client_secret": None, "refresh_token": None}
 
 def is_tastytrade_configured():
@@ -76,7 +71,7 @@ def get_tastytrade_access_token():
         )
         if response.status_code == 200:
             return response.json().get("access_token")
-    except:
+    except Exception:
         pass
     return None
 
@@ -214,7 +209,7 @@ def save_inputs(data):
     try:
         with open(SAVE_FILE, 'w') as f:
             json.dump(data, f)
-    except:
+    except Exception:
         pass
 
 def load_inputs():
@@ -222,9 +217,42 @@ def load_inputs():
         if os.path.exists(SAVE_FILE):
             with open(SAVE_FILE, 'r') as f:
                 return json.load(f)
-    except:
+    except Exception:
         pass
     return {}
+
+TRADE_JOURNAL_FILE = "trade_journal.csv"
+
+def log_trade_to_journal(trade_date, channel_type, direction, contract, entry_spx, 
+                          entry_premium, confidence, strike_offset, vix_at_entry, notes=""):
+    """Append trade signal to CSV journal for performance tracking."""
+    try:
+        file_exists = os.path.exists(TRADE_JOURNAL_FILE)
+        with open(TRADE_JOURNAL_FILE, 'a') as f:
+            if not file_exists:
+                f.write("date,channel_type,direction,contract,entry_spx,entry_premium,"
+                        "confidence,strike_offset,vix,notes,exit_premium,profit_pct,result\n")
+            f.write(f"{trade_date},{channel_type},{direction},{contract},{entry_spx},"
+                    f"{entry_premium},{confidence},{strike_offset},{vix_at_entry},"
+                    f"\"{notes}\",,, \n")
+    except Exception:
+        pass
+
+def load_trade_journal():
+    """Load trade journal as list of dicts."""
+    try:
+        if os.path.exists(TRADE_JOURNAL_FILE):
+            trades = []
+            with open(TRADE_JOURNAL_FILE, 'r') as f:
+                header = f.readline().strip().split(',')
+                for line in f:
+                    vals = line.strip().split(',')
+                    if len(vals) >= len(header):
+                        trades.append(dict(zip(header, vals)))
+            return trades
+    except Exception:
+        pass
+    return []
 
 def get_prior_trading_day(ref_date):
     prior = ref_date - timedelta(days=1)
@@ -325,14 +353,12 @@ def estimate_0dte_premium(spot, strike, hours_to_expiry, vix, opt_type):
     return max(round(premium, 2), 0.05)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# REAL SPX OPTIONS PREMIUM - Using Estimation (Polygon-Free)
+# SPX OPTIONS PREMIUM ESTIMATION
 # ═══════════════════════════════════════════════════════════════════════════════
 @st.cache_data(ttl=30, show_spinner=False)
-def fetch_real_option_premium(strike, opt_type, trading_date):
+def fetch_real_option_premium(strike, opt_type, trading_date, es_spx_offset=35.0):
     """
     Get SPX 0DTE option premium using Black-Scholes estimation.
-    
-    NO LONGER USES POLYGON - Uses our estimation model instead.
     The estimate_0dte_premium function is actually quite accurate for ATM/near-ATM options.
     
     Args:
@@ -363,8 +389,8 @@ def fetch_real_option_premium(strike, opt_type, trading_date):
             result["error"] = "Could not fetch ES price"
             return result
         
-        # Convert ES to SPX (approximately)
-        current_spx = current_es - 35  # Typical offset
+        # Convert ES to SPX using configured offset
+        current_spx = current_es - es_spx_offset
         result["underlying_price"] = current_spx
         
         # Get current VIX for volatility
@@ -510,7 +536,7 @@ def fetch_es_current_tastytrade():
                     symbol = f.get("symbol")
                     streamer = f.get("streamer-symbol")
                     return symbol, streamer
-    except:
+    except Exception:
         pass
     return None, None
 
@@ -558,7 +584,7 @@ def fetch_vx_futures_tastytrade():
                     {"symbol": vx.get("symbol"), "streamer_symbol": vx.get("streamer-symbol"), "expiration": vx.get("expiration-date")}
                     for vx in vx_futures if vx.get("expiration-date", "") >= today
                 ][:6]
-    except:
+    except Exception:
         pass
     return result
 
@@ -594,7 +620,7 @@ def fetch_spx_option_chain_tastytrade(trading_date):
                             }
                             break
                     break
-    except:
+    except Exception:
         pass
     return result
 
@@ -602,7 +628,6 @@ def fetch_spx_option_chain_tastytrade(trading_date):
 def fetch_spx_option_premium_tastytrade(strike, opt_type, trading_date):
     """
     Fetch SPX 0DTE option premium from Tastytrade.
-    Replaces Polygon for options data.
     """
     result = {
         "available": False, "bid": None, "ask": None, "mid": None,
@@ -656,7 +681,7 @@ def get_dxlink_credentials():
             result["dxlink_url"] = data.get("dxlink-url")
             result["level"] = data.get("level")
             result["available"] = result["dxlink_url"] is not None
-    except:
+    except Exception:
         pass
     return result
 
@@ -728,7 +753,7 @@ def load_dxlink_candle_data() -> Dict:
                     if age_seconds > 300:  # 5 minutes
                         result["stale"] = True
                         result["age_seconds"] = age_seconds
-                except:
+                except Exception:
                     pass
         else:
             result["error"] = f"Candle data file not found: {CANDLE_DATA_FILE}"
@@ -796,259 +821,9 @@ def parse_iso_time(time_str):
         if dt.tzinfo is None:
             dt = CT.localize(dt)
         return dt
-    except:
+    except Exception:
         return None
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# DXLINK LIVE STREAMING - Real-time Prices for ES, VX, SPX Options
-# ═══════════════════════════════════════════════════════════════════════════════
-# 
-# DXLink provides WebSocket streaming for:
-# - ES Futures quotes (from 5 PM CT)
-# - VX Futures quotes (from 5 PM CT) 
-# - SPX Options quotes (live bid/ask/greeks)
-# - Historical candles (30-min, 1-hour, etc.)
-#
-# For Streamlit, we use a polling approach with REST API
-# Full WebSocket streaming would require a separate service
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_vx_overnight_candles_dxlink(trading_date) -> Dict:
-    """
-    Fetch VX futures overnight candles using DXLink.
-    
-    This function attempts to get 30-minute candles from 5 PM to 5:30 AM CT
-    to automatically determine VIX Channel pivots.
-    
-    Returns:
-        Dict with pivot_high, pivot_low, pivot_high_time, pivot_low_time
-    """
-    result = {
-        "available": False,
-        "pivot_high": None,
-        "pivot_low": None,
-        "pivot_high_time": None,
-        "pivot_low_time": None,
-        "candles": [],
-        "vx_symbol": None,
-        "current_price": None,
-        "error": None
-    }
-    
-    # First get VX symbol and DXLink credentials
-    vx_data = fetch_vx_futures_tastytrade()
-    if not vx_data.get("available"):
-        result["error"] = "VX futures not available"
-        return result
-    
-    result["vx_symbol"] = vx_data.get("symbol")
-    streamer_symbol = vx_data.get("streamer_symbol")
-    
-    dxlink = get_dxlink_credentials()
-    if not dxlink.get("available"):
-        result["error"] = "DXLink not available"
-        return result
-    
-    # DXLink WebSocket URL
-    dxlink_url = dxlink.get("dxlink_url")
-    
-    # For now, we'll use a simplified approach:
-    # The full WebSocket implementation would require async code
-    # Instead, we'll try to use the DXLink REST-like endpoint if available
-    
-    # Note: Full implementation would use websocket-client library:
-    # 1. Connect to wss://tasty-openapi-ws.dxfeed.com/realtime
-    # 2. Authenticate with the token
-    # 3. Subscribe to Candle events for the VX symbol
-    # 4. Request historical candles for the overnight period
-    
-    # For Streamlit compatibility, mark as needing manual input for now
-    # but indicate the system is READY for DXLink integration
-    
-    result["available"] = False
-    result["error"] = "DXLink candle fetch requires WebSocket - use manual input or TradingView"
-    result["dxlink_ready"] = True
-    result["dxlink_url"] = dxlink_url
-    result["streamer_symbol"] = streamer_symbol
-    
-    return result
-
-@st.cache_data(ttl=60, show_spinner=False)
-def fetch_vx_current_price() -> Dict:
-    """
-    Fetch current VX futures price.
-    
-    Tries multiple sources:
-    1. Yahoo Finance (VIX spot as proxy)
-    2. Manual input fallback
-    
-    Returns:
-        Dict with price, symbol, source
-    """
-    result = {
-        "available": False,
-        "price": None,
-        "symbol": None,
-        "source": None,
-        "error": None
-    }
-    
-    # Try Yahoo Finance ^VIX as proxy (usually within 0.1-0.3 of VX front month)
-    try:
-        vix = yf.Ticker("^VIX")
-        data = vix.history(period="1d", interval="1m")
-        if data is not None and not data.empty:
-            result["price"] = round(float(data['Close'].iloc[-1]), 2)
-            result["symbol"] = "^VIX"
-            result["source"] = "YAHOO"
-            result["available"] = True
-            return result
-    except:
-        pass
-    
-    # Fallback - return None, will need manual input
-    result["error"] = "Could not fetch VIX price"
-    return result
-
-@st.cache_data(ttl=15, show_spinner=False)  # 15-second cache for near real-time
-def fetch_live_quote_tastytrade(symbol: str, instrument_type: str = "future") -> Dict:
-    """
-    Fetch live quote for a symbol from Tastytrade.
-    
-    Args:
-        symbol: The streamer symbol (e.g., '/ESH5', '/VXG5')
-        instrument_type: 'future', 'equity', or 'option'
-    
-    Returns:
-        Dict with bid, ask, last, change, volume
-    """
-    result = {
-        "available": False,
-        "symbol": symbol,
-        "bid": None,
-        "ask": None,
-        "last": None,
-        "mid": None,
-        "change": None,
-        "change_pct": None,
-        "volume": None,
-        "timestamp": None,
-        "error": None
-    }
-    
-    headers = get_tastytrade_headers()
-    if not headers:
-        result["error"] = "No auth"
-        return result
-    
-    try:
-        # Try market data endpoint
-        if instrument_type == "future":
-            # Get futures list first to find the symbol
-            url = "https://api.tastytrade.com/instruments/futures"
-            response = requests.get(url, headers=headers, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                futures = data.get("data", {}).get("items", [])
-                
-                for f in futures:
-                    if f.get("symbol") == symbol or f.get("streamer-symbol") == symbol:
-                        result["symbol"] = f.get("symbol")
-                        result["available"] = True
-                        # Note: Actual price requires DXLink WebSocket
-                        # REST API doesn't provide real-time quotes directly
-                        break
-        
-        # For actual live quotes, we need the market data API
-        # This requires the DXLink WebSocket connection
-        # For now, mark as available but note limitation
-        if result["available"]:
-            result["note"] = "Real-time quotes available via DXLink WebSocket"
-            
-    except Exception as e:
-        result["error"] = str(e)
-    
-    return result
-
-@st.cache_data(ttl=30, show_spinner=False)
-def fetch_live_option_quote_tastytrade(option_symbol: str) -> Dict:
-    """
-    Fetch live quote for an SPX option from Tastytrade.
-    
-    Args:
-        option_symbol: The option symbol from the chain
-    
-    Returns:
-        Dict with bid, ask, mid, last, greeks
-    """
-    result = {
-        "available": False,
-        "symbol": option_symbol,
-        "bid": None,
-        "ask": None,
-        "mid": None,
-        "last": None,
-        "delta": None,
-        "gamma": None,
-        "theta": None,
-        "vega": None,
-        "iv": None,
-        "volume": None,
-        "open_interest": None,
-        "error": None
-    }
-    
-    headers = get_tastytrade_headers()
-    if not headers:
-        result["error"] = "No auth"
-        return result
-    
-    try:
-        # Try to get option quote from market data
-        # Note: Full implementation requires DXLink WebSocket
-        result["available"] = True
-        result["note"] = "Live option quotes available via DXLink WebSocket"
-        
-    except Exception as e:
-        result["error"] = str(e)
-    
-    return result
-
-def get_streaming_symbols() -> Dict:
-    """
-    Get the streamer symbols needed for live data.
-    
-    Returns symbols for:
-    - ES front month
-    - VX front month  
-    - VIX spot (if available)
-    """
-    result = {
-        "es_symbol": None,
-        "es_streamer": None,
-        "vx_symbol": None,
-        "vx_streamer": None,
-        "available": False
-    }
-    
-    # Get ES symbol
-    es_symbol, es_streamer = fetch_es_current_tastytrade()
-    if es_symbol:
-        result["es_symbol"] = es_symbol
-        result["es_streamer"] = es_streamer
-    
-    # Get VX symbol
-    vx_data = fetch_vx_futures_tastytrade()
-    if vx_data.get("available"):
-        result["vx_symbol"] = vx_data.get("symbol")
-        result["vx_streamer"] = vx_data.get("streamer_symbol")
-    
-    result["available"] = result["es_symbol"] is not None or result["vx_symbol"] is not None
-    
-    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1421,83 +1196,6 @@ def generate_alerts(
     return alerts
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FULL OVERNIGHT ES CHANNEL (5 PM Start)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def calculate_full_overnight_es_channel(
-    sydney_high: float, sydney_low: float,
-    tokyo_high: float, tokyo_low: float,
-    london_high: float, london_low: float,
-    sydney_high_time: datetime, sydney_low_time: datetime,
-    tokyo_high_time: datetime, tokyo_low_time: datetime,
-    london_high_time: datetime, london_low_time: datetime,
-    reference_time: datetime
-) -> Dict:
-    """
-    Calculate ES channel from full overnight session (5 PM start).
-    This uses all session data from Sydney open, not just from 2 AM.
-    
-    With Tastytrade, we can now access 5 PM data!
-    """
-    result = {
-        "available": False,
-        "channel_type": None,
-        "pivot_high": None,
-        "pivot_low": None,
-        "pivot_high_time": None,
-        "pivot_low_time": None,
-        "pivot_high_session": None,
-        "pivot_low_session": None,
-        "full_overnight_high": None,
-        "full_overnight_low": None,
-        "sessions_analyzed": ["SYDNEY", "TOKYO", "LONDON"]
-    }
-    
-    # Collect all highs and lows with their times
-    highs = []
-    lows = []
-    
-    if sydney_high is not None:
-        highs.append(("SYDNEY", sydney_high, sydney_high_time))
-    if tokyo_high is not None:
-        highs.append(("TOKYO", tokyo_high, tokyo_high_time))
-    if london_high is not None:
-        highs.append(("LONDON", london_high, london_high_time))
-    
-    if sydney_low is not None:
-        lows.append(("SYDNEY", sydney_low, sydney_low_time))
-    if tokyo_low is not None:
-        lows.append(("TOKYO", tokyo_low, tokyo_low_time))
-    if london_low is not None:
-        lows.append(("LONDON", london_low, london_low_time))
-    
-    if not highs or not lows:
-        return result
-    
-    # Find overall high and low
-    max_high = max(highs, key=lambda x: x[1])
-    min_low = min(lows, key=lambda x: x[1])
-    
-    result["full_overnight_high"] = max_high[1]
-    result["full_overnight_low"] = min_low[1]
-    result["pivot_high"] = max_high[1]
-    result["pivot_low"] = min_low[1]
-    result["pivot_high_time"] = max_high[2]
-    result["pivot_low_time"] = min_low[2]
-    result["pivot_high_session"] = max_high[0]
-    result["pivot_low_session"] = min_low[0]
-    result["available"] = True
-    
-    # Determine channel type based on which pivot came first
-    if result["pivot_high_time"] and result["pivot_low_time"]:
-        if result["pivot_low_time"] < result["pivot_high_time"]:
-            result["channel_type"] = ChannelType.ASCENDING
-        else:
-            result["channel_type"] = ChannelType.DESCENDING
-    
-    return result
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATA FETCHING - Yahoo Finance (Fallback)
@@ -1509,7 +1207,7 @@ def fetch_es_current():
         d = es.history(period="2d", interval="5m")
         if d is not None and not d.empty:
             return round(float(d['Close'].iloc[-1]), 2)
-    except:
+    except Exception:
         pass
     return None
 
@@ -1520,7 +1218,7 @@ def fetch_es_candles(days=7):
         data = es.history(period=f"{days}d", interval="30m")
         if data is not None and not data.empty and len(data) > 10:
             return data
-    except:
+    except Exception:
         pass
     return None
 
@@ -1555,18 +1253,18 @@ def fetch_es_with_ema():
                 result["ema_bias"] = Bias.PUTS
             else:
                 result["ema_bias"] = Bias.NEUTRAL
-    except:
+    except Exception:
         pass
     return result
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=15, show_spinner=False)
 def fetch_vix_yahoo():
     try:
         vix = yf.Ticker("^VIX")
         data = vix.history(period="2d")
         if data is not None and not data.empty:
             return round(float(data['Close'].iloc[-1]), 2)
-    except:
+    except Exception:
         pass
     return 16.0
 
@@ -1577,13 +1275,7 @@ def fetch_vix_yahoo():
 def fetch_vix_current():
     """
     Fetch current VIX from Yahoo Finance.
-    Replaces fetch_vix_polygon().
     """
-    return fetch_vix_yahoo()
-
-# Alias for backward compatibility
-def fetch_vix_polygon():
-    """DEPRECATED - Now uses Yahoo Finance."""
     return fetch_vix_yahoo()
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -1679,7 +1371,7 @@ def fetch_vix_term_structure():
                 result["structure"] = "BACKWARDATION"  # Fear, volatile
             else:
                 result["structure"] = "FLAT"  # Neutral
-    except:
+    except Exception:
         pass
     return result
 
@@ -1705,7 +1397,7 @@ def fetch_retail_positioning():
                 result["positioning"], result["warning"], result["bias"] = "PUT BUYING EXTREME", "Extreme fear - high fade probability", Bias.CALLS
             elif spread >= 1.5:
                 result["positioning"], result["warning"], result["bias"] = "PUT BUYING HEAVY", "Market often fades the crowd", Bias.CALLS
-    except:
+    except Exception:
         pass
     return result
 
@@ -2469,20 +2161,6 @@ def calc_channel_levels(upper_pivot, lower_pivot, upper_time, lower_time, ref_ti
         ceiling, floor = upper_pivot, lower_pivot
     return ceiling, floor
 
-def calc_mixed_levels(upper_pivot, lower_pivot, upper_time, lower_time, ref_time):
-    """Calculate all four levels for MIXED channel: ascending ceiling/floor and descending ceiling/floor."""
-    if upper_pivot is None or lower_pivot is None:
-        return None
-    blocks_high = blocks_between(upper_time, ref_time) if upper_time and ref_time else 0
-    blocks_low = blocks_between(lower_time, ref_time) if lower_time and ref_time else 0
-    
-    return {
-        "asc_ceiling": round(upper_pivot + SLOPE * blocks_high, 2),   # Ascending ceiling (high going up)
-        "asc_floor": round(lower_pivot + SLOPE * blocks_low, 2),       # Ascending floor (low going up)
-        "desc_ceiling": round(upper_pivot - SLOPE * blocks_high, 2),  # Descending ceiling (high going down)
-        "desc_floor": round(lower_pivot - SLOPE * blocks_low, 2),      # Descending floor (low going down)
-    }
-
 def calc_dual_channel_levels(upper_pivot, lower_pivot, upper_time, lower_time, ref_time):
     """
     Calculate ALL FOUR channel levels - always show both ascending and descending.
@@ -2523,279 +2201,6 @@ def get_position(price, ceiling, floor):
     elif price < floor:
         return Position.BELOW
     return Position.INSIDE
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# DECISION ENGINE
-# ═══════════════════════════════════════════════════════════════════════════════
-def analyze_market_state(current_spx, ceiling_spx, floor_spx, channel_type, retail_bias, ema_bias, 
-                         vix_position, vix, session_tests, gap_analysis, prior_close_analysis, vix_structure):
-    """
-    Analyze market state and generate trade scenarios with confluence-based confidence.
-    
-    Confluence Factors:
-    1. EMA alignment (8/21/200)
-    2. Retail positioning (fade the crowd)
-    3. Session level tests (more tests = stronger level)
-    4. Gap position (gap INTO level = better setup)
-    5. Prior close validation (prior close near level = validates it)
-    6. VIX term structure (backwardation = more volatile)
-    """
-    if current_spx is None or ceiling_spx is None or floor_spx is None:
-        return {"no_trade": True, "no_trade_reason": "Missing price data", "calls_factors": [], "puts_factors": [], "primary": None, "alternate": None}
-    
-    result = {"no_trade": False, "no_trade_reason": None, "calls_factors": [], "puts_factors": [], "primary": None, "alternate": None}
-    
-    if current_spx > ceiling_spx:
-        position = Position.ABOVE
-    elif current_spx < floor_spx:
-        position = Position.BELOW
-    else:
-        position = Position.INSIDE
-    
-    def make_scenario(name, direction, entry, stop, trigger, rationale, confidence):
-        if direction == "CALLS":
-            strike = int(math.ceil((entry + 20) / 5) * 5)
-            opt_type = "CALL"
-        else:
-            strike = int(math.floor((entry - 20) / 5) * 5)
-            opt_type = "PUT"
-        entry_premium = estimate_0dte_premium(entry, strike, 6.0, vix, opt_type)
-        target_50, target_75, target_100 = round(entry_premium * 1.50, 2), round(entry_premium * 1.75, 2), round(entry_premium * 2.00, 2)
-        return {
-            "name": name, "direction": direction, "entry": entry, "stop": stop, "trigger": trigger, "rationale": rationale, "confidence": confidence,
-            "strike": strike, "contract": f"SPX {strike}{'C' if direction == 'CALLS' else 'P'} 0DTE", "entry_premium": entry_premium,
-            "target_50": target_50, "target_75": target_75, "target_100": target_100,
-            "profit_50": round((target_50 - entry_premium) * 100, 0), "profit_75": round((target_75 - entry_premium) * 100, 0), "profit_100": round((target_100 - entry_premium) * 100, 0)
-        }
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # CONFLUENCE FACTORS - 6 factors for your 0DTE strategy
-    # ─────────────────────────────────────────────────────────────────────────
-    
-    # Factor 1: Price proximity to key level
-    channel_range = ceiling_spx - floor_spx
-    dist_to_floor = current_spx - floor_spx
-    dist_to_ceiling = ceiling_spx - current_spx
-    near_floor = dist_to_floor <= channel_range * 0.3
-    near_ceiling = dist_to_ceiling <= channel_range * 0.3
-    
-    # Factor 2: EMA alignment (8/21/200)
-    ema_bullish = ema_bias == Bias.CALLS
-    ema_bearish = ema_bias == Bias.PUTS
-    
-    # Factor 3: Retail positioning (fade the crowd)
-    fade_to_calls = retail_bias == Bias.CALLS  # Retail heavy puts
-    fade_to_puts = retail_bias == Bias.PUTS    # Retail heavy calls
-    
-    # Factor 4: Session tests (more sessions tested = stronger level)
-    floor_tested = session_tests["floor_tests"] >= 1
-    floor_multi_test = session_tests["floor_tests"] >= 2
-    ceiling_tested = session_tests["ceiling_tests"] >= 1
-    ceiling_multi_test = session_tests["ceiling_tests"] >= 2
-    
-    # Factor 5: Gap analysis
-    gap_into_floor = gap_analysis["into_floor"]
-    gap_into_ceiling = gap_analysis["into_ceiling"]
-    gap_away_floor = gap_analysis["away_from_floor"]
-    gap_away_ceiling = gap_analysis["away_from_ceiling"]
-    
-    # Factor 6: Prior close validation
-    prior_validates_floor = prior_close_analysis["validates_floor"]
-    prior_validates_ceiling = prior_close_analysis["validates_ceiling"]
-    
-    # Factor 7: VIX term structure (affects volatility, not direction)
-    vix_contango = vix_structure["structure"] == "CONTANGO"  # Normal, stable - tighter moves
-    vix_backwardation = vix_structure["structure"] == "BACKWARDATION"  # Fear - bigger moves both ways
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # BUILD FACTOR LISTS FOR DISPLAY
-    # ─────────────────────────────────────────────────────────────────────────
-    
-    # Calls factors (for CALLS scenarios)
-    if ema_bullish:
-        result["calls_factors"].append("EMA bullish (8>21>200)")
-    if fade_to_calls:
-        result["calls_factors"].append("Retail puts heavy (fade)")
-    if floor_tested:
-        sessions_str = ", ".join(session_tests["floor_sessions"])
-        result["calls_factors"].append(f"Floor tested ({sessions_str})")
-    if floor_multi_test:
-        result["calls_factors"].append("Floor multi-tested ✓✓")
-    if gap_into_floor:
-        result["calls_factors"].append("Gap down INTO floor")
-    if prior_validates_floor:
-        result["calls_factors"].append("Prior close validates floor")
-    
-    # Puts factors (for PUTS scenarios)
-    if ema_bearish:
-        result["puts_factors"].append("EMA bearish (8<21<200)")
-    if fade_to_puts:
-        result["puts_factors"].append("Retail calls heavy (fade)")
-    if ceiling_tested:
-        sessions_str = ", ".join(session_tests["ceiling_sessions"])
-        result["puts_factors"].append(f"Ceiling tested ({sessions_str})")
-    if ceiling_multi_test:
-        result["puts_factors"].append("Ceiling multi-tested ✓✓")
-    if gap_into_ceiling:
-        result["puts_factors"].append("Gap up INTO ceiling")
-    if prior_validates_ceiling:
-        result["puts_factors"].append("Prior close validates ceiling")
-    
-    # VIX structure note (non-directional - applies to both)
-    if vix_backwardation:
-        result["calls_factors"].append("⚡ VIX backwardation (volatile)")
-        result["puts_factors"].append("⚡ VIX backwardation (volatile)")
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # CONFIDENCE CALCULATION
-    # ─────────────────────────────────────────────────────────────────────────
-    def calc_scenario_confidence(direction, key_level, at_key_level, is_structure_break=False):
-        """
-        Calculate confidence based on:
-        1. At key level (not chasing)
-        2. Number of supporting confluence factors FOR THAT SPECIFIC LEVEL
-        3. Whether this is a structure break (lower probability)
-        
-        key_level: "FLOOR" or "CEILING" - which level this scenario trades
-        direction: "CALLS" or "PUTS" - trade direction
-        
-        Note: VIX backwardation is not counted as it's non-directional
-        """
-        support = 0
-        
-        if key_level == "FLOOR":
-            # Floor-based scenarios use floor factors
-            if ema_bullish: support += 1  # Bullish trend supports floor bounce
-            if fade_to_calls: support += 1  # Retail puts = fade to calls at floor
-            if floor_tested: support += 1
-            if floor_multi_test: support += 1
-            if gap_into_floor: support += 1
-            if prior_validates_floor: support += 1
-        else:  # CEILING
-            # Ceiling-based scenarios use ceiling factors
-            if ema_bearish: support += 1  # Bearish trend supports ceiling rejection
-            if fade_to_puts: support += 1  # Retail calls = fade to puts at ceiling
-            if ceiling_tested: support += 1
-            if ceiling_multi_test: support += 1
-            if gap_into_ceiling: support += 1
-            if prior_validates_ceiling: support += 1
-        
-        # Structure breaks max at MEDIUM
-        if is_structure_break:
-            return "MEDIUM" if support >= 3 else "LOW"
-        
-        # Normal scenarios
-        if at_key_level:
-            if support >= 4:
-                return "HIGH"
-            elif support >= 2:
-                return "MEDIUM"
-            else:
-                return "LOW"
-        else:
-            # Not at key level - penalize
-            if support >= 4:
-                return "MEDIUM"
-            else:
-                return "LOW"
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # GENERATE SCENARIOS
-    # ─────────────────────────────────────────────────────────────────────────
-    if channel_type == ChannelType.CONTRACTING:
-        result["no_trade"] = True
-        result["no_trade_reason"] = "CONTRACTING channel - No clear key level"
-        return result
-    if channel_type == ChannelType.UNDETERMINED:
-        result["no_trade"] = True
-        result["no_trade_reason"] = "Cannot determine channel structure"
-        return result
-    
-    if channel_type == ChannelType.ASCENDING:
-        # ASCENDING: Floor is KEY level
-        if position in [Position.INSIDE, Position.ABOVE]:
-            # Both scenarios trade at FLOOR level
-            primary_conf = calc_scenario_confidence("CALLS", "FLOOR", near_floor, is_structure_break=False)
-            alt_conf = calc_scenario_confidence("PUTS", "FLOOR", near_floor, is_structure_break=True)
-            
-            result["primary"] = make_scenario("Floor Bounce", "CALLS", floor_spx, floor_spx - 5, 
-                "Price at ascending floor",
-                f"Key level: Ascending floor • {len(result['calls_factors'])} confluence factors", primary_conf)
-            result["alternate"] = make_scenario("Floor Break", "PUTS", floor_spx, floor_spx + 5, 
-                "If floor fails",
-                "Structure break scenario", alt_conf)
-        else:
-            # Price below floor - structure broken, now using floor as resistance
-            primary_conf = calc_scenario_confidence("PUTS", "FLOOR", True, is_structure_break=False)
-            alt_conf = calc_scenario_confidence("CALLS", "FLOOR", True, is_structure_break=True)
-            
-            result["primary"] = make_scenario("Breakdown Continuation", "PUTS", floor_spx, floor_spx + 5, 
-                "Floor broken - bearish",
-                f"Structure broken • {len(result['puts_factors'])} confluence factors", primary_conf)
-            result["alternate"] = make_scenario("Floor Reclaim", "CALLS", floor_spx, floor_spx - 5, 
-                "If price reclaims floor",
-                "Recovery scenario", alt_conf)
-    
-    elif channel_type == ChannelType.DESCENDING:
-        # DESCENDING: Ceiling is KEY level
-        if position in [Position.INSIDE, Position.BELOW]:
-            # Both scenarios trade at CEILING level
-            primary_conf = calc_scenario_confidence("PUTS", "CEILING", near_ceiling, is_structure_break=False)
-            alt_conf = calc_scenario_confidence("CALLS", "CEILING", near_ceiling, is_structure_break=True)
-            
-            result["primary"] = make_scenario("Ceiling Rejection", "PUTS", ceiling_spx, ceiling_spx + 5, 
-                "Price at descending ceiling",
-                f"Key level: Descending ceiling • {len(result['puts_factors'])} confluence factors", primary_conf)
-            result["alternate"] = make_scenario("Ceiling Break", "CALLS", ceiling_spx, ceiling_spx - 5, 
-                "If ceiling fails",
-                "Structure break scenario", alt_conf)
-        else:
-            # Price above ceiling - structure broken, now using ceiling as support
-            primary_conf = calc_scenario_confidence("CALLS", "CEILING", True, is_structure_break=False)
-            alt_conf = calc_scenario_confidence("PUTS", "CEILING", True, is_structure_break=True)
-            
-            result["primary"] = make_scenario("Breakout Continuation", "CALLS", ceiling_spx, ceiling_spx - 5, 
-                "Ceiling broken - bullish",
-                f"Structure broken • {len(result['calls_factors'])} confluence factors", primary_conf)
-            result["alternate"] = make_scenario("Failed Breakout", "PUTS", ceiling_spx, ceiling_spx + 5, 
-                "If breakout fails",
-                "Rejection scenario", alt_conf)
-    
-    elif channel_type == ChannelType.MIXED:
-        # MIXED: Both floor AND ceiling are key levels
-        result["scenarios"] = []
-        
-        # Floor scenarios - use FLOOR factors
-        floor_calls_conf = calc_scenario_confidence("CALLS", "FLOOR", near_floor, is_structure_break=False)
-        floor_puts_conf = calc_scenario_confidence("PUTS", "FLOOR", near_floor, is_structure_break=True)
-        
-        result["scenarios"].append(make_scenario("Floor Bounce", "CALLS", floor_spx, floor_spx - 5, 
-            "Price respects ascending floor",
-            f"Key level: Floor • {len(result['calls_factors'])} factors", floor_calls_conf))
-        result["scenarios"].append(make_scenario("Floor Break", "PUTS", floor_spx, floor_spx + 5,
-            "Floor fails",
-            "Structure break", floor_puts_conf))
-        
-        # Ceiling scenarios - use CEILING factors
-        ceil_puts_conf = calc_scenario_confidence("PUTS", "CEILING", near_ceiling, is_structure_break=False)
-        ceil_calls_conf = calc_scenario_confidence("CALLS", "CEILING", near_ceiling, is_structure_break=True)
-        
-        result["scenarios"].append(make_scenario("Ceiling Rejection", "PUTS", ceiling_spx, ceiling_spx + 5,
-            "Price respects descending ceiling",
-            f"Key level: Ceiling • {len(result['puts_factors'])} factors", ceil_puts_conf))
-        result["scenarios"].append(make_scenario("Ceiling Break", "CALLS", ceiling_spx, ceiling_spx - 5,
-            "Ceiling fails",
-            "Structure break", ceil_calls_conf))
-        
-        # Set primary/alternate based on which key level is closer
-        if dist_to_floor <= dist_to_ceiling:
-            result["primary"] = result["scenarios"][0]
-            result["alternate"] = result["scenarios"][2]
-        else:
-            result["primary"] = result["scenarios"][2]
-            result["alternate"] = result["scenarios"][0]
-    
-    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3023,27 +2428,60 @@ def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reas
     
     # Trade builder
     def make_trade(name, direction, entry, stop, trigger, rationale, confidence, is_primary=True):
+        # VIX-adaptive strike offset: closer ATM in low vol, further OTM in high vol
+        if vix < 15:
+            strike_offset = 10   # Low vol: stay close for higher delta
+        elif vix < 20:
+            strike_offset = 15   # Normal vol
+        elif vix < 25:
+            strike_offset = 20   # Elevated vol
+        else:
+            strike_offset = 25   # High vol: further OTM, cheaper premium
+        
         if direction == "CALLS":
-            strike = int(math.ceil((entry + 20) / 5) * 5)
+            strike = int(math.ceil((entry + strike_offset) / 5) * 5)
             opt_type = "CALL"
         else:
-            strike = int(math.floor((entry - 20) / 5) * 5)
+            strike = int(math.floor((entry - strike_offset) / 5) * 5)
             opt_type = "PUT"
         
-        entry_premium = estimate_0dte_premium(entry, strike, 6.0, vix, opt_type)
-        t1 = round(entry_premium * 1.50, 2)
-        t2 = round(entry_premium * 1.75, 2)
-        t3 = round(entry_premium * 2.00, 2)
+        # Time-aware target scaling
+        ct_now_local = datetime.now(CT)
+        hours_remaining = max(0.1, (CT.localize(datetime.combine(
+            current_time.date() if current_time else ct_now_local.date(), 
+            time(15, 0))) - ct_now_local).total_seconds() / 3600)
+        
+        if hours_remaining >= 5:
+            target_pcts = [0.50, 0.75, 1.00]  # Full targets early
+        elif hours_remaining >= 3:
+            target_pcts = [0.40, 0.60, 0.80]  # Moderate midday
+        elif hours_remaining >= 1.5:
+            target_pcts = [0.30, 0.50, 0.70]  # Reduced afternoon
+        else:
+            target_pcts = [0.20, 0.35, 0.50]  # Scalp mode last 90min
+        
+        entry_premium = estimate_0dte_premium(entry, strike, hours_remaining, vix, opt_type)
+        t1 = round(entry_premium * (1 + target_pcts[0]), 2)
+        t2 = round(entry_premium * (1 + target_pcts[1]), 2)
+        t3 = round(entry_premium * (1 + target_pcts[2]), 2)
+        
+        # Premium-based stop (50% of premium = max loss)
+        stop_premium = round(entry_premium * 0.50, 2)
+        max_loss_dollars = round(entry_premium * 0.50 * 100, 0)
         
         return {
             "name": name, "direction": direction, "entry_level": entry, "stop_level": stop,
             "trigger": trigger, "rationale": rationale, "confidence": confidence, "is_primary": is_primary,
             "strike": strike, "contract": f"SPX {strike}{'C' if direction == 'CALLS' else 'P'} 0DTE",
             "entry_premium": entry_premium,
+            "stop_premium": stop_premium,
+            "max_loss_dollars": max_loss_dollars,
+            "hours_remaining": round(hours_remaining, 1),
+            "target_pcts": target_pcts,
             "targets": {
-                "t1": {"price": t1, "profit_pct": 50, "profit_dollars": round((t1 - entry_premium) * 100, 0)},
-                "t2": {"price": t2, "profit_pct": 75, "profit_dollars": round((t2 - entry_premium) * 100, 0)},
-                "t3": {"price": t3, "profit_pct": 100, "profit_dollars": round((t3 - entry_premium) * 100, 0)},
+                "t1": {"price": t1, "profit_pct": int(target_pcts[0]*100), "profit_dollars": round((t1 - entry_premium) * 100, 0)},
+                "t2": {"price": t2, "profit_pct": int(target_pcts[1]*100), "profit_dollars": round((t2 - entry_premium) * 100, 0)},
+                "t3": {"price": t3, "profit_pct": int(target_pcts[2]*100), "profit_dollars": round((t3 - entry_premium) * 100, 0)},
             }
         }
     
@@ -5811,6 +5249,15 @@ def sidebar():
         # ─────────────────────────────────────────────────────────────────────
         st.markdown("#### 🌊 VIX Channel System")
         
+        # VIX Channel type override
+        auto_vix_channel = st.checkbox("Auto-detect VIX channel type", value=True, 
+            help="Uncheck to manually override. Auto uses Feb 5, 2026 = ASCENDING as reference.")
+        if not auto_vix_channel:
+            vix_channel_override = st.selectbox("Today's VIX Channel", ["ASCENDING", "DESCENDING"],
+                help="Override if auto-detection seems wrong for today")
+        else:
+            vix_channel_override = None
+        
         # Check if Tastytrade is available for auto-fetch
         tastytrade_configured = is_tastytrade_configured()
         
@@ -6107,7 +5554,6 @@ def sidebar():
         if col2.button("🔄 Refresh", use_container_width=True):
             # Clear only market data caches
             fetch_es_current.clear()
-            fetch_vix_polygon.clear()
             fetch_vix_yahoo.clear()
             fetch_es_with_ema.clear()
             fetch_retail_positioning.clear()
@@ -6125,6 +5571,7 @@ def sidebar():
         "manual_vix": manual_vix,
         "manual_vix_range": None,  # Deprecated - now using VIX Channel system
         "manual_vix_channel": manual_vix_channel,  # VIX Channel pivots
+        "vix_channel_override": vix_channel_override,  # Manual channel type override
         "manual_prior": {
             "primary_high_wick": prior_primary_hw, 
             "secondary_high_wick": prior_secondary_hw if has_secondary_hw else None,
@@ -6564,7 +6011,6 @@ def main():
         if st.button("🔄 Refresh", use_container_width=True, help="Refresh all market data"):
             # Clear all caches
             fetch_es_current.clear()
-            fetch_vix_polygon.clear()
             fetch_vix_yahoo.clear()
             fetch_es_with_ema.clear()
             fetch_retail_positioning.clear()
@@ -6701,9 +6147,14 @@ def main():
     st.markdown('<div class="section-header"><div class="section-icon" style="background:linear-gradient(135deg,#6c5ce7,#a55eea);">🌊</div><h2 class="section-title">VIX Channel System</h2></div>', unsafe_allow_html=True)
     
     # Determine today's VIX channel type (alternates daily on trading days)
-    vix_channel_type = get_vix_channel_type_for_date(actual_trading_date)
+    vix_channel_override = inputs.get("vix_channel_override")
+    if vix_channel_override:
+        vix_channel_type = VIXChannelType.ASCENDING if vix_channel_override == "ASCENDING" else VIXChannelType.DESCENDING
+    else:
+        vix_channel_type = get_vix_channel_type_for_date(actual_trading_date)
     vix_channel_direction = "↗" if vix_channel_type == VIXChannelType.ASCENDING else "↘"
     vix_channel_color = "var(--bull)" if vix_channel_type == VIXChannelType.ASCENDING else "var(--bear)"
+    vix_override_badge = ' <span style="font-size:0.6rem;color:var(--accent-gold);">MANUAL</span>' if vix_channel_override else ' <span style="font-size:0.6rem;color:var(--text-muted);">AUTO</span>'
     
     # Calculate VIX channel levels if manual pivots provided
     vix_channel_levels = None
@@ -7254,38 +6705,34 @@ def main():
             entry_level = trade["entry_level"]
             
             # Determine if trade has already triggered
-            # For CALLS: Trade triggers when price drops TO the floor (entry), then rises
-            #            If current price > entry, we're either approaching or past target
-            # For PUTS: Trade triggers when price rises TO the ceiling (entry), then drops
-            #            If current price < entry, the trade has triggered and is in profit
+            # For CALLS at ascending floor: price drops TO floor, then bounces UP
+            #   Triggered = current price has bounced above entry by meaningful amount
+            # For PUTS at descending ceiling: price rises TO ceiling, then drops DOWN
+            #   Triggered = current price has dropped below entry by meaningful amount
+            
+            BOUNCE_THRESHOLD = 5  # SPX points beyond entry to confirm trigger
             
             if opt_type == "CALL":
-                trade_triggered = current_spx > entry_level  # Price above entry = either not reached or past
-                # Actually for calls at floor: price drops to floor, then rises
-                # If price is BELOW floor, trade hasn't triggered yet (approaching)
-                # If price is ABOVE floor, either: never reached floor, or reached and bounced
-                # We need to check if price is moving toward or away from entry
-                trade_triggered = False  # For calls, we calculate entry premium (price dropping to floor)
-                
+                # Call at floor: triggered when price is meaningfully above entry (bounced)
+                trade_triggered = current_spx >= entry_level + BOUNCE_THRESHOLD
             else:  # PUT
-                # For puts at ceiling: price rises to ceiling, then drops
-                # If current price < entry level, the trade has TRIGGERED (price dropped below entry)
-                trade_triggered = current_spx < entry_level
+                # Put at ceiling: triggered when price is meaningfully below entry (rejected)
+                trade_triggered = current_spx <= entry_level - BOUNCE_THRESHOLD
             
             if is_rth and current_spx:
-                # Fetch real premium from Polygon
-                real_data = fetch_real_option_premium(strike, opt_type, trading_date)
+                # Fetch option premium estimate
+                real_data = fetch_real_option_premium(strike, opt_type, trading_date, es_spx_offset=offset)
                 
                 # Store debug info
                 trade = trade.copy()
-                trade["polygon_ticker"] = real_data.get("ticker")
-                trade["polygon_error"] = real_data.get("error")
-                trade["polygon_available"] = real_data.get("available")
-                trade["polygon_bid"] = real_data.get("bid")
-                trade["polygon_ask"] = real_data.get("ask")
-                trade["polygon_mid"] = real_data.get("mid")
-                trade["polygon_last"] = real_data.get("last")
-                trade["polygon_delta"] = real_data.get("delta")
+                trade["option_ticker"] = real_data.get("ticker")
+                trade["option_error"] = real_data.get("error")
+                trade["option_available"] = real_data.get("available")
+                trade["option_bid"] = real_data.get("bid")
+                trade["option_ask"] = real_data.get("ask")
+                trade["option_mid"] = real_data.get("mid")
+                trade["option_last"] = real_data.get("last")
+                trade["option_delta"] = real_data.get("delta")
                 
                 if real_data["available"]:
                     current_premium = real_data["mid"] or real_data["last"]
@@ -7347,6 +6794,61 @@ def main():
         # Update primary trade with real premium if in RTH
         p = get_trade_premium(decision["primary"], current_spx, actual_trading_date, is_rth)
         
+        # ═══════════════════════════════════════════════════════════════════
+        # TRADE PLAYBOOK - Single-glance execution summary
+        # ═══════════════════════════════════════════════════════════════════
+        if p:
+            alt = decision.get("alternate")
+            playbook_dir = "↗ BUY" if p["direction"] == "CALLS" else "↘ SELL"
+            playbook_color = "var(--bull)" if p["direction"] == "CALLS" else "var(--bear)"
+            playbook_alt_color = "var(--bear)" if p["direction"] == "CALLS" else "var(--bull)"
+            t = p["targets"]
+            
+            # Channel status context
+            channel_lock_text = "Channel LOCKED ✓" if decision.get("channel_locked") else "Channel BUILDING ⏳"
+            hours_left = p.get("hours_remaining", 6.0)
+            time_context = f"{hours_left:.0f}h to expiry" if hours_left >= 1 else f"{hours_left*60:.0f}min to expiry"
+            
+            # No-trade zone warnings
+            no_trade_warning = ""
+            ct_now_check = datetime.now(CT)
+            ct_decimal = ct_now_check.hour + ct_now_check.minute / 60.0
+            if 12.0 <= ct_decimal < 13.0:
+                no_trade_warning = '<div style="background:rgba(254,228,64,0.15);border:1px solid rgba(254,228,64,0.3);border-radius:8px;padding:8px 12px;margin-top:8px;font-size:0.75rem;color:var(--accent-gold);">⚠️ LUNCH ZONE (12-1 PM): Signals less reliable. Consider waiting for 1:00 PM confirmation.</div>'
+            elif ct_decimal >= 14.25:
+                no_trade_warning = '<div style="background:rgba(254,228,64,0.15);border:1px solid rgba(254,228,64,0.3);border-radius:8px;padding:8px 12px;margin-top:8px;font-size:0.75rem;color:var(--accent-gold);">⚠️ LATE SESSION: Gamma acceleration zone. Tighter stops, reduced targets.</div>'
+            
+            # Alternate plan
+            alt_text = ""
+            if alt:
+                alt_dir = "BUY" if alt["direction"] == "CALLS" else "SELL"
+                alt_text = f'<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border-subtle);"><span style="color:var(--text-muted);font-size:0.75rem;">IF WRONG:</span> <span style="color:{playbook_alt_color};font-size:0.8rem;font-weight:600;">{alt["name"]} → {alt_dir} {alt["contract"]}</span></div>'
+            
+            playbook_html = f'''
+            <div style="background:linear-gradient(135deg, rgba(0,245,212,0.06) 0%, rgba(0,187,249,0.04) 100%);border:2px solid rgba(0,245,212,0.3);border-radius:16px;padding:20px 24px;margin-bottom:24px;box-shadow:0 0 30px rgba(0,245,212,0.1);">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                    <span style="font-family:'Orbitron',sans-serif;font-size:0.85rem;font-weight:700;color:var(--accent-cyan);letter-spacing:2px;">◈ TRADE PLAYBOOK</span>
+                    <span style="font-size:0.7rem;color:var(--text-muted);">{channel_lock_text} | {time_context}</span>
+                </div>
+                <div style="font-size:1.1rem;font-weight:600;color:var(--text-bright);margin-bottom:8px;">
+                    <span style="color:{playbook_color};">{playbook_dir}</span> {p["contract"]} at <span style="color:var(--accent-cyan);">${p["entry_premium"]:.2f}</span>
+                </div>
+                <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:6px;">
+                    Wait for SPX <span style="color:var(--text-bright);font-weight:600;">{p["entry_level"]:,.2f}</span> → 
+                    Stop if below <span style="color:var(--bear);font-weight:600;">{p["stop_level"]:,.2f}</span> (premium stop: ${p.get("stop_premium", 0):.2f})
+                </div>
+                <div style="font-size:0.85rem;color:var(--text-secondary);">
+                    Targets: 
+                    <span style="color:var(--bull);">${t["t1"]["price"]:.2f}</span> (+${t["t1"]["profit_dollars"]:,.0f}) → 
+                    <span style="color:var(--bull);">${t["t2"]["price"]:.2f}</span> (+${t["t2"]["profit_dollars"]:,.0f}) → 
+                    <span style="color:var(--bull);">${t["t3"]["price"]:.2f}</span> (+${t["t3"]["profit_dollars"]:,.0f})
+                </div>
+                {alt_text}
+                {no_trade_warning}
+            </div>
+            '''
+            st.markdown(playbook_html, unsafe_allow_html=True)
+        
         # PRIMARY TRADE
         st.markdown('<div class="section-header"><div class="section-icon icon-rocket">🚀</div><h2 class="section-title">PRIMARY Trade Setup</h2></div>', unsafe_allow_html=True)
         
@@ -7383,14 +6885,14 @@ def main():
                 premium_note = ""
                 premium_note_style = ""
                 show_triggered = False
-                if p.get("polygon_ticker"):
-                    premium_note = f'Polygon: {p.get("polygon_error", "No data")}'
+                if p.get("option_ticker"):
+                    premium_note = f'Source: {p.get("option_error", "Estimated")}'
                     premium_note_style = 'font-size:0.65rem;color:var(--text-muted);margin-top:4px;'
             
             # Build HTML in parts
             card_html = f'<div class="trade-card trade-card-{tc}">'
             card_html += f'<div class="trade-header"><div class="trade-name">{di} {p["name"]}</div>'
-            card_html += f'<div class="trade-confidence trade-confidence-{p["confidence"].lower()}">{p["confidence"]} CONFIDENCE</div></div>'
+            card_html += f'<div class="trade-confidence trade-confidence-{p["confidence"].lower()}">{p["confidence"]} CONFIDENCE {"✓" if decision.get("channel_locked") else "⏳"}</div></div>'
             
             if show_triggered:
                 card_html += '<div style="background:var(--bull);color:#000;padding:4px 12px;border-radius:20px;font-size:0.7rem;font-weight:700;display:inline-block;margin-bottom:8px;">✓ TRADE TRIGGERED</div>'
@@ -7403,11 +6905,13 @@ def main():
             card_html += '</div>'
             card_html += f'<div class="trade-metric"><div class="trade-metric-label">SPX Entry</div><div class="trade-metric-value">{p["entry_level"]:,.2f}</div></div>'
             card_html += f'<div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{p["stop_level"]:,.2f}</div></div>'
+            if p.get("stop_premium"):
+                card_html += f'<div class="trade-metric"><div class="trade-metric-label">Premium Stop</div><div class="trade-metric-value" style="color:var(--bear);">${p["stop_premium"]:.2f}</div><div style="font-size:0.65rem;color:var(--text-muted);margin-top:2px;">Max loss: -${p["max_loss_dollars"]:,.0f}</div></div>'
             card_html += '</div>'
             card_html += '<div class="trade-targets"><div class="targets-header">◎ Profit Targets</div><div class="targets-grid">'
-            card_html += f'<div class="target-item"><div class="target-label">50%</div><div class="target-price">${t["t1"]["price"]:.2f}</div><div class="target-profit">+${t["t1"]["profit_dollars"]:,.0f}</div></div>'
-            card_html += f'<div class="target-item"><div class="target-label">75%</div><div class="target-price">${t["t2"]["price"]:.2f}</div><div class="target-profit">+${t["t2"]["profit_dollars"]:,.0f}</div></div>'
-            card_html += f'<div class="target-item"><div class="target-label">100%</div><div class="target-price">${t["t3"]["price"]:.2f}</div><div class="target-profit">+${t["t3"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">{t["t1"]["profit_pct"]}%</div><div class="target-price">${t["t1"]["price"]:.2f}</div><div class="target-profit">+${t["t1"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">{t["t2"]["profit_pct"]}%</div><div class="target-price">${t["t2"]["price"]:.2f}</div><div class="target-profit">+${t["t2"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">{t["t3"]["profit_pct"]}%</div><div class="target-price">${t["t3"]["price"]:.2f}</div><div class="target-profit">+${t["t3"]["profit_dollars"]:,.0f}</div></div>'
             card_html += '</div></div>'
             card_html += f'<div class="trade-trigger"><div class="trigger-label">◈ Entry Trigger</div><div class="trigger-text">{p["trigger"]}</div></div>'
             card_html += '</div>'
@@ -7415,19 +6919,19 @@ def main():
             st.markdown(card_html, unsafe_allow_html=True)
             with st.expander("📋 Trade Rationale"):
                 st.write(p["rationale"])
-            # Debug: Show Polygon API details during RTH
-            if is_rth and p.get("polygon_ticker"):
-                with st.expander("🔧 Polygon API Debug"):
-                    debug_text = f"""Ticker: {p.get('polygon_ticker')}
-Available: {p.get('polygon_available')}
-Error: {p.get('polygon_error')}
+            # Debug: Show option pricing details during RTH
+            if is_rth and p.get("option_ticker"):
+                with st.expander("🔧 Option Pricing Debug"):
+                    debug_text = f"""Ticker: {p.get('option_ticker')}
+Available: {p.get('option_available')}
+Error: {p.get('option_error')}
 
 --- Raw Data ---
-Bid: {p.get('polygon_bid')}
-Ask: {p.get('polygon_ask')}
-Mid: {p.get('polygon_mid')}
-Last: {p.get('polygon_last')}
-Delta: {p.get('polygon_delta')}
+Bid: {p.get('option_bid')}
+Ask: {p.get('option_ask')}
+Mid: {p.get('option_mid')}
+Last: {p.get('option_last')}
+Delta: {p.get('option_delta')}
 
 --- Calculation ---
 Current Premium: {p.get('calc_current_premium')}
@@ -7437,6 +6941,22 @@ Delta Used: {p.get('calc_delta_used')}
 Calculated Entry Premium: {p.get('calc_result')}
 """
                     st.code(debug_text)
+            
+            # Trade Journal - Log button
+            if st.button("📝 Log This Trade to Journal", key="log_primary", help="Save this trade signal to trade_journal.csv for performance tracking"):
+                log_trade_to_journal(
+                    trade_date=actual_trading_date.strftime("%Y-%m-%d"),
+                    channel_type=channel_type.value if channel_type else "UNKNOWN",
+                    direction=p["direction"],
+                    contract=p["contract"],
+                    entry_spx=p["entry_level"],
+                    entry_premium=p["entry_premium"],
+                    confidence=p["confidence"],
+                    strike_offset=p["strike"] - p["entry_level"],
+                    vix_at_entry=vix,
+                    notes=p["name"]
+                )
+                st.success("✓ Trade logged to journal!")
         
         # ALTERNATE TRADE (If structure breaks)
         if decision.get("alternate"):
@@ -7493,9 +7013,9 @@ Calculated Entry Premium: {p.get('calc_result')}
             card_html += f'<div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{a["stop_level"]:,.2f}</div></div>'
             card_html += '</div>'
             card_html += '<div class="trade-targets"><div class="targets-header">◎ Profit Targets</div><div class="targets-grid">'
-            card_html += f'<div class="target-item"><div class="target-label">50%</div><div class="target-price">${t["t1"]["price"]:.2f}</div><div class="target-profit">+${t["t1"]["profit_dollars"]:,.0f}</div></div>'
-            card_html += f'<div class="target-item"><div class="target-label">75%</div><div class="target-price">${t["t2"]["price"]:.2f}</div><div class="target-profit">+${t["t2"]["profit_dollars"]:,.0f}</div></div>'
-            card_html += f'<div class="target-item"><div class="target-label">100%</div><div class="target-price">${t["t3"]["price"]:.2f}</div><div class="target-profit">+${t["t3"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">{t["t1"]["profit_pct"]}%</div><div class="target-price">${t["t1"]["price"]:.2f}</div><div class="target-profit">+${t["t1"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">{t["t2"]["profit_pct"]}%</div><div class="target-price">${t["t2"]["price"]:.2f}</div><div class="target-profit">+${t["t2"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">{t["t3"]["profit_pct"]}%</div><div class="target-price">${t["t3"]["price"]:.2f}</div><div class="target-profit">+${t["t3"]["profit_dollars"]:,.0f}</div></div>'
             card_html += '</div></div>'
             card_html += f'<div class="trade-trigger"><div class="trigger-label">◈ Entry Trigger</div><div class="trigger-text">{a["trigger"]}</div></div>'
             card_html += '</div>'
@@ -7559,9 +7079,9 @@ Calculated Entry Premium: {p.get('calc_result')}
             card_html += f'<div class="trade-metric"><div class="trade-metric-label">SPX Stop</div><div class="trade-metric-value">{s["stop_level"]:,.2f}</div></div>'
             card_html += '</div>'
             card_html += '<div class="trade-targets"><div class="targets-header">◎ Profit Targets</div><div class="targets-grid">'
-            card_html += f'<div class="target-item"><div class="target-label">50%</div><div class="target-price">${t["t1"]["price"]:.2f}</div><div class="target-profit">+${t["t1"]["profit_dollars"]:,.0f}</div></div>'
-            card_html += f'<div class="target-item"><div class="target-label">75%</div><div class="target-price">${t["t2"]["price"]:.2f}</div><div class="target-profit">+${t["t2"]["profit_dollars"]:,.0f}</div></div>'
-            card_html += f'<div class="target-item"><div class="target-label">100%</div><div class="target-price">${t["t3"]["price"]:.2f}</div><div class="target-profit">+${t["t3"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">{t["t1"]["profit_pct"]}%</div><div class="target-price">${t["t1"]["price"]:.2f}</div><div class="target-profit">+${t["t1"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">{t["t2"]["profit_pct"]}%</div><div class="target-price">${t["t2"]["price"]:.2f}</div><div class="target-profit">+${t["t2"]["profit_dollars"]:,.0f}</div></div>'
+            card_html += f'<div class="target-item"><div class="target-label">{t["t3"]["profit_pct"]}%</div><div class="target-price">${t["t3"]["price"]:.2f}</div><div class="target-profit">+${t["t3"]["profit_dollars"]:,.0f}</div></div>'
             card_html += '</div></div>'
             card_html += f'<div class="trade-trigger"><div class="trigger-label">◈ Entry Trigger</div><div class="trigger-text">{s["trigger"]}</div></div>'
             card_html += '</div>'
@@ -7574,6 +7094,10 @@ Calculated Entry Premium: {p.get('calc_result')}
     # SESSIONS
     # ═══════════════════════════════════════════════════════════════════════════
     st.markdown('<div class="section-header"><div class="section-icon">🌍</div><h2 class="section-title">Global Sessions</h2></div>', unsafe_allow_html=True)
+    
+    # Data source warning
+    if data_source_sessions == "YAHOO" and not sydney:
+        st.markdown('<div style="background:rgba(254,228,64,0.1);border:1px solid rgba(254,228,64,0.25);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:0.75rem;color:var(--accent-gold);">⚠️ Yahoo data starts ~2 AM CT — Sydney/Tokyo may be incomplete. Use manual override for best accuracy.</div>', unsafe_allow_html=True)
     
     session_data = [("🦘", "Sydney", sydney, "icon-kangaroo"), ("🗼", "Tokyo", tokyo, ""), ("🏛", "London", london, ""), ("🌙", "Overnight", overnight, "icon-glow-purple")]
     cols = st.columns(4)
