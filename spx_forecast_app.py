@@ -1257,6 +1257,32 @@ def fetch_es_with_ema():
         pass
     return result
 
+def fetch_vx_current_price() -> Dict:
+    """
+    Fetch current VX futures price.
+    Uses Yahoo Finance ^VIX as proxy (usually within 0.1-0.3 of VX front month).
+    """
+    result = {
+        "available": False,
+        "price": None,
+        "symbol": None,
+        "source": None,
+        "error": None
+    }
+    try:
+        vix = yf.Ticker("^VIX")
+        data = vix.history(period="1d", interval="1m")
+        if data is not None and not data.empty:
+            result["price"] = round(float(data['Close'].iloc[-1]), 2)
+            result["symbol"] = "^VIX"
+            result["source"] = "YAHOO"
+            result["available"] = True
+            return result
+    except Exception:
+        pass
+    result["error"] = "Could not fetch VIX price"
+    return result
+
 @st.cache_data(ttl=15, show_spinner=False)
 def fetch_vix_yahoo():
     try:
