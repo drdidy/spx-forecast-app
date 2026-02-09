@@ -6825,10 +6825,19 @@ def main():
         # ═══════════════════════════════════════════════════════════════════
         if p:
             alt = decision.get("alternate")
-            playbook_dir = "↗ BUY" if p["direction"] == "CALLS" else "↘ SELL"
+            # Direction labels: We're always BUYING options (calls or puts)
+            playbook_dir = "↗ BUY CALLS" if p["direction"] == "CALLS" else "↘ BUY PUTS"
             playbook_color = "var(--bull)" if p["direction"] == "CALLS" else "var(--bear)"
             playbook_alt_color = "var(--bear)" if p["direction"] == "CALLS" else "var(--bull)"
             t = p["targets"]
+            
+            # Stop direction depends on trade type:
+            # CALLS: stop if SPX drops BELOW stop level (market going against you)
+            # PUTS: stop if SPX rises ABOVE stop level (market going against you)
+            if p["direction"] == "CALLS":
+                stop_word = "below"
+            else:
+                stop_word = "above"
             
             # Channel status context
             channel_lock_text = "Channel LOCKED ✓" if decision.get("channel_locked") else "Channel BUILDING ⏳"
@@ -6847,28 +6856,72 @@ def main():
             # Alternate plan
             alt_text = ""
             if alt:
-                alt_dir = "BUY" if alt["direction"] == "CALLS" else "SELL"
-                alt_text = f'<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border-subtle);"><span style="color:var(--text-muted);font-size:0.75rem;">IF WRONG:</span> <span style="color:{playbook_alt_color};font-size:0.8rem;font-weight:600;">{alt["name"]} → {alt_dir} {alt["contract"]}</span></div>'
+                alt_dir = "BUY CALLS" if alt["direction"] == "CALLS" else "BUY PUTS"
+                alt_text = f'<div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,245,212,0.15);"><span style="color:var(--text-muted);font-size:0.85rem;font-weight:500;">⟳ IF WRONG:</span> <span style="color:{playbook_alt_color};font-size:0.95rem;font-weight:700;">{alt["name"]} → {alt_dir} {alt["contract"]}</span></div>'
             
             playbook_html = f'''
-            <div style="background:linear-gradient(135deg, rgba(0,245,212,0.06) 0%, rgba(0,187,249,0.04) 100%);border:2px solid rgba(0,245,212,0.3);border-radius:16px;padding:20px 24px;margin-bottom:24px;box-shadow:0 0 30px rgba(0,245,212,0.1);">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-                    <span style="font-family:'Orbitron',sans-serif;font-size:0.85rem;font-weight:700;color:var(--accent-cyan);letter-spacing:2px;">◈ TRADE PLAYBOOK</span>
-                    <span style="font-size:0.7rem;color:var(--text-muted);">{channel_lock_text} | {time_context}</span>
+            <div style="
+                background:linear-gradient(135deg, rgba(0,245,212,0.08) 0%, rgba(0,187,249,0.05) 50%, rgba(0,245,212,0.03) 100%);
+                border:2px solid rgba(0,245,212,0.45);
+                border-radius:20px;
+                padding:28px 32px;
+                margin-bottom:28px;
+                box-shadow:0 0 40px rgba(0,245,212,0.15), 0 0 80px rgba(0,245,212,0.05), inset 0 1px 0 rgba(255,255,255,0.05);
+                position:relative;
+                overflow:hidden;
+            ">
+                <!-- Subtle top accent bar -->
+                <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg, transparent, rgba(0,245,212,0.6), transparent);"></div>
+                
+                <!-- Header row -->
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                    <span style="font-family:'Orbitron',sans-serif;font-size:1rem;font-weight:700;color:var(--accent-cyan);letter-spacing:3px;text-shadow:0 0 20px rgba(0,245,212,0.3);">◈ TRADE PLAYBOOK</span>
+                    <span style="font-size:0.8rem;color:var(--text-muted);background:rgba(255,255,255,0.04);padding:4px 12px;border-radius:20px;border:1px solid var(--border-subtle);">{channel_lock_text} | {time_context}</span>
                 </div>
-                <div style="font-size:1.1rem;font-weight:600;color:var(--text-bright);margin-bottom:8px;">
-                    <span style="color:{playbook_color};">{playbook_dir}</span> {p["contract"]} at <span style="color:var(--accent-cyan);">${p["entry_premium"]:.2f}</span>
+                
+                <!-- THE PLAY - Main action line -->
+                <div style="font-size:1.5rem;font-weight:700;color:var(--text-bright);margin-bottom:14px;line-height:1.3;">
+                    <span style="color:{playbook_color};text-shadow:0 0 15px {playbook_color};">{playbook_dir}</span> {p["contract"]} at <span style="color:var(--accent-cyan);font-size:1.6rem;text-shadow:0 0 15px rgba(0,245,212,0.4);">${p["entry_premium"]:.2f}</span>
                 </div>
-                <div style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:6px;">
-                    Wait for SPX <span style="color:var(--text-bright);font-weight:600;">{p["entry_level"]:,.2f}</span> → 
-                    Stop if below <span style="color:var(--bear);font-weight:600;">{p["stop_level"]:,.2f}</span> (premium stop: ${p.get("stop_premium", 0):.2f})
+                
+                <!-- Entry / Stop / Risk row -->
+                <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:16px;">
+                    <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border-subtle);border-radius:12px;padding:10px 16px;flex:1;min-width:160px;">
+                        <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Entry Level</div>
+                        <div style="font-size:1.15rem;font-weight:700;color:var(--text-bright);">SPX {p["entry_level"]:,.2f}</div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border-subtle);border-radius:12px;padding:10px 16px;flex:1;min-width:160px;">
+                        <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Stop if {stop_word}</div>
+                        <div style="font-size:1.15rem;font-weight:700;color:var(--bear);">{p["stop_level"]:,.2f} <span style="font-size:0.8rem;font-weight:400;color:var(--text-muted);">(prem: ${p.get("stop_premium", 0):.2f})</span></div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border-subtle);border-radius:12px;padding:10px 16px;flex:1;min-width:120px;">
+                        <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Max Risk</div>
+                        <div style="font-size:1.15rem;font-weight:700;color:var(--bear);">-${p.get("max_loss_dollars", 0):,.0f}</div>
+                    </div>
                 </div>
-                <div style="font-size:0.85rem;color:var(--text-secondary);">
-                    Targets: 
-                    <span style="color:var(--bull);">${t["t1"]["price"]:.2f}</span> (+${t["t1"]["profit_dollars"]:,.0f}) → 
-                    <span style="color:var(--bull);">${t["t2"]["price"]:.2f}</span> (+${t["t2"]["profit_dollars"]:,.0f}) → 
-                    <span style="color:var(--bull);">${t["t3"]["price"]:.2f}</span> (+${t["t3"]["profit_dollars"]:,.0f})
+                
+                <!-- Targets row -->
+                <div style="background:rgba(0,245,212,0.04);border:1px solid rgba(0,245,212,0.15);border-radius:12px;padding:12px 16px;margin-bottom:4px;">
+                    <div style="font-size:0.75rem;color:var(--accent-cyan);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">◎ Profit Targets</div>
+                    <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                        <div style="flex:1;min-width:80px;text-align:center;">
+                            <div style="font-size:0.7rem;color:var(--text-muted);">T1 ({t["t1"]["profit_pct"]}%)</div>
+                            <div style="font-size:1.1rem;font-weight:700;color:var(--bull);">${t["t1"]["price"]:.2f}</div>
+                            <div style="font-size:0.8rem;color:var(--bull);">+${t["t1"]["profit_dollars"]:,.0f}</div>
+                        </div>
+                        <div style="flex:1;min-width:80px;text-align:center;">
+                            <div style="font-size:0.7rem;color:var(--text-muted);">T2 ({t["t2"]["profit_pct"]}%)</div>
+                            <div style="font-size:1.1rem;font-weight:700;color:var(--bull);">${t["t2"]["price"]:.2f}</div>
+                            <div style="font-size:0.8rem;color:var(--bull);">+${t["t2"]["profit_dollars"]:,.0f}</div>
+                        </div>
+                        <div style="flex:1;min-width:80px;text-align:center;">
+                            <div style="font-size:0.7rem;color:var(--text-muted);">T3 ({t["t3"]["profit_pct"]}%)</div>
+                            <div style="font-size:1.1rem;font-weight:700;color:var(--bull);">${t["t3"]["price"]:.2f}</div>
+                            <div style="font-size:0.8rem;color:var(--bull);">+${t["t3"]["profit_dollars"]:,.0f}</div>
+                        </div>
+                    </div>
                 </div>
+                
                 {alt_text}
                 {no_trade_warning}
             </div>
