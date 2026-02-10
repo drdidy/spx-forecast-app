@@ -845,12 +845,15 @@ def parse_iso_time(time_str):
 #   - Breaks BELOW descending floor → VIX springboard DOWN → BUY SPX
 # ═══════════════════════════════════════════════════════════════════════════════
 
-VIX_SLOPE_PER_6_BLOCKS = 0.04  # VIX moves 0.04 per 6 30-minute blocks (3 hours)
-VIX_SLOPE_PER_BLOCK = VIX_SLOPE_PER_6_BLOCKS / 6  # ~0.00667 per 30-min block
 
 class VIXChannelType(Enum):
-    ASCENDING = "ASCENDING"
-    DESCENDING = "DESCENDING"
+    ASCENDING = "ASCENDING"       # Both lines rising
+    DESCENDING = "DESCENDING"     # Both lines falling
+    CONVERGING = "CONVERGING"     # Ceiling falling, floor rising (squeeze)
+    DIVERGING = "DIVERGING"       # Ceiling rising, floor falling (expansion)
+    PARALLEL_UP = "PARALLEL_UP"   # Both rising roughly same slope
+    PARALLEL_DOWN = "PARALLEL_DOWN"  # Both falling roughly same slope
+    FLAT = "FLAT"                 # Both roughly horizontal
 
 class VIXChannelStatus(Enum):
     IN_CHANNEL = "IN_CHANNEL"
@@ -861,116 +864,134 @@ class VIXChannelStatus(Enum):
     SPRINGBOARD_LONG_VIX = "SPRINGBOARD_LONG_VIX"  # VIX up = SPX down
     SPRINGBOARD_SHORT_VIX = "SPRINGBOARD_SHORT_VIX"  # VIX down = SPX up
 
-def count_trading_days_between(start_date: date, end_date: date) -> int:
-    """
-    Count trading days (Mon-Fri) between two dates.
-    Weekends are skipped - Friday to Monday counts as 1 trading day difference.
-    """
-    if start_date > end_date:
-        return -count_trading_days_between(end_date, start_date)
-    
-    trading_days = 0
-    current = start_date
-    
-    while current < end_date:
-        current += timedelta(days=1)
-        # Only count Mon-Fri (weekday 0-4)
-        if current.weekday() < 5:
-            trading_days += 1
-    
-    return trading_days
-
 def get_vix_channel_type_for_date(trading_date: date) -> VIXChannelType:
     """
-    Determine if today is Ascending or Descending VIX channel.
-    Channels alternate on TRADING DAYS only - weekends are skipped.
-    
-    If Friday = DESCENDING, then Monday = ASCENDING (not continuing weekend count)
-    
-    Based on user input: Thursday Feb 5 = ASCENDING, Friday Feb 6 = DESCENDING
-    Reference: Feb 5, 2026 (Thursday) was ASCENDING
+    DEPRECATED: Channel type is now structurally determined from overnight pivots.
+    This fallback returns ASCENDING for backward compatibility.
     """
-    # Reference: February 5, 2026 (Thursday) was ASCENDING
-    reference_date = date(2026, 2, 5)  # This was ASCENDING
-    
-    # Count TRADING DAYS difference (skip weekends)
-    trading_days_diff = count_trading_days_between(reference_date, trading_date)
-    
-    # Alternates: even trading days from reference = same as reference (ASCENDING)
-    # odd trading days = opposite (DESCENDING)
-    if trading_days_diff % 2 == 0:
-        return VIXChannelType.ASCENDING
-    else:
-        return VIXChannelType.DESCENDING
+    return VIXChannelType.ASCENDING
 
-def calculate_vix_channel_levels(
-    channel_type: VIXChannelType,
-    pivot_high: float,
-    pivot_low: float,
-    pivot_high_time: datetime,
-    pivot_low_time: datetime,
-    reference_time: datetime,
+def calculate_vix_structural_channel(
+    asia_high: float, asia_high_time: datetime,
+    europe_high: float, europe_high_time: datetime,
+    asia_low: float, asia_low_time: datetime,
+    europe_low: float, europe_low_time: datetime,
+    reference_time: datetime = None,
     current_time: datetime = None
 ) -> Dict:
     """
-    Calculate VIX channel floor and ceiling at any given time.
+    Build VIX channel from 4 structural pivots - the REAL methodology.
     
-    VIX Slope: 0.04 per 6 30-minute blocks (every 3 hours)
+    Ceiling line: Connect Asia highest wick (5PM-1AM) → Europe highest point (1AM-6AM)
+    Floor line:   Connect Asia lowest wick (5PM-1AM) → Europe lowest wick (1AM-6AM)
     
-    For ASCENDING channel:
-    - Floor rises from pivot_low
-    - Ceiling rises from pivot_high
+    The slope of each line is determined by the actual data - NOT a fixed constant.
+    Channel shape emerges naturally: cone, parallel, ascending, descending, etc.
     
-    For DESCENDING channel:
-    - Floor falls from pivot_low
-    - Ceiling falls from pivot_high
+    At RTH open (8:30 AM CT / 9:30 AM ET), project both lines forward. Where VIX sits relative to 
+    the projected channel determines the day's directional bias.
     """
     if current_time is None:
         current_time = datetime.now(CT)
+    if reference_time is None:
+        reference_time = current_time
     
     result = {
-        "channel_type": channel_type,
+        "channel_type": VIXChannelType.FLAT,
         "floor": None,
         "ceiling": None,
         "floor_at_ref": None,
         "ceiling_at_ref": None,
-        "pivot_high": pivot_high,
-        "pivot_low": pivot_low,
-        "pivot_high_time": pivot_high_time,
-        "pivot_low_time": pivot_low_time,
-        "slope_direction": 1 if channel_type == VIXChannelType.ASCENDING else -1
+        "pivot_high": asia_high,      # Keep for backward compat
+        "pivot_low": asia_low,        # Keep for backward compat
+        "pivot_high_time": asia_high_time,
+        "pivot_low_time": asia_low_time,
+        "asia_high": asia_high,
+        "asia_low": asia_low,
+        "europe_high": europe_high,
+        "europe_low": europe_low,
+        "ceiling_slope_per_hour": 0.0,
+        "floor_slope_per_hour": 0.0,
+        "channel_width_current": None,
+        "channel_description": "",
+        "slope_direction": 0
     }
     
-    if pivot_high is None or pivot_low is None:
+    if None in (asia_high, europe_high, asia_low, europe_low):
+        return result
+    if None in (asia_high_time, europe_high_time, asia_low_time, europe_low_time):
         return result
     
-    slope_direction = 1 if channel_type == VIXChannelType.ASCENDING else -1
+    # Calculate ceiling slope (VIX points per hour)
+    ceiling_hours = (europe_high_time - asia_high_time).total_seconds() / 3600
+    if ceiling_hours > 0:
+        ceiling_slope = (europe_high - asia_high) / ceiling_hours
+    else:
+        ceiling_slope = 0.0
     
-    # Calculate blocks from pivot times to reference time
-    def blocks_from(start_time, end_time):
-        if start_time is None or end_time is None:
-            return 0
-        diff = (end_time - start_time).total_seconds()
-        return max(0, diff / 1800)  # 30-minute blocks
+    # Calculate floor slope (VIX points per hour)
+    floor_hours = (europe_low_time - asia_low_time).total_seconds() / 3600
+    if floor_hours > 0:
+        floor_slope = (europe_low - asia_low) / floor_hours
+    else:
+        floor_slope = 0.0
     
-    # Floor calculation (from pivot_low)
-    blocks_to_ref_floor = blocks_from(pivot_low_time, reference_time)
-    floor_movement = (blocks_to_ref_floor / 6) * VIX_SLOPE_PER_6_BLOCKS * slope_direction
-    result["floor_at_ref"] = round(pivot_low + floor_movement, 2)
+    result["ceiling_slope_per_hour"] = round(ceiling_slope, 4)
+    result["floor_slope_per_hour"] = round(floor_slope, 4)
     
-    # Ceiling calculation (from pivot_high)
-    blocks_to_ref_ceiling = blocks_from(pivot_high_time, reference_time)
-    ceiling_movement = (blocks_to_ref_ceiling / 6) * VIX_SLOPE_PER_6_BLOCKS * slope_direction
-    result["ceiling_at_ref"] = round(pivot_high + ceiling_movement, 2)
+    # Project ceiling at any time: asia_high + ceiling_slope * hours_since_asia_high
+    def ceiling_at(t):
+        hours = (t - asia_high_time).total_seconds() / 3600
+        return asia_high + ceiling_slope * hours
+    
+    def floor_at(t):
+        hours = (t - asia_low_time).total_seconds() / 3600
+        return asia_low + floor_slope * hours
     
     # Current levels
-    blocks_to_current_floor = blocks_from(pivot_low_time, current_time)
-    floor_movement_current = (blocks_to_current_floor / 6) * VIX_SLOPE_PER_6_BLOCKS * slope_direction
-    result["floor"] = round(pivot_low + floor_movement_current, 2)
+    result["ceiling"] = round(ceiling_at(current_time), 2)
+    result["floor"] = round(floor_at(current_time), 2)
+    result["ceiling_at_ref"] = round(ceiling_at(reference_time), 2)
+    result["floor_at_ref"] = round(floor_at(reference_time), 2)
+    result["channel_width_current"] = round(result["ceiling"] - result["floor"], 2)
     
-    blocks_to_current_ceiling = blocks_from(pivot_high_time, current_time)
-    ceiling_movement_current = (blocks_to_current_ceiling / 6) * VIX_SLOPE_PER_6_BLOCKS * slope_direction
-    result["ceiling"] = round(pivot_high + ceiling_movement_current, 2)
+    # Determine channel shape
+    SLOPE_THRESHOLD = 0.01  # VIX points/hour - below this is "flat"
+    ceiling_up = ceiling_slope > SLOPE_THRESHOLD
+    ceiling_down = ceiling_slope < -SLOPE_THRESHOLD
+    ceiling_flat = not ceiling_up and not ceiling_down
+    floor_up = floor_slope > SLOPE_THRESHOLD
+    floor_down = floor_slope < -SLOPE_THRESHOLD
+    floor_flat = not floor_up and not floor_down
+    
+    if ceiling_up and floor_up:
+        result["channel_type"] = VIXChannelType.ASCENDING
+        result["channel_description"] = "Both lines rising → VIX bias UP (SPX bias DOWN)"
+        result["slope_direction"] = 1
+    elif ceiling_down and floor_down:
+        result["channel_type"] = VIXChannelType.DESCENDING
+        result["channel_description"] = "Both lines falling → VIX bias DOWN (SPX bias UP)"
+        result["slope_direction"] = -1
+    elif ceiling_down and floor_up:
+        result["channel_type"] = VIXChannelType.CONVERGING
+        result["channel_description"] = "Squeeze forming → Breakout likely, wait for direction"
+        result["slope_direction"] = 0
+    elif ceiling_up and floor_down:
+        result["channel_type"] = VIXChannelType.DIVERGING
+        result["channel_description"] = "Expanding → High uncertainty, wider stops needed"
+        result["slope_direction"] = 0
+    elif ceiling_flat and floor_flat:
+        result["channel_type"] = VIXChannelType.FLAT
+        result["channel_description"] = "Parallel flat → Range-bound, play the walls"
+        result["slope_direction"] = 0
+    elif ceiling_up or floor_up:
+        result["channel_type"] = VIXChannelType.ASCENDING
+        result["channel_description"] = "Bias rising → VIX pressure UP"
+        result["slope_direction"] = 1
+    else:
+        result["channel_type"] = VIXChannelType.DESCENDING
+        result["channel_description"] = "Bias falling → VIX pressure DOWN"
+        result["slope_direction"] = -1
     
     return result
 
@@ -2316,7 +2337,7 @@ def detect_explosive_potential(current_spx, dual_levels, prior_targets, channel_
 def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reason,
                             retail_bias, ema_bias, vix_position, vix, 
                             session_tests, gap_analysis, prior_close_analysis, vix_structure,
-                            prior_targets=None, current_time=None):
+                            prior_targets=None, current_time=None, vix_channel_data=None):
     """
     OPTION C: Dual Channel Decision Engine
     
@@ -2426,6 +2447,36 @@ def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reas
         calls_factors.append("⚡ VIX backwardation (volatile)")
         puts_factors.append("⚡ VIX backwardation (volatile)")
     
+    # VIX Channel structural bias
+    vix_channel_bullish_spx = False
+    vix_channel_bearish_spx = False
+    vix_channel_squeeze = False
+    if vix_channel_data and vix_channel_data.get("floor") is not None:
+        vix_floor = vix_channel_data.get("floor", 0)
+        vix_ceiling = vix_channel_data.get("ceiling", 0)
+        vix_ch_type = vix_channel_data.get("channel_type")
+        
+        if vix and vix < vix_floor:
+            # VIX below floor = VIX dropping = SPX bullish
+            vix_channel_bullish_spx = True
+            calls_factors.append("🌊 VIX below channel floor (bullish SPX)")
+        elif vix and vix > vix_ceiling:
+            # VIX above ceiling = VIX spiking = SPX bearish
+            vix_channel_bearish_spx = True
+            puts_factors.append("🌊 VIX above channel ceiling (bearish SPX)")
+        elif vix_ch_type == VIXChannelType.DESCENDING:
+            # Descending VIX channel = VIX bias down = SPX bullish bias
+            vix_channel_bullish_spx = True
+            calls_factors.append("🌊 VIX channel descending (bullish SPX bias)")
+        elif vix_ch_type == VIXChannelType.ASCENDING:
+            # Ascending VIX channel = VIX bias up = SPX bearish bias
+            vix_channel_bearish_spx = True
+            puts_factors.append("🌊 VIX channel ascending (bearish SPX bias)")
+        elif vix_ch_type == VIXChannelType.CONVERGING:
+            vix_channel_squeeze = True
+            calls_factors.append("🌊 VIX channel squeezing (breakout pending)")
+            puts_factors.append("🌊 VIX channel squeezing (breakout pending)")
+    
     # Confidence calculation
     def calc_conf(direction, at_level, is_break=False):
         support = 0
@@ -2436,6 +2487,7 @@ def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reas
             if floor_multi_test: support += 1
             if gap_into_floor: support += 1
             if prior_validates_floor: support += 1
+            if vix_channel_bullish_spx: support += 1  # VIX channel confirms bullish
         else:
             if ema_bearish: support += 1
             if fade_to_puts: support += 1
@@ -2443,6 +2495,7 @@ def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reas
             if ceiling_multi_test: support += 1
             if gap_into_ceiling: support += 1
             if prior_validates_ceiling: support += 1
+            if vix_channel_bearish_spx: support += 1  # VIX channel confirms bearish
         
         if is_break: return "MEDIUM" if support >= 3 else "LOW"
         if at_level:
@@ -5274,15 +5327,7 @@ def sidebar():
         # VIX CHANNEL SETTINGS
         # ─────────────────────────────────────────────────────────────────────
         st.markdown("#### 🌊 VIX Channel System")
-        
-        # VIX Channel type override
-        auto_vix_channel = st.checkbox("Auto-detect VIX channel type", value=True, 
-            help="Uncheck to manually override. Auto uses Feb 5, 2026 = ASCENDING as reference.")
-        if not auto_vix_channel:
-            vix_channel_override = st.selectbox("Today's VIX Channel", ["ASCENDING", "DESCENDING"],
-                help="Override if auto-detection seems wrong for today")
-        else:
-            vix_channel_override = None
+        st.caption("Build channel from overnight VIX structure — shape determined by data, not fixed pattern")
         
         # Check if Tastytrade is available for auto-fetch
         tastytrade_configured = is_tastytrade_configured()
@@ -5300,42 +5345,58 @@ def sidebar():
                     st.metric("Current VIX", f"{vx_current.get('price'):.2f}", 
                               delta=None, help="From Yahoo ^VIX (proxy for VX)")
         
-        # For pivots, we still need manual input until DXLink WebSocket is implemented
-        st.markdown("##### Overnight Pivots")
-        st.caption("📝 Enter from TradingView (DXLink auto-fetch coming soon)")
-        
-        # Time options for overnight VIX (5 PM - 5:30 AM next day)
+        # Time options for overnight VIX (5 PM - 6 AM next day)
         vix_time_options = []
         # Evening (5 PM - 11:30 PM)
         for h in range(17, 24):
             for m in [0, 30]:
                 vix_time_options.append(f"{h}:{m:02d}")
-        # Morning (12 AM - 5:30 AM)
-        for h in range(0, 6):
+        # Morning (12 AM - 6:00 AM)
+        for h in range(0, 7):
             for m in [0, 30]:
-                if h == 5 and m == 30:
-                    vix_time_options.append(f"{h}:{m:02d}")
+                if h == 6 and m == 30:
                     break
                 vix_time_options.append(f"{h}:{m:02d}")
         
+        # ASIA SESSION (5 PM - 1 AM CT)
+        st.markdown("##### 🦘 Asia Session (5 PM – 1 AM CT)")
+        st.caption("Highest wick = ceiling anchor | Lowest wick = floor anchor")
+        
         col1, col2 = st.columns(2)
-        vix_pivot_high = col1.number_input("VIX Pivot High", value=18.0, step=0.01, format="%.2f",
-            help="Highest VIX value in overnight session")
-        vix_pivot_high_time = col2.selectbox("High Time (CT)", options=vix_time_options, 
+        asia_vix_high = col1.number_input("Asia High Wick", value=18.0, step=0.01, format="%.2f",
+            key="vix_asia_high", help="Highest VIX wick from 5 PM to 1 AM CT")
+        asia_vix_high_time = col2.selectbox("High Time (CT)", options=vix_time_options, 
             index=vix_time_options.index("19:00") if "19:00" in vix_time_options else 4,
-            key="vix_ph_time", help="Time when overnight VIX high occurred")
+            key="vix_asia_high_time")
         
         col1, col2 = st.columns(2)
-        vix_pivot_low = col1.number_input("VIX Pivot Low", value=16.5, step=0.01, format="%.2f",
-            help="Lowest VIX value in overnight session")
-        vix_pivot_low_time = col2.selectbox("Low Time (CT)", options=vix_time_options,
-            index=vix_time_options.index("3:00") if "3:00" in vix_time_options else 20,
-            key="vix_pl_time", help="Time when overnight VIX low occurred")
+        asia_vix_low = col1.number_input("Asia Low Wick", value=16.5, step=0.01, format="%.2f",
+            key="vix_asia_low", help="Lowest VIX wick from 5 PM to 1 AM CT")
+        asia_vix_low_time = col2.selectbox("Low Time (CT)", options=vix_time_options,
+            index=vix_time_options.index("22:00") if "22:00" in vix_time_options else 10,
+            key="vix_asia_low_time")
         
-        # Current VIX - auto-fetch if available, otherwise manual
+        # EUROPE SESSION (1 AM - 6 AM CT)
+        st.markdown("##### 🏛 Europe Session (1 AM – 6 AM CT)")
+        st.caption("Highest point = ceiling anchor #2 | Lowest wick = floor anchor #2")
+        
+        col1, col2 = st.columns(2)
+        europe_vix_high = col1.number_input("Europe High", value=17.8, step=0.01, format="%.2f",
+            key="vix_europe_high", help="Highest VIX point from 1 AM to 6 AM CT")
+        europe_vix_high_time = col2.selectbox("High Time (CT)", options=vix_time_options,
+            index=vix_time_options.index("3:00") if "3:00" in vix_time_options else 20,
+            key="vix_europe_high_time")
+        
+        col1, col2 = st.columns(2)
+        europe_vix_low = col1.number_input("Europe Low Wick", value=16.8, step=0.01, format="%.2f",
+            key="vix_europe_low", help="Lowest VIX wick from 1 AM to 6 AM CT")
+        europe_vix_low_time = col2.selectbox("Low Time (CT)", options=vix_time_options,
+            index=vix_time_options.index("4:00") if "4:00" in vix_time_options else 22,
+            key="vix_europe_low_time")
+        
+        # Current VIX
         st.markdown("##### Current VIX")
         if tastytrade_configured and vx_current.get("available"):
-            # Use auto-fetched value but allow override
             default_vix = vx_current.get("price", 17.0)
             manual_vix = st.number_input("Current VIX/VX", value=default_vix, step=0.01, format="%.2f",
                 help=f"Auto-fetched from Yahoo ^VIX. Override if needed.")
@@ -5343,13 +5404,25 @@ def sidebar():
             manual_vix = st.number_input("Current VIX/VX", value=17.0, step=0.01, format="%.2f",
                 help="Enter current VIX from TradingView")
         
-        # Store VIX channel data (always available now)
+        # Store VIX channel data - 4 pivot structural system
         manual_vix_channel = {
-            "pivot_high": vix_pivot_high,
-            "pivot_low": vix_pivot_low,
-            "pivot_high_time": vix_pivot_high_time,
-            "pivot_low_time": vix_pivot_low_time
+            "asia_high": asia_vix_high,
+            "asia_high_time": asia_vix_high_time,
+            "asia_low": asia_vix_low,
+            "asia_low_time": asia_vix_low_time,
+            "europe_high": europe_vix_high,
+            "europe_high_time": europe_vix_high_time,
+            "europe_low": europe_vix_low,
+            "europe_low_time": europe_vix_low_time,
+            # Backward compat keys
+            "pivot_high": asia_vix_high,
+            "pivot_low": asia_vix_low,
+            "pivot_high_time": asia_vix_high_time,
+            "pivot_low_time": asia_vix_low_time
         }
+        
+        # VIX channel override removed - channel type now structurally determined
+        vix_channel_override = None
         
         # Legacy VIX range settings (hidden but kept for backward compatibility)
         vix_zone_start = time(2, 0)  # Default, not shown in UI
@@ -5937,12 +6010,42 @@ def main():
     # Get current CT time for channel lock determination
     ct_now = datetime.now(CT)
     
+    # VIX structural channel - calculate BEFORE decision engine so bias feeds in
+    vix_channel_levels = None
+    if inputs.get("manual_vix_channel"):
+        mvc = inputs["manual_vix_channel"]
+        def parse_vix_time_early(time_str, trading_date):
+            parts = time_str.split(":")
+            hour = int(parts[0])
+            minute = int(parts[1])
+            if hour >= 17:
+                prior_day = trading_date - timedelta(days=1)
+                return CT.localize(datetime.combine(prior_day, time(hour, minute)))
+            else:
+                return CT.localize(datetime.combine(trading_date, time(hour, minute)))
+        
+        asia_high_time_e = parse_vix_time_early(mvc["asia_high_time"], actual_trading_date)
+        asia_low_time_e = parse_vix_time_early(mvc["asia_low_time"], actual_trading_date)
+        europe_high_time_e = parse_vix_time_early(mvc["europe_high_time"], actual_trading_date)
+        europe_low_time_e = parse_vix_time_early(mvc["europe_low_time"], actual_trading_date)
+        
+        ref_hour, ref_min = inputs["ref_time"]
+        reference_time_e = CT.localize(datetime.combine(actual_trading_date, time(ref_hour, ref_min)))
+        
+        vix_channel_levels = calculate_vix_structural_channel(
+            asia_high=mvc["asia_high"], asia_high_time=asia_high_time_e,
+            europe_high=mvc["europe_high"], europe_high_time=europe_high_time_e,
+            asia_low=mvc["asia_low"], asia_low_time=asia_low_time_e,
+            europe_low=mvc["europe_low"], europe_low_time=europe_low_time_e,
+            reference_time=reference_time_e, current_time=ct_now
+        )
+    
     # OPTION C: Use the new dual-channel decision engine
     decision = analyze_market_state_v2(
         current_spx, dual_levels_spx, channel_type, channel_reason,
         retail_data["bias"], ema_data["ema_bias"], vix_pos, vix,
         session_tests, gap_analysis, prior_close_validation, vix_term,
-        prior_targets, ct_now
+        prior_targets, ct_now, vix_channel_data=vix_channel_levels
     )
     
     # ═══════════════════════════════════════════════════════════════════════════
@@ -6172,213 +6275,123 @@ def main():
     # ═══════════════════════════════════════════════════════════════════════════
     st.markdown('<div class="section-header"><div class="section-icon" style="background:linear-gradient(135deg,#6c5ce7,#a55eea);">🌊</div><h2 class="section-title">VIX Channel System</h2></div>', unsafe_allow_html=True)
     
-    # Determine today's VIX channel type (alternates daily on trading days)
-    vix_channel_override = inputs.get("vix_channel_override")
-    if vix_channel_override:
-        vix_channel_type = VIXChannelType.ASCENDING if vix_channel_override == "ASCENDING" else VIXChannelType.DESCENDING
-    else:
-        vix_channel_type = get_vix_channel_type_for_date(actual_trading_date)
-    vix_channel_direction = "↗" if vix_channel_type == VIXChannelType.ASCENDING else "↘"
-    vix_channel_color = "var(--bull)" if vix_channel_type == VIXChannelType.ASCENDING else "var(--bear)"
-    vix_override_badge = ' <span style="font-size:0.6rem;color:var(--accent-gold);">MANUAL</span>' if vix_channel_override else ' <span style="font-size:0.6rem;color:var(--text-muted);">AUTO</span>'
+    # vix_channel_levels already calculated above (before decision engine)
+    vix_channel_type = vix_channel_levels["channel_type"] if vix_channel_levels else VIXChannelType.FLAT
     
-    # Calculate VIX channel levels if manual pivots provided
-    vix_channel_levels = None
-    if inputs.get("manual_vix_channel"):
-        mvc = inputs["manual_vix_channel"]
-        # Parse pivot times
-        def parse_vix_time(time_str, trading_date):
-            parts = time_str.split(":")
-            hour = int(parts[0])
-            minute = int(parts[1])
-            # Evening times (17-23) are on prior day
-            if hour >= 17:
-                prior_day = trading_date - timedelta(days=1)
-                return CT.localize(datetime.combine(prior_day, time(hour, minute)))
+    # Direction/color for display
+    direction_map = {
+        VIXChannelType.ASCENDING: ("↗", "var(--bear)"),      # VIX up = SPX bearish
+        VIXChannelType.DESCENDING: ("↘", "var(--bull)"),     # VIX down = SPX bullish
+        VIXChannelType.CONVERGING: ("⊳", "var(--accent-gold)"),  # Squeeze
+        VIXChannelType.DIVERGING: ("⊲", "var(--accent-purple)"),  # Expansion
+        VIXChannelType.FLAT: ("═", "var(--accent-cyan)"),
+        VIXChannelType.PARALLEL_UP: ("↗↗", "var(--bear)"),
+        VIXChannelType.PARALLEL_DOWN: ("↘↘", "var(--bull)"),
+    }
+    vix_channel_direction, vix_channel_color = direction_map.get(
+        vix_channel_type, ("?", "var(--text-muted)"))
+    
+    # VIX Channel display cards
+    if vix_channel_levels and vix_channel_levels.get("floor") is not None:
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            channel_desc = vix_channel_levels.get("channel_description", "")
+            ceil_slope = vix_channel_levels.get("ceiling_slope_per_hour", 0)
+            floor_slope = vix_channel_levels.get("floor_slope_per_hour", 0)
+            slope_text = f"Ceil: {ceil_slope:+.3f}/hr | Floor: {floor_slope:+.3f}/hr"
+            st.markdown(f'<div class="metric-card" style="border-left:4px solid {vix_channel_color};"><div class="metric-icon">{vix_channel_direction}</div><div class="metric-label">VIX Channel</div><div class="metric-value" style="color:{vix_channel_color};font-size:1rem;">{vix_channel_type.value}</div><div class="metric-delta" style="font-size:0.6rem;">{slope_text}</div></div>', unsafe_allow_html=True)
+        
+        with col2:
+            vix_floor = vix_channel_levels.get("floor_at_ref", 0)
+            dist_floor = round(vix - vix_floor, 2) if vix else 0
+            floor_status = "🟢" if dist_floor > 0.1 else "⚠️" if dist_floor > 0 else "🔴"
+            st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--bull);"><div class="metric-icon">{floor_status}</div><div class="metric-label">VIX Floor</div><div class="metric-value" style="color:var(--bull);font-size:1.3rem;">{vix_floor:.2f}</div><div class="metric-delta">VIX {dist_floor:+.2f} above</div></div>', unsafe_allow_html=True)
+        
+        with col3:
+            vix_ceiling = vix_channel_levels.get("ceiling_at_ref", 0)
+            dist_ceiling = round(vix_ceiling - vix, 2) if vix else 0
+            ceiling_status = "🟢" if dist_ceiling > 0.1 else "⚠️" if dist_ceiling > 0 else "🔴"
+            st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--bear);"><div class="metric-icon">{ceiling_status}</div><div class="metric-label">VIX Ceiling</div><div class="metric-value" style="color:var(--bear);font-size:1.3rem;">{vix_ceiling:.2f}</div><div class="metric-delta">VIX {dist_ceiling:.2f} below</div></div>', unsafe_allow_html=True)
+        
+        with col4:
+            width = vix_channel_levels.get("channel_width_current", 0)
+            if vix > vix_ceiling:
+                pos_text = "ABOVE CEILING ↑"
+                pos_color = "var(--bear)"
+                signal = "VIX broke out → SELL SPX bias"
+            elif vix < vix_floor:
+                pos_text = "BELOW FLOOR ↓"
+                pos_color = "var(--bull)"
+                signal = "VIX broke down → BUY SPX bias"
             else:
-                return CT.localize(datetime.combine(trading_date, time(hour, minute)))
-        
-        pivot_high_time = parse_vix_time(mvc["pivot_high_time"], actual_trading_date)
-        pivot_low_time = parse_vix_time(mvc["pivot_low_time"], actual_trading_date)
-        
-        # Reference time for level calculation
-        ref_hour, ref_min = inputs["ref_time"]
-        reference_time = CT.localize(datetime.combine(actual_trading_date, time(ref_hour, ref_min)))
-        
-        vix_channel_levels = calculate_vix_channel_levels(
-            channel_type=vix_channel_type,
-            pivot_high=mvc["pivot_high"],
-            pivot_low=mvc["pivot_low"],
-            pivot_high_time=pivot_high_time,
-            pivot_low_time=pivot_low_time,
-            reference_time=reference_time,
-            current_time=now
-        )
-        
-        # VIX Channel Info Card - Show 4 cards if we have levels
-        if vix_channel_levels and vix_channel_levels.get("floor"):
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.markdown(f'''
-                <div class="metric-card" style="border-left:4px solid {vix_channel_color};">
-                    <div class="metric-icon">{vix_channel_direction}</div>
-                    <div class="metric-label">VIX Channel</div>
-                    <div class="metric-value" style="color:{vix_channel_color};font-size:1.2rem;">{vix_channel_type.value}</div>
-                    <div class="metric-delta">0.04 / 6 blocks</div>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            with col2:
-                vix_floor = vix_channel_levels.get("floor_at_ref", 0)
-                dist_floor = round(vix - vix_floor, 2) if vix else 0
-                floor_status = "🟢" if dist_floor > 0.1 else "⚠️" if dist_floor > 0 else "🔴"
-                st.markdown(f'''
-                <div class="metric-card" style="border-left:4px solid var(--bull);">
-                    <div class="metric-icon">{floor_status}</div>
-                    <div class="metric-label">VIX Floor</div>
-                    <div class="metric-value" style="color:var(--bull);font-size:1.3rem;">{vix_floor:.2f}</div>
-                    <div class="metric-delta">VIX {dist_floor:+.2f} above</div>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            with col3:
-                vix_ceiling = vix_channel_levels.get("ceiling_at_ref", 0)
-                dist_ceiling = round(vix_ceiling - vix, 2) if vix else 0
-                ceiling_status = "🟢" if dist_ceiling > 0.1 else "⚠️" if dist_ceiling > 0 else "🔴"
-                st.markdown(f'''
-                <div class="metric-card" style="border-left:4px solid var(--bear);">
-                    <div class="metric-icon">{ceiling_status}</div>
-                    <div class="metric-label">VIX Ceiling</div>
-                    <div class="metric-value" style="color:var(--bear);font-size:1.3rem;">{vix_ceiling:.2f}</div>
-                    <div class="metric-delta">VIX {dist_ceiling:.2f} below</div>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            with col4:
-                # Determine position and signal
-                if vix > vix_ceiling:
-                    pos_text = "ABOVE ↑"
-                    pos_color = "var(--bear)"
-                    signal = "SELL SPX" if vix_channel_type == VIXChannelType.ASCENDING else "Watch retest"
-                elif vix < vix_floor:
-                    pos_text = "BELOW ↓"
-                    pos_color = "var(--bull)"
-                    signal = "BUY SPX" if vix_channel_type == VIXChannelType.DESCENDING else "Watch retest"
+                # Position within channel as percentage
+                if width > 0:
+                    pct_pos = round(((vix - vix_floor) / width) * 100)
+                    pos_text = f"IN CHANNEL ({pct_pos}%)"
                 else:
                     pos_text = "IN CHANNEL"
-                    pos_color = "var(--accent-cyan)"
-                    signal = "Trade bounces"
-                
-                st.markdown(f'''
-                <div class="metric-card" style="border-left:4px solid {pos_color};">
-                    <div class="metric-icon">📍</div>
-                    <div class="metric-label">VIX: {vix:.2f}</div>
-                    <div class="metric-value" style="color:{pos_color};font-size:1rem;">{pos_text}</div>
-                    <div class="metric-delta">{signal}</div>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            # Alert if VIX broke channel
-            if vix > vix_ceiling:
-                st.markdown(f'''
-                <div class="alert-box alert-box-danger" style="margin-top:10px;">
-                    <div class="alert-icon-large">🚨</div>
-                    <div class="alert-content">
-                        <div class="alert-title">VIX BROKE ABOVE {vix_channel_type.value} CEILING!</div>
-                        <div class="alert-text">Wait for 8:30 AM candle to retest {vix_ceiling:.2f}. VIX springboard UP = SELL SPX</div>
-                    </div>
-                </div>
-                ''', unsafe_allow_html=True)
-            elif vix < vix_floor:
-                st.markdown(f'''
-                <div class="alert-box alert-box-success" style="margin-top:10px;">
-                    <div class="alert-icon-large">🚨</div>
-                    <div class="alert-content">
-                        <div class="alert-title">VIX BROKE BELOW {vix_channel_type.value} FLOOR!</div>
-                        <div class="alert-text">Wait for 8:30 AM candle to retest {vix_floor:.2f}. VIX springboard DOWN = BUY SPX</div>
-                    </div>
-                </div>
-                ''', unsafe_allow_html=True)
+                pos_color = "var(--accent-cyan)"
+                signal = "Trade bounces off walls"
+            st.markdown(f'<div class="metric-card" style="border-left:4px solid {pos_color};"><div class="metric-icon">📍</div><div class="metric-label">VIX: {vix:.2f}</div><div class="metric-value" style="color:{pos_color};font-size:0.9rem;">{pos_text}</div><div class="metric-delta">{signal}</div></div>', unsafe_allow_html=True)
         
-        else:
-            # Original 3-column layout if no manual pivots
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.markdown(f'''
-                <div class="metric-card" style="border-left:4px solid {vix_channel_color};">
-                    <div class="metric-icon">{vix_channel_direction}</div>
-                    <div class="metric-label">Today's VIX Channel</div>
-                    <div class="metric-value" style="color:{vix_channel_color};">{vix_channel_type.value}</div>
-                    <div class="metric-delta">Alternates Daily</div>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            with col2:
-                # VX Front Month Info (if available from Tastytrade)
-                if vx_data and vx_data.get("available"):
-                    vx_symbol = vx_data.get("symbol", "N/A")
-                    vx_exp = vx_data.get("expiration", "N/A")
-                else:
-                    vx_symbol = "N/A"
-                    vx_exp = "Tastytrade not connected"
-                st.markdown(f'''
-                <div class="metric-card" style="border-left:4px solid var(--accent-purple);">
-                    <div class="metric-icon">📊</div>
-                    <div class="metric-label">VX Front Month</div>
-                    <div class="metric-value" style="font-size:1rem;">{vx_symbol}</div>
-                    <div class="metric-delta">Exp: {vx_exp}</div>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            with col3:
-                # Current VIX
-                st.markdown(f'''
-                <div class="metric-card" style="border-left:4px solid var(--accent-cyan);">
-                    <div class="metric-icon">📍</div>
-                    <div class="metric-label">Current VIX</div>
-                    <div class="metric-value" style="font-size:1.3rem;">{vix:.2f}</div>
-                    <div class="metric-delta">Enter pivots for levels</div>
-                </div>
-                ''', unsafe_allow_html=True)
+        # Channel shape description
+        channel_desc = vix_channel_levels.get("channel_description", "")
+        if channel_desc:
+            st.markdown(f'<div style="text-align:center;padding:8px;font-size:0.8rem;color:var(--text-muted);font-style:italic;">{channel_desc} | Width: {width:.2f} VIX pts</div>', unsafe_allow_html=True)
         
-        # VIX Channel Trading Rules
-        with st.expander("📖 VIX Channel Trading Rules", expanded=False):
-            if vix_channel_type == VIXChannelType.ASCENDING:
-                st.markdown(f'''
-                **Today: {vix_channel_direction} ASCENDING VIX Channel**
-                
-                🔹 **Slope:** +0.04 per 6 blocks (every 3 hours) - Floor & Ceiling RISE
-                
-                **If VIX Opens IN Channel:**
-                - VIX respects floor/ceiling → Trade bounces
-                - At floor: VIX bounces UP (bearish SPX)
-                - At ceiling: VIX rejects DOWN (bullish SPX)
-                
-                **If VIX BREAKS ABOVE Ceiling:**
-                - ⚠️ EXPLOSIVE MOVE incoming
-                - Wait for 8:30 AM candle to retest ceiling
-                - VIX uses ceiling as SPRINGBOARD UP
-                - 🔴 **SELL SPX** - Major bearish signal
-                ''')
+        # Alert if VIX broke channel
+        if vix > vix_ceiling:
+            st.markdown(f'<div class="alert-box alert-box-danger" style="margin-top:10px;"><div class="alert-icon-large">🚨</div><div class="alert-content"><div class="alert-title">VIX BROKE ABOVE CEILING!</div><div class="alert-text">Wait for 8:30 AM candle to retest {vix_ceiling:.2f}. VIX springboard UP = SELL SPX</div></div></div>', unsafe_allow_html=True)
+        elif vix < vix_floor:
+            st.markdown(f'<div class="alert-box alert-box-success" style="margin-top:10px;"><div class="alert-icon-large">🚨</div><div class="alert-content"><div class="alert-title">VIX BROKE BELOW FLOOR!</div><div class="alert-text">Wait for 8:30 AM candle to retest {vix_floor:.2f}. VIX springboard DOWN = BUY SPX</div></div></div>', unsafe_allow_html=True)
+    
+    else:
+        # No pivots entered - show prompt
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--text-muted);"><div class="metric-icon">🌊</div><div class="metric-label">VIX Channel</div><div class="metric-value" style="color:var(--text-muted);">AWAITING DATA</div><div class="metric-delta">Enter 4 pivots in sidebar</div></div>', unsafe_allow_html=True)
+        with col2:
+            st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--accent-cyan);"><div class="metric-icon">📍</div><div class="metric-label">Current VIX</div><div class="metric-value" style="font-size:1.3rem;">{vix:.2f}</div><div class="metric-delta">Enter pivots for channel</div></div>', unsafe_allow_html=True)
+        with col3:
+            if vx_data and vx_data.get("available"):
+                vx_symbol = vx_data.get("symbol", "N/A")
+                vx_exp = vx_data.get("expiration", "N/A")
             else:
-                st.markdown(f'''
-                **Today: {vix_channel_direction} DESCENDING VIX Channel**
-                
-                🔹 **Slope:** -0.04 per 6 blocks (every 3 hours) - Floor & Ceiling FALL
-                
-                **If VIX Opens IN Channel:**
-                - VIX respects floor/ceiling → Trade bounces
-                - At floor: VIX bounces UP (bearish SPX)
-                - At ceiling: VIX rejects DOWN (bullish SPX)
-                
-                **If VIX BREAKS BELOW Floor:**
-                - ⚠️ EXPLOSIVE MOVE incoming
-                - Wait for 8:30 AM candle to retest floor
-                - VIX uses floor as SPRINGBOARD DOWN
-                - 🟢 **BUY SPX** - Major bullish signal
-                ''')
+                vx_symbol = "N/A"
+                vx_exp = "Tastytrade not connected"
+            st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--accent-purple);"><div class="metric-icon">📊</div><div class="metric-label">VX Front Month</div><div class="metric-value" style="font-size:1rem;">{vx_symbol}</div><div class="metric-delta">Exp: {vx_exp}</div></div>', unsafe_allow_html=True)
+    
+    # VIX Channel Trading Rules
+    with st.expander("📖 VIX Channel Trading Rules", expanded=False):
+        st.markdown(f'''
+        **Channel Shape: {vix_channel_type.value}** {vix_channel_direction}
+        
+        The VIX channel is built by connecting overnight structural pivots:
+        - **Ceiling:** Asia highest wick (5PM-1AM) → Europe highest point (1AM-6AM)
+        - **Floor:** Asia lowest wick (5PM-1AM) → Europe lowest wick (1AM-6AM)
+        
+        The shape emerges from the data — it could be ascending, descending, converging (squeeze), 
+        diverging (expansion), or flat. At 8:30 AM CT (RTH open), where VIX sits relative to the projected 
+        channel determines the day's bias.
+        
+        **If VIX is IN Channel:**
+        - Trade bounces off ceiling (VIX rejects down → BUY SPX)
+        - Trade bounces off floor (VIX bounces up → SELL SPX)
+        
+        **If VIX BREAKS ABOVE Ceiling:**
+        - Wait for 8:30 AM candle retest of ceiling
+        - VIX uses ceiling as springboard UP → 🔴 **SELL SPX**
+        
+        **If VIX BREAKS BELOW Floor:**
+        - Wait for 8:30 AM candle retest of floor
+        - VIX uses floor as springboard DOWN → 🟢 **BUY SPX**
+        
+        **Channel Shapes:**
+        - CONVERGING (squeeze): Expect breakout — wait for direction, don't predict
+        - DIVERGING (expansion): Wide range day — use wider stops
+        - FLAT: Range-bound — play the walls aggressively
+        ''')
         
         # VX Term Structure (if available)
         vx_term = fetch_vx_term_structure_tastytrade()
