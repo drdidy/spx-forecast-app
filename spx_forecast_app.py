@@ -800,14 +800,14 @@ def calculate_vix_structural_channel(
     """
     Build VIX channel from 4 structural pivots - the REAL methodology.
     
-    Ceiling line: Connect Asia highest wick (5PM-1AM) → Europe highest point (1AM-6AM)
-    Floor line:   Connect Asia lowest wick (5PM-1AM) → Europe lowest wick (1AM-6AM)
+    ASCENDING lines use: Highest WICK for ceiling, Lowest CLOSE for floor
+    DESCENDING lines use: Highest CLOSE for ceiling, Lowest WICK for floor
     
-    The slope of each line is determined by the actual data - NOT a fixed constant.
-    Channel shape emerges naturally: cone, parallel, ascending, descending, etc.
+    Since channel direction is unknown until calculated, we use wicks for both ceiling
+    and floor inputs. The channel shape determines which interpretation applies.
     
-    At RTH open (8:30 AM CT / 9:30 AM ET), project both lines forward. Where VIX sits relative to 
-    the projected channel determines the day's directional bias.
+    At RTH open (8:30 AM CT / 9:30 AM ET), project both lines forward. Where VIX sits
+    relative to the projected channel determines the day's directional bias.
     """
     if current_time is None:
         current_time = datetime.now(CT)
@@ -1378,11 +1378,36 @@ def fetch_prior_day_rth(trading_date):
             
             if not rth_df.empty and len(rth_df) > 3:
                 # ─────────────────────────────────────────────────────────────
-                # PRIMARY HIGH WICK: Highest high of any candle
+                # HIGHEST WICK: Absolute highest high of any candle
+                # Used for: ASCENDING ceiling
                 # ─────────────────────────────────────────────────────────────
                 primary_high_idx = rth_df['High'].idxmax()
                 result["primary_high_wick"] = round(float(rth_df.loc[primary_high_idx, 'High']), 2)
                 result["primary_high_wick_time"] = primary_high_idx
+                
+                # ─────────────────────────────────────────────────────────────
+                # HIGHEST CLOSE: Highest close of any candle
+                # Used for: DESCENDING ceiling (body defines resistance)
+                # ─────────────────────────────────────────────────────────────
+                primary_hc_idx = rth_df['Close'].idxmax()
+                result["primary_high_close"] = round(float(rth_df.loc[primary_hc_idx, 'Close']), 2)
+                result["primary_high_close_time"] = primary_hc_idx
+                
+                # ─────────────────────────────────────────────────────────────
+                # LOWEST WICK: Absolute lowest low of any candle
+                # Used for: DESCENDING floor (wicks mark absolute bottom)
+                # ─────────────────────────────────────────────────────────────
+                primary_lw_idx = rth_df['Low'].idxmin()
+                result["primary_low_wick"] = round(float(rth_df.loc[primary_lw_idx, 'Low']), 2)
+                result["primary_low_wick_time"] = primary_lw_idx
+                
+                # ─────────────────────────────────────────────────────────────
+                # LOWEST CLOSE: Lowest close of any candle
+                # Used for: ASCENDING floor (body defines support)
+                # ─────────────────────────────────────────────────────────────
+                primary_lc_idx = rth_df['Close'].idxmin()
+                result["primary_low_close"] = round(float(rth_df.loc[primary_lc_idx, 'Close']), 2)
+                result["primary_low_close_time"] = primary_lc_idx
                 
                 # ─────────────────────────────────────────────────────────────
                 # SECONDARY HIGH WICK: Lower high made 1hr+ after primary
@@ -1390,7 +1415,6 @@ def fetch_prior_day_rth(trading_date):
                 min_gap = timedelta(hours=1)
                 secondary_high_search = rth_df[rth_df.index >= primary_high_idx + min_gap]
                 if not secondary_high_search.empty:
-                    # Find highest wick after primary (must be lower than primary)
                     secondary_high_candidates = secondary_high_search[
                         secondary_high_search['High'] < result["primary_high_wick"]
                     ]
@@ -1400,40 +1424,31 @@ def fetch_prior_day_rth(trading_date):
                         result["secondary_high_wick_time"] = sec_high_idx
                 
                 # ─────────────────────────────────────────────────────────────
-                # PRIMARY LOW OPEN: Lowest open of any BULLISH candle
-                # Bullish = Close > Open (buyers stepped in and defended)
+                # SECONDARY LOW WICK: Higher low wick made 1hr+ after primary
                 # ─────────────────────────────────────────────────────────────
-                bullish_candles = rth_df[rth_df['Close'] > rth_df['Open']]
-                if not bullish_candles.empty:
-                    primary_low_idx = bullish_candles['Open'].idxmin()
-                    result["primary_low_open"] = round(float(bullish_candles.loc[primary_low_idx, 'Open']), 2)
-                    result["primary_low_open_time"] = primary_low_idx
-                    
-                    # ─────────────────────────────────────────────────────────
-                    # SECONDARY LOW OPEN: Higher low open made 1hr+ after primary (bullish)
-                    # ─────────────────────────────────────────────────────────
-                    secondary_low_search = bullish_candles[bullish_candles.index >= primary_low_idx + min_gap]
-                    if not secondary_low_search.empty:
-                        # Find lowest open after primary (must be higher than primary)
-                        secondary_low_candidates = secondary_low_search[
-                            secondary_low_search['Open'] > result["primary_low_open"]
-                        ]
-                        if not secondary_low_candidates.empty:
-                            sec_low_idx = secondary_low_candidates['Open'].idxmin()
-                            result["secondary_low_open"] = round(float(secondary_low_candidates.loc[sec_low_idx, 'Open']), 2)
-                            result["secondary_low_open_time"] = sec_low_idx
+                secondary_low_search = rth_df[rth_df.index >= primary_lw_idx + min_gap]
+                if not secondary_low_search.empty:
+                    secondary_low_candidates = secondary_low_search[
+                        secondary_low_search['Low'] > result["primary_low_wick"]
+                    ]
+                    if not secondary_low_candidates.empty:
+                        sec_low_idx = secondary_low_candidates['Low'].idxmin()
+                        result["secondary_low_wick"] = round(float(secondary_low_candidates.loc[sec_low_idx, 'Low']), 2)
+                        result["secondary_low_wick_time"] = sec_low_idx
                 
                 # Also store overall H/L/C for display
                 result["high"] = result["primary_high_wick"]
-                result["low"] = round(float(rth_df['Low'].min()), 2)
+                result["low"] = result["primary_low_wick"]
                 result["close"] = round(float(rth_df.iloc[-1]['Close']), 2)
                 result["available"] = True
                 
                 # Legacy keys for backward compatibility
                 result["highest_wick"] = result["primary_high_wick"]
                 result["highest_wick_time"] = result["primary_high_wick_time"]
-                result["lowest_close"] = result["primary_low_open"]  # Now uses low open
-                result["lowest_close_time"] = result["primary_low_open_time"]
+                result["lowest_close"] = result["primary_low_close"]
+                result["lowest_close_time"] = result["primary_low_close_time"]
+                result["primary_low_open"] = result["primary_low_close"]  # Map old key
+                result["primary_low_open_time"] = result["primary_low_close_time"]
                 
     except Exception as e:
         pass
@@ -1442,47 +1457,61 @@ def fetch_prior_day_rth(trading_date):
 def calc_prior_day_targets(prior_rth, ref_time):
     """Calculate BOTH ascending and descending targets from ALL prior day anchors.
     
-    From PRIMARY HIGH WICK:
-    - Ascending line (+0.52/30min) = Resistance (SELL point)
-    - Descending line (-0.52/30min) = Support (BUY point)
+    PIVOT TYPE RULES:
+    - Ascending ceiling  = Highest WICK projected up  (wicks mark absolute tops)
+    - Ascending floor    = Lowest CLOSE projected up  (bodies define support)
+    - Descending ceiling = Highest CLOSE projected down (bodies define resistance)
+    - Descending floor   = Lowest WICK projected down  (wicks mark absolute bottoms)
     
-    From SECONDARY HIGH WICK (if exists):
-    - Ascending line (+0.52/30min) = Resistance (SELL point)
-    - Descending line (-0.52/30min) = Support (BUY point)
+    From PRIMARY HIGH WICK (ascending ceiling anchor):
+    - Ascending line (+0.52/30min) = ascending ceiling target
     
-    From PRIMARY LOW OPEN:
-    - Ascending line (+0.52/30min) = Support (BUY point)
-    - Descending line (-0.52/30min) = Resistance (SELL point)
+    From PRIMARY HIGH CLOSE (descending ceiling anchor):
+    - Descending line (-0.52/30min) = descending ceiling target
     
-    From SECONDARY LOW OPEN (if exists):
-    - Ascending line (+0.52/30min) = Support (BUY point)
-    - Descending line (-0.52/30min) = Resistance (SELL point)
+    From PRIMARY LOW WICK (descending floor anchor):
+    - Descending line (-0.52/30min) = descending floor target
     
-    Returns dict with all eight targets (4 pivots x 2 directions).
+    From PRIMARY LOW CLOSE (ascending floor anchor):
+    - Ascending line (+0.52/30min) = ascending floor target
+    
+    Returns dict with all targets.
     """
     result = {
         "available": False,
-        # Primary High Wick
+        # Primary High Wick (ascending ceiling)
         "primary_high_wick": None,
         "primary_high_wick_time": None,
         "primary_high_wick_ascending": None,
-        "primary_high_wick_descending": None,
-        # Secondary High Wick
+        "primary_high_wick_descending": None,  # Keep for backward compat
+        # Primary High Close (descending ceiling)
+        "primary_high_close": None,
+        "primary_high_close_time": None,
+        "primary_high_close_descending": None,
+        # Primary Low Wick (descending floor)
+        "primary_low_wick": None,
+        "primary_low_wick_time": None,
+        "primary_low_wick_descending": None,
+        # Primary Low Close (ascending floor)
+        "primary_low_close": None,
+        "primary_low_close_time": None,
+        "primary_low_close_ascending": None,
+        # Secondary pivots
         "secondary_high_wick": None,
         "secondary_high_wick_time": None,
         "secondary_high_wick_ascending": None,
         "secondary_high_wick_descending": None,
-        # Primary Low Open
+        "secondary_low_wick": None,
+        "secondary_low_wick_time": None,
+        "secondary_low_wick_descending": None,
+        # Legacy keys for backward compatibility
         "primary_low_open": None,
         "primary_low_open_time": None,
         "primary_low_open_ascending": None,
         "primary_low_open_descending": None,
-        # Secondary Low Open
         "secondary_low_open": None,
-        "secondary_low_open_time": None,
         "secondary_low_open_ascending": None,
         "secondary_low_open_descending": None,
-        # Legacy keys for backward compatibility
         "highest_wick": None,
         "highest_wick_ascending": None,
         "highest_wick_descending": None,
@@ -1497,7 +1526,7 @@ def calc_prior_day_targets(prior_rth, ref_time):
     result["available"] = True
     
     # ─────────────────────────────────────────────────────────────────────────
-    # PRIMARY HIGH WICK
+    # PRIMARY HIGH WICK → Ascending ceiling anchor
     # ─────────────────────────────────────────────────────────────────────────
     if prior_rth.get("primary_high_wick") is not None and prior_rth.get("primary_high_wick_time"):
         result["primary_high_wick"] = prior_rth["primary_high_wick"]
@@ -1505,10 +1534,46 @@ def calc_prior_day_targets(prior_rth, ref_time):
         blocks = blocks_between(prior_rth["primary_high_wick_time"], ref_time)
         result["primary_high_wick_ascending"] = round(prior_rth["primary_high_wick"] + SLOPE * blocks, 2)
         result["primary_high_wick_descending"] = round(prior_rth["primary_high_wick"] - SLOPE * blocks, 2)
-        # Legacy
         result["highest_wick"] = result["primary_high_wick"]
         result["highest_wick_ascending"] = result["primary_high_wick_ascending"]
         result["highest_wick_descending"] = result["primary_high_wick_descending"]
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # PRIMARY HIGH CLOSE → Descending ceiling anchor
+    # ─────────────────────────────────────────────────────────────────────────
+    if prior_rth.get("primary_high_close") is not None and prior_rth.get("primary_high_close_time"):
+        result["primary_high_close"] = prior_rth["primary_high_close"]
+        result["primary_high_close_time"] = prior_rth["primary_high_close_time"]
+        blocks = blocks_between(prior_rth["primary_high_close_time"], ref_time)
+        result["primary_high_close_descending"] = round(prior_rth["primary_high_close"] - SLOPE * blocks, 2)
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # PRIMARY LOW WICK → Descending floor anchor
+    # ─────────────────────────────────────────────────────────────────────────
+    if prior_rth.get("primary_low_wick") is not None and prior_rth.get("primary_low_wick_time"):
+        result["primary_low_wick"] = prior_rth["primary_low_wick"]
+        result["primary_low_wick_time"] = prior_rth["primary_low_wick_time"]
+        blocks = blocks_between(prior_rth["primary_low_wick_time"], ref_time)
+        result["primary_low_wick_descending"] = round(prior_rth["primary_low_wick"] - SLOPE * blocks, 2)
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # PRIMARY LOW CLOSE → Ascending floor anchor
+    # ─────────────────────────────────────────────────────────────────────────
+    lc_key = "primary_low_close" if prior_rth.get("primary_low_close") else "primary_low_open"
+    lc_time_key = lc_key + "_time"
+    if prior_rth.get(lc_key) is not None and prior_rth.get(lc_time_key):
+        result["primary_low_close"] = prior_rth[lc_key]
+        result["primary_low_close_time"] = prior_rth[lc_time_key]
+        blocks = blocks_between(prior_rth[lc_time_key], ref_time)
+        result["primary_low_close_ascending"] = round(prior_rth[lc_key] + SLOPE * blocks, 2)
+        # Legacy mappings
+        result["primary_low_open"] = result["primary_low_close"]
+        result["primary_low_open_time"] = result["primary_low_close_time"]
+        result["primary_low_open_ascending"] = result["primary_low_close_ascending"]
+        result["primary_low_open_descending"] = round(prior_rth[lc_key] - SLOPE * blocks, 2)
+        result["lowest_close"] = result["primary_low_close"]
+        result["lowest_close_ascending"] = result["primary_low_close_ascending"]
+        result["lowest_close_descending"] = result["primary_low_open_descending"]
     
     # ─────────────────────────────────────────────────────────────────────────
     # SECONDARY HIGH WICK
@@ -1521,28 +1586,19 @@ def calc_prior_day_targets(prior_rth, ref_time):
         result["secondary_high_wick_descending"] = round(prior_rth["secondary_high_wick"] - SLOPE * blocks, 2)
     
     # ─────────────────────────────────────────────────────────────────────────
-    # PRIMARY LOW OPEN
+    # SECONDARY LOW WICK
     # ─────────────────────────────────────────────────────────────────────────
-    if prior_rth.get("primary_low_open") is not None and prior_rth.get("primary_low_open_time"):
-        result["primary_low_open"] = prior_rth["primary_low_open"]
-        result["primary_low_open_time"] = prior_rth["primary_low_open_time"]
-        blocks = blocks_between(prior_rth["primary_low_open_time"], ref_time)
-        result["primary_low_open_ascending"] = round(prior_rth["primary_low_open"] + SLOPE * blocks, 2)
-        result["primary_low_open_descending"] = round(prior_rth["primary_low_open"] - SLOPE * blocks, 2)
+    slw_key = "secondary_low_wick" if prior_rth.get("secondary_low_wick") else "secondary_low_open"
+    slw_time_key = slw_key + "_time"
+    if prior_rth.get(slw_key) is not None and prior_rth.get(slw_time_key):
+        result["secondary_low_wick"] = prior_rth[slw_key]
+        result["secondary_low_wick_time"] = prior_rth[slw_time_key]
+        blocks = blocks_between(prior_rth[slw_time_key], ref_time)
+        result["secondary_low_wick_descending"] = round(prior_rth[slw_key] - SLOPE * blocks, 2)
         # Legacy
-        result["lowest_close"] = result["primary_low_open"]
-        result["lowest_close_ascending"] = result["primary_low_open_ascending"]
-        result["lowest_close_descending"] = result["primary_low_open_descending"]
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # SECONDARY LOW OPEN
-    # ─────────────────────────────────────────────────────────────────────────
-    if prior_rth.get("secondary_low_open") is not None and prior_rth.get("secondary_low_open_time"):
-        result["secondary_low_open"] = prior_rth["secondary_low_open"]
-        result["secondary_low_open_time"] = prior_rth["secondary_low_open_time"]
-        blocks = blocks_between(prior_rth["secondary_low_open_time"], ref_time)
-        result["secondary_low_open_ascending"] = round(prior_rth["secondary_low_open"] + SLOPE * blocks, 2)
-        result["secondary_low_open_descending"] = round(prior_rth["secondary_low_open"] - SLOPE * blocks, 2)
+        result["secondary_low_open"] = result["secondary_low_wick"]
+        result["secondary_low_open_ascending"] = round(prior_rth[slw_key] + SLOPE * blocks, 2)
+        result["secondary_low_open_descending"] = result["secondary_low_wick_descending"]
     
     return result
 
@@ -1579,7 +1635,12 @@ def extract_sessions(es_candles, trading_date):
                 "high": round(data['High'].max(), 2),
                 "low": round(data['Low'].min(), 2),
                 "high_time": data['High'].idxmax(),
-                "low_time": data['Low'].idxmin()
+                "low_time": data['Low'].idxmin(),
+                # Close-based pivots for ascending floor / descending ceiling
+                "highest_close": round(data['Close'].max(), 2),
+                "lowest_close": round(data['Close'].min(), 2),
+                "highest_close_time": data['Close'].idxmax(),
+                "lowest_close_time": data['Close'].idxmin(),
             }
     return result
 
@@ -1942,38 +2003,77 @@ def calc_channel_levels(upper_pivot, lower_pivot, upper_time, lower_time, ref_ti
         ceiling, floor = upper_pivot, lower_pivot
     return ceiling, floor
 
-def calc_dual_channel_levels(upper_pivot, lower_pivot, upper_time, lower_time, ref_time):
+def get_close_based_pivots(sydney, tokyo, london):
     """
-    Calculate ALL FOUR channel levels - always show both ascending and descending.
-    This is the core of Option C - dual channel system.
+    Extract highest close and lowest close across overnight sessions.
+    Used for: descending ceiling (highest close) and ascending floor (lowest close).
     
-    Returns:
-        dict with:
-        - asc_floor: Ascending floor (LOW projected up) - CALLS entry
-        - asc_ceiling: Ascending ceiling (HIGH projected up) - CALLS target
-        - desc_ceiling: Descending ceiling (HIGH projected down) - PUTS entry  
-        - desc_floor: Descending floor (LOW projected down) - PUTS target
+    Returns dict with highest_close, lowest_close, and their times.
     """
-    if upper_pivot is None or lower_pivot is None:
+    result = {
+        "highest_close": None, "highest_close_time": None,
+        "lowest_close": None, "lowest_close_time": None,
+    }
+    
+    for session in [sydney, tokyo, london]:
+        if session and session.get("highest_close") is not None:
+            if result["highest_close"] is None or session["highest_close"] > result["highest_close"]:
+                result["highest_close"] = session["highest_close"]
+                result["highest_close_time"] = session.get("highest_close_time")
+            if result["lowest_close"] is None or session["lowest_close"] < result["lowest_close"]:
+                result["lowest_close"] = session["lowest_close"]
+                result["lowest_close_time"] = session.get("lowest_close_time")
+    
+    return result
+
+def calc_dual_channel_levels(upper_pivot_wick, lower_pivot_wick, upper_wick_time, lower_wick_time,
+                             ref_time, upper_pivot_close=None, lower_pivot_close=None,
+                             upper_close_time=None, lower_close_time=None):
+    """
+    Calculate ALL FOUR channel levels using correct pivot types per direction.
+    
+    RULE:
+      ASCENDING ceiling  = highest WICK projected up   (wicks mark absolute tops)
+      ASCENDING floor    = lowest CLOSE projected up   (bodies define support)
+      DESCENDING ceiling = highest CLOSE projected down (bodies define resistance)
+      DESCENDING floor   = lowest WICK projected down  (wicks mark absolute bottoms)
+    
+    If close-based pivots not provided, falls back to wick-based for all.
+    """
+    if upper_pivot_wick is None or lower_pivot_wick is None:
         return None
     
-    blocks_high = blocks_between(upper_time, ref_time) if upper_time and ref_time else 0
-    blocks_low = blocks_between(lower_time, ref_time) if lower_time and ref_time else 0
+    # Fall back to wick-based if close-based not available
+    if upper_pivot_close is None:
+        upper_pivot_close = upper_pivot_wick
+    if lower_pivot_close is None:
+        lower_pivot_close = lower_pivot_wick
+    if upper_close_time is None:
+        upper_close_time = upper_wick_time
+    if lower_close_time is None:
+        lower_close_time = lower_wick_time
+    
+    blocks_high_wick = blocks_between(upper_wick_time, ref_time) if upper_wick_time and ref_time else 0
+    blocks_low_wick = blocks_between(lower_wick_time, ref_time) if lower_wick_time and ref_time else 0
+    blocks_high_close = blocks_between(upper_close_time, ref_time) if upper_close_time and ref_time else 0
+    blocks_low_close = blocks_between(lower_close_time, ref_time) if lower_close_time and ref_time else 0
     
     return {
-        # ASCENDING CHANNEL (from overnight low, projecting UP)
-        "asc_floor": round(lower_pivot + SLOPE * blocks_low, 2),      # LOW going UP - CALLS entry
-        "asc_ceiling": round(upper_pivot + SLOPE * blocks_high, 2),   # HIGH going UP - CALLS target
+        # ASCENDING CHANNEL
+        "asc_floor": round(lower_pivot_close + SLOPE * blocks_low_close, 2),    # Lowest CLOSE going UP
+        "asc_ceiling": round(upper_pivot_wick + SLOPE * blocks_high_wick, 2),   # Highest WICK going UP
         
-        # DESCENDING CHANNEL (from overnight high, projecting DOWN)
-        "desc_ceiling": round(upper_pivot - SLOPE * blocks_high, 2),  # HIGH going DOWN - PUTS entry
-        "desc_floor": round(lower_pivot - SLOPE * blocks_low, 2),     # LOW going DOWN - PUTS target
+        # DESCENDING CHANNEL
+        "desc_ceiling": round(upper_pivot_close - SLOPE * blocks_high_close, 2), # Highest CLOSE going DOWN
+        "desc_floor": round(lower_pivot_wick - SLOPE * blocks_low_wick, 2),      # Lowest WICK going DOWN
         
         # Metadata
-        "blocks_high": blocks_high,
-        "blocks_low": blocks_low,
-        "overnight_high": upper_pivot,
-        "overnight_low": lower_pivot,
+        "blocks_high": blocks_high_wick,
+        "blocks_low": blocks_low_wick,
+        "overnight_high": upper_pivot_wick,
+        "overnight_low": lower_pivot_wick,
+        "overnight_high_close": upper_pivot_close,
+        "overnight_low_close": lower_pivot_close,
     }
 
 def get_position(price, ceiling, floor):
@@ -5098,25 +5198,25 @@ def sidebar():
         
         # ASIA SESSION (5 PM - 1 AM CT)
         st.markdown("##### 🦘 Asia Session (5 PM – 1 AM CT)")
-        st.caption("Highest wick = ceiling anchor | Lowest wick = floor anchor")
+        st.caption("High wick/close = ceiling anchor #1 | Low wick/close = floor anchor #1")
         
         col1, col2 = st.columns(2)
         asia_vix_high = col1.number_input("Asia High Wick", value=18.0, step=0.01, format="%.2f",
-            key="vix_asia_high", help="Highest VIX wick from 5 PM to 1 AM CT")
+            key="vix_asia_high", help="Highest VIX wick from 5 PM to 1 AM CT (ascending ceiling)")
         asia_vix_high_time = col2.selectbox("High Time (CT)", options=vix_time_options, 
             index=vix_time_options.index("19:00") if "19:00" in vix_time_options else 4,
             key="vix_asia_high_time")
         
         col1, col2 = st.columns(2)
         asia_vix_low = col1.number_input("Asia Low Wick", value=16.5, step=0.01, format="%.2f",
-            key="vix_asia_low", help="Lowest VIX wick from 5 PM to 1 AM CT")
+            key="vix_asia_low", help="Lowest VIX wick from 5 PM to 1 AM CT (descending floor)")
         asia_vix_low_time = col2.selectbox("Low Time (CT)", options=vix_time_options,
             index=vix_time_options.index("22:00") if "22:00" in vix_time_options else 10,
             key="vix_asia_low_time")
         
         # EUROPE SESSION (1 AM - 6 AM CT)
         st.markdown("##### 🏛 Europe Session (1 AM – 6 AM CT)")
-        st.caption("Highest point = ceiling anchor #2 | Lowest wick = floor anchor #2")
+        st.caption("High wick/close = ceiling anchor #2 | Low wick/close = floor anchor #2")
         
         col1, col2 = st.columns(2)
         europe_vix_high = col1.number_input("Europe High", value=17.8, step=0.01, format="%.2f",
@@ -5174,6 +5274,7 @@ def sidebar():
         # PRIOR DAY RTH DATA
         # ─────────────────────────────────────────────────────────────────────
         st.markdown("#### 📈 Prior Day RTH (ES)")
+        st.caption("Ascending: Ceiling=Highest Wick, Floor=Lowest Close | Descending: Ceiling=Highest Close, Floor=Lowest Wick")
         use_manual_prior = st.checkbox("Manual Prior Day Override", value=False)
         if use_manual_prior:
             # Time inputs with 30-minute granularity (RTH: 8:30 AM - 3:00 PM CT)
@@ -5186,10 +5287,29 @@ def sidebar():
                         continue  # RTH ends at 3:00
                     time_options.append(f"{h}:{m:02d}")
             
-            st.markdown("##### Primary High Wick")
+            st.markdown("##### Primary Highest Wick")
+            st.caption("Ascending ceiling pivot — absolute highest high of any RTH candle")
             col1, col2 = st.columns(2)
-            prior_primary_hw = col1.number_input("Price (ES)", value=6100.0, step=0.5, key="p_hw", help="Highest high of any RTH candle")
-            p_hw_time_str = col2.selectbox("Time", options=time_options, index=time_options.index("9:30") if "9:30" in time_options else 2, key="p_hw_t", help="Time when primary high wick occurred (CT)")
+            prior_primary_hw = col1.number_input("Price (ES)", value=6100.0, step=0.5, key="p_hw", help="Highest high (wick) of any RTH candle → ascending ceiling")
+            p_hw_time_str = col2.selectbox("Time", options=time_options, index=time_options.index("9:30") if "9:30" in time_options else 2, key="p_hw_t")
+            
+            st.markdown("##### Primary Highest Close")
+            st.caption("Descending ceiling pivot — highest close of any RTH candle")
+            col1, col2 = st.columns(2)
+            prior_primary_hc = col1.number_input("Price (ES)", value=6095.0, step=0.5, key="p_hc", help="Highest close (body) of any RTH candle → descending ceiling")
+            p_hc_time_str = col2.selectbox("Time", options=time_options, index=time_options.index("9:30") if "9:30" in time_options else 2, key="p_hc_t")
+            
+            st.markdown("##### Primary Lowest Wick")
+            st.caption("Descending floor pivot — absolute lowest low of any RTH candle")
+            col1, col2 = st.columns(2)
+            prior_primary_lw = col1.number_input("Price (ES)", value=6045.0, step=0.5, key="p_lw", help="Lowest low (wick) of any RTH candle → descending floor")
+            p_lw_time_str = col2.selectbox("Time", options=time_options, index=time_options.index("12:00") if "12:00" in time_options else 7, key="p_lw_t")
+            
+            st.markdown("##### Primary Lowest Close")
+            st.caption("Ascending floor pivot — lowest close of any RTH candle")
+            col1, col2 = st.columns(2)
+            prior_primary_lc = col1.number_input("Price (ES)", value=6050.0, step=0.5, key="p_lc", help="Lowest close (body) of any RTH candle → ascending floor")
+            p_lc_time_str = col2.selectbox("Time", options=time_options, index=time_options.index("12:00") if "12:00" in time_options else 7, key="p_lc_t")
             
             st.markdown("##### Secondary High Wick")
             has_secondary_hw = st.checkbox("Has Secondary High Wick", value=False, key="has_s_hw")
@@ -5201,20 +5321,15 @@ def sidebar():
                 prior_secondary_hw = None
                 s_hw_time_str = "12:00"
             
-            st.markdown("##### Primary Low Open")
-            col1, col2 = st.columns(2)
-            prior_primary_lo = col1.number_input("Price (ES)", value=6050.0, step=0.5, key="p_lo", help="Lowest open of any BULLISH RTH candle")
-            p_lo_time_str = col2.selectbox("Time", options=time_options, index=time_options.index("12:00") if "12:00" in time_options else 7, key="p_lo_t", help="Time when primary low open occurred (CT)")
-            
-            st.markdown("##### Secondary Low Open")
-            has_secondary_lo = st.checkbox("Has Secondary Low Open", value=False, key="has_s_lo")
-            if has_secondary_lo:
+            st.markdown("##### Secondary Low Wick")
+            has_secondary_lw = st.checkbox("Has Secondary Low Wick", value=False, key="has_s_lw")
+            if has_secondary_lw:
                 col1, col2 = st.columns(2)
-                prior_secondary_lo = col1.number_input("Price (ES)", value=6060.0, step=0.5, key="s_lo", help="Higher low open made after primary (bullish candle)")
-                s_lo_time_str = col2.selectbox("Time", options=time_options, index=time_options.index("14:30") if "14:30" in time_options else 10, key="s_lo_t", help="Time when secondary low open occurred (CT)")
+                prior_secondary_lw = col1.number_input("Price (ES)", value=6055.0, step=0.5, key="s_lw", help="Higher low wick made after primary (descending floor)")
+                s_lw_time_str = col2.selectbox("Time", options=time_options, index=time_options.index("14:30") if "14:30" in time_options else 10, key="s_lw_t")
             else:
-                prior_secondary_lo = None
-                s_lo_time_str = "12:00"
+                prior_secondary_lw = None
+                s_lw_time_str = "12:00"
             
             st.markdown("##### RTH Close")
             prior_close = st.number_input("RTH Close (ES)", value=6075.0, step=0.5, help="Final RTH close")
@@ -5225,21 +5340,27 @@ def sidebar():
                 return int(parts[0]), int(parts[1])
             
             p_hw_hour, p_hw_min = parse_time_str(p_hw_time_str)
+            p_hc_hour, p_hc_min = parse_time_str(p_hc_time_str)
+            p_lw_hour, p_lw_min = parse_time_str(p_lw_time_str)
+            p_lc_hour, p_lc_min = parse_time_str(p_lc_time_str)
             s_hw_hour, s_hw_min = parse_time_str(s_hw_time_str)
-            p_lo_hour, p_lo_min = parse_time_str(p_lo_time_str)
-            s_lo_hour, s_lo_min = parse_time_str(s_lo_time_str)
+            s_lw_hour, s_lw_min = parse_time_str(s_lw_time_str)
         else:
             prior_primary_hw = None
+            prior_primary_hc = None
+            prior_primary_lw = None
+            prior_primary_lc = None
             prior_secondary_hw = None
-            prior_primary_lo = None
-            prior_secondary_lo = None
+            prior_secondary_lw = None
             p_hw_hour, p_hw_min = 9, 30
+            p_hc_hour, p_hc_min = 9, 30
+            p_lw_hour, p_lw_min = 12, 0
+            p_lc_hour, p_lc_min = 12, 0
             s_hw_hour, s_hw_min = 14, 30
-            p_lo_hour, p_lo_min = 12, 0
-            s_lo_hour, s_lo_min = 14, 30
+            s_lw_hour, s_lw_min = 14, 30
             prior_close = None
             has_secondary_hw = False
-            has_secondary_lo = False
+            has_secondary_lw = False
         
         st.divider()
         
@@ -5410,20 +5531,26 @@ def sidebar():
         "manual_vix_channel": manual_vix_channel,  # VIX Channel pivots
         "vix_channel_override": vix_channel_override,  # Manual channel type override
         "manual_prior": {
-            "primary_high_wick": prior_primary_hw, 
+            "primary_high_wick": prior_primary_hw,       # Ascending ceiling anchor
+            "primary_high_close": prior_primary_hc,      # Descending ceiling anchor
+            "primary_low_wick": prior_primary_lw,        # Descending floor anchor
+            "primary_low_close": prior_primary_lc,       # Ascending floor anchor
             "secondary_high_wick": prior_secondary_hw if has_secondary_hw else None,
-            "primary_low_open": prior_primary_lo, 
-            "secondary_low_open": prior_secondary_lo if has_secondary_lo else None,
+            "secondary_low_wick": prior_secondary_lw if has_secondary_lw else None,
             "close": prior_close, 
             "p_hw_hour": p_hw_hour, "p_hw_min": p_hw_min,
+            "p_hc_hour": p_hc_hour, "p_hc_min": p_hc_min,
+            "p_lw_hour": p_lw_hour, "p_lw_min": p_lw_min,
+            "p_lc_hour": p_lc_hour, "p_lc_min": p_lc_min,
             "s_hw_hour": s_hw_hour, "s_hw_min": s_hw_min,
-            "p_lo_hour": p_lo_hour, "p_lo_min": p_lo_min,
-            "s_lo_hour": s_lo_hour, "s_lo_min": s_lo_min,
+            "s_lw_hour": s_lw_hour, "s_lw_min": s_lw_min,
             # Legacy keys for backward compatibility
+            "primary_low_open": prior_primary_lc,  # Map old key to lowest close
+            "secondary_low_open": prior_secondary_lw if has_secondary_lw else None,
             "highest_wick": prior_primary_hw,
-            "lowest_close": prior_primary_lo,
+            "lowest_close": prior_primary_lc,
             "hw_hour": p_hw_hour, "hw_min": p_hw_min,
-            "lc_hour": p_lo_hour, "lc_min": p_lo_min,
+            "lc_hour": p_lc_hour, "lc_min": p_lc_min,
         } if use_manual_prior else None,
         "manual_overnight": {"high": on_high, "low": on_low, "high_hour": on_high_hour, "high_min": on_high_min, "low_hour": on_low_hour, "low_min": on_low_min} if use_manual_overnight else None,
         "manual_sessions": {
@@ -5601,36 +5728,50 @@ def main():
             # Parse all pivot times
             p_hw_hour = m.get("p_hw_hour", m.get("hw_hour", 9))
             p_hw_min = m.get("p_hw_min", m.get("hw_min", 30))
+            p_hc_hour = m.get("p_hc_hour", p_hw_hour)  # Default to same as high wick
+            p_hc_min = m.get("p_hc_min", p_hw_min)
+            p_lw_hour = m.get("p_lw_hour", m.get("lc_hour", 12))
+            p_lw_min = m.get("p_lw_min", m.get("lc_min", 0))
+            p_lc_hour = m.get("p_lc_hour", p_lw_hour)  # Default to same as low wick
+            p_lc_min = m.get("p_lc_min", p_lw_min)
             s_hw_hour = m.get("s_hw_hour", 14)
             s_hw_min = m.get("s_hw_min", 30)
-            p_lo_hour = m.get("p_lo_hour", m.get("lc_hour", 12))
-            p_lo_min = m.get("p_lo_min", m.get("lc_min", 0))
-            s_lo_hour = m.get("s_lo_hour", 14)
-            s_lo_min = m.get("s_lo_min", 30)
+            s_lw_hour = m.get("s_lw_hour", 14)
+            s_lw_min = m.get("s_lw_min", 30)
             
             prior_rth = {
-                # Primary High Wick
+                # Primary High Wick (ascending ceiling)
                 "primary_high_wick": m.get("primary_high_wick", m.get("highest_wick")),
                 "primary_high_wick_time": CT.localize(datetime.combine(prior_day, time(p_hw_hour, p_hw_min))),
+                # Primary High Close (descending ceiling)
+                "primary_high_close": m.get("primary_high_close", m.get("primary_high_wick", m.get("highest_wick"))),
+                "primary_high_close_time": CT.localize(datetime.combine(prior_day, time(p_hc_hour, p_hc_min))),
+                # Primary Low Wick (descending floor)
+                "primary_low_wick": m.get("primary_low_wick", m.get("primary_low_open", m.get("lowest_close"))),
+                "primary_low_wick_time": CT.localize(datetime.combine(prior_day, time(p_lw_hour, p_lw_min))),
+                # Primary Low Close (ascending floor)
+                "primary_low_close": m.get("primary_low_close", m.get("primary_low_open", m.get("lowest_close"))),
+                "primary_low_close_time": CT.localize(datetime.combine(prior_day, time(p_lc_hour, p_lc_min))),
                 # Secondary High Wick
                 "secondary_high_wick": m.get("secondary_high_wick"),
                 "secondary_high_wick_time": CT.localize(datetime.combine(prior_day, time(s_hw_hour, s_hw_min))) if m.get("secondary_high_wick") else None,
-                # Primary Low Open
-                "primary_low_open": m.get("primary_low_open", m.get("lowest_close")),
-                "primary_low_open_time": CT.localize(datetime.combine(prior_day, time(p_lo_hour, p_lo_min))),
-                # Secondary Low Open
-                "secondary_low_open": m.get("secondary_low_open"),
-                "secondary_low_open_time": CT.localize(datetime.combine(prior_day, time(s_lo_hour, s_lo_min))) if m.get("secondary_low_open") else None,
+                # Secondary Low Wick
+                "secondary_low_wick": m.get("secondary_low_wick", m.get("secondary_low_open")),
+                "secondary_low_wick_time": CT.localize(datetime.combine(prior_day, time(s_lw_hour, s_lw_min))) if m.get("secondary_low_wick", m.get("secondary_low_open")) else None,
                 # Overall stats
                 "high": m.get("primary_high_wick", m.get("highest_wick")),
-                "low": m.get("primary_low_open", m.get("lowest_close")),
+                "low": m.get("primary_low_wick", m.get("primary_low_open", m.get("lowest_close"))),
                 "close": m.get("close"),
                 "available": True,
                 # Legacy keys for backward compatibility
                 "highest_wick": m.get("primary_high_wick", m.get("highest_wick")),
                 "highest_wick_time": CT.localize(datetime.combine(prior_day, time(p_hw_hour, p_hw_min))),
-                "lowest_close": m.get("primary_low_open", m.get("lowest_close")),
-                "lowest_close_time": CT.localize(datetime.combine(prior_day, time(p_lo_hour, p_lo_min))),
+                "lowest_close": m.get("primary_low_close", m.get("primary_low_open", m.get("lowest_close"))),
+                "lowest_close_time": CT.localize(datetime.combine(prior_day, time(p_lc_hour, p_lc_min))),
+                "primary_low_open": m.get("primary_low_close", m.get("primary_low_open", m.get("lowest_close"))),
+                "primary_low_open_time": CT.localize(datetime.combine(prior_day, time(p_lc_hour, p_lc_min))),
+                "secondary_low_open": m.get("secondary_low_wick", m.get("secondary_low_open")),
+                "secondary_low_open_time": CT.localize(datetime.combine(prior_day, time(s_lw_hour, s_lw_min))) if m.get("secondary_low_wick", m.get("secondary_low_open")) else None,
             }
         else:
             prior_rth = fetch_prior_day_rth(actual_trading_date)
@@ -5686,11 +5827,24 @@ def main():
     # ─────────────────────────────────────────────────────────────────────────
     # DUAL CHANNEL LEVELS (Option C - Always show BOTH ascending and descending)
     # ─────────────────────────────────────────────────────────────────────────
-    dual_levels_es = calc_dual_channel_levels(upper_pivot, lower_pivot, upper_time, lower_time, ref_time_dt)
+    # Extract close-based pivots from overnight sessions for correct pivot type per direction
+    close_pivots = get_close_based_pivots(sydney, tokyo, london)
+    
+    dual_levels_es = calc_dual_channel_levels(
+        upper_pivot, lower_pivot, upper_time, lower_time, ref_time_dt,
+        upper_pivot_close=close_pivots.get("highest_close"),
+        lower_pivot_close=close_pivots.get("lowest_close"),
+        upper_close_time=close_pivots.get("highest_close_time"),
+        lower_close_time=close_pivots.get("lowest_close_time")
+    )
     
     # Also calculate ORIGINAL dual levels
     original_dual_levels_es = calc_dual_channel_levels(
-        original_upper_pivot, original_lower_pivot, original_upper_time, original_lower_time, ref_time_dt
+        original_upper_pivot, original_lower_pivot, original_upper_time, original_lower_time, ref_time_dt,
+        upper_pivot_close=close_pivots.get("highest_close"),
+        lower_pivot_close=close_pivots.get("lowest_close"),
+        upper_close_time=close_pivots.get("highest_close_time"),
+        lower_close_time=close_pivots.get("lowest_close_time")
     )
     
     # Convert to SPX
