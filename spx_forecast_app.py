@@ -6355,65 +6355,72 @@ Calculated Entry Premium: {p.get('calc_result')}
     
     if vix_channel_levels and vix_channel_levels.get("floor") is not None:
         
-        # Show BUILDING banner if Europe hasn't completed
         if vix_channel_status == "BUILDING":
-            st.markdown('<div class="alert-box alert-box-info" style="margin-bottom:16px;"><div class="alert-icon-large">🔄</div><div class="alert-content"><div class="alert-title">VOLATILITY ZONE BUILDING</div><div class="alert-text">Europe/London session still in progress. Channel shape (ascending, descending, cone, flat) will be determined once London completes (~6 AM CT). Current levels are projections based on Asia anchors only.</div></div></div>', unsafe_allow_html=True)
+            # ── BUILDING STATE: Only show status + current VIX + Asia anchors ──
+            st.markdown('<div class="alert-box alert-box-info" style="margin-bottom:16px;"><div class="alert-icon-large">🔄</div><div class="alert-content"><div class="alert-title">VOLATILITY ZONE BUILDING</div><div class="alert-text">Europe/London session still in progress. Channel shape (ascending, descending, cone, flat) will be determined once London completes (~6 AM CT). Do NOT trade VIX channel signals until LOCKED.</div></div></div>', unsafe_allow_html=True)
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--accent-gold);"><div class="metric-icon">⏳</div><div class="metric-label">VIX Channel</div><div class="metric-value" style="color:var(--accent-gold);font-size:1rem;">BUILDING</div><div class="metric-delta">Waiting for London to complete</div></div>', unsafe_allow_html=True)
+            with col2:
+                st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--accent-cyan);"><div class="metric-icon">📍</div><div class="metric-label">Current VIX</div><div class="metric-value" style="font-size:1.3rem;">{vix:.2f}</div><div class="metric-delta">Channel shape TBD</div></div>', unsafe_allow_html=True)
+            with col3:
+                asia_h = vix_channel_levels.get("asia_high", 0)
+                asia_l = vix_channel_levels.get("asia_low", 0)
+                st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--text-muted);"><div class="metric-icon">🦘</div><div class="metric-label">Asia Anchors</div><div class="metric-value" style="font-size:1rem;">H: {asia_h:.2f} | L: {asia_l:.2f}</div><div class="metric-delta">Ceiling & Floor anchor #1 set</div></div>', unsafe_allow_html=True)
         
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            channel_desc = vix_channel_levels.get("channel_description", "")
-            ceil_slope = vix_channel_levels.get("ceiling_slope_per_hour", 0)
-            floor_slope = vix_channel_levels.get("floor_slope_per_hour", 0)
-            slope_text = f"Ceil: {ceil_slope:+.3f}/hr | Floor: {floor_slope:+.3f}/hr"
-            status_badge = "🔒 LOCKED" if vix_channel_status == "LOCKED" else "⏳ BUILDING"
-            type_display = vix_channel_type.value if vix_channel_status == "LOCKED" else "BUILDING"
-            type_color = vix_channel_color if vix_channel_status == "LOCKED" else "var(--accent-gold)"
-            st.markdown(f'<div class="metric-card" style="border-left:4px solid {type_color};"><div class="metric-icon">{vix_channel_direction if vix_channel_status == "LOCKED" else "⏳"}</div><div class="metric-label">VIX Channel {status_badge}</div><div class="metric-value" style="color:{type_color};font-size:1rem;">{type_display}</div><div class="metric-delta" style="font-size:0.6rem;">{slope_text if vix_channel_status == "LOCKED" else "Waiting for London"}</div></div>', unsafe_allow_html=True)
-        
-        with col2:
-            vix_floor = vix_channel_levels.get("floor_at_ref", 0)
-            dist_floor = round(vix - vix_floor, 2) if vix else 0
-            floor_status = "🟢" if dist_floor > 0.1 else "⚠️" if dist_floor > 0 else "🔴"
-            st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--bull);"><div class="metric-icon">{floor_status}</div><div class="metric-label">VIX Floor</div><div class="metric-value" style="color:var(--bull);font-size:1.3rem;">{vix_floor:.2f}</div><div class="metric-delta">VIX {dist_floor:+.2f} above</div></div>', unsafe_allow_html=True)
-        
-        with col3:
-            vix_ceiling = vix_channel_levels.get("ceiling_at_ref", 0)
-            dist_ceiling = round(vix_ceiling - vix, 2) if vix else 0
-            ceiling_status = "🟢" if dist_ceiling > 0.1 else "⚠️" if dist_ceiling > 0 else "🔴"
-            st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--bear);"><div class="metric-icon">{ceiling_status}</div><div class="metric-label">VIX Ceiling</div><div class="metric-value" style="color:var(--bear);font-size:1.3rem;">{vix_ceiling:.2f}</div><div class="metric-delta">VIX {dist_ceiling:.2f} below</div></div>', unsafe_allow_html=True)
-        
-        with col4:
-            width = vix_channel_levels.get("channel_width_current", 0)
-            if vix > vix_ceiling:
-                pos_text = "ABOVE CEILING ↑"
-                pos_color = "var(--bear)"
-                signal = "VIX broke out → SELL SPX bias"
-            elif vix < vix_floor:
-                pos_text = "BELOW FLOOR ↓"
-                pos_color = "var(--bull)"
-                signal = "VIX broke down → BUY SPX bias"
-            else:
-                # Position within channel as percentage
-                if width > 0:
-                    pct_pos = round(((vix - vix_floor) / width) * 100)
-                    pos_text = f"IN CHANNEL ({pct_pos}%)"
+        else:
+            # ── LOCKED STATE: Full channel display with floor, ceiling, position, alerts ──
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                ceil_slope = vix_channel_levels.get("ceiling_slope_per_hour", 0)
+                floor_slope = vix_channel_levels.get("floor_slope_per_hour", 0)
+                slope_text = f"Ceil: {ceil_slope:+.3f}/hr | Floor: {floor_slope:+.3f}/hr"
+                st.markdown(f'<div class="metric-card" style="border-left:4px solid {vix_channel_color};"><div class="metric-icon">{vix_channel_direction}</div><div class="metric-label">VIX Channel 🔒 LOCKED</div><div class="metric-value" style="color:{vix_channel_color};font-size:1rem;">{vix_channel_type.value}</div><div class="metric-delta" style="font-size:0.6rem;">{slope_text}</div></div>', unsafe_allow_html=True)
+            
+            with col2:
+                vix_floor = vix_channel_levels.get("floor_at_ref", 0)
+                dist_floor = round(vix - vix_floor, 2) if vix else 0
+                floor_status = "🟢" if dist_floor > 0.1 else "⚠️" if dist_floor > 0 else "🔴"
+                st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--bull);"><div class="metric-icon">{floor_status}</div><div class="metric-label">VIX Floor</div><div class="metric-value" style="color:var(--bull);font-size:1.3rem;">{vix_floor:.2f}</div><div class="metric-delta">VIX {dist_floor:+.2f} above</div></div>', unsafe_allow_html=True)
+            
+            with col3:
+                vix_ceiling = vix_channel_levels.get("ceiling_at_ref", 0)
+                dist_ceiling = round(vix_ceiling - vix, 2) if vix else 0
+                ceiling_status = "🟢" if dist_ceiling > 0.1 else "⚠️" if dist_ceiling > 0 else "🔴"
+                st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--bear);"><div class="metric-icon">{ceiling_status}</div><div class="metric-label">VIX Ceiling</div><div class="metric-value" style="color:var(--bear);font-size:1.3rem;">{vix_ceiling:.2f}</div><div class="metric-delta">VIX {dist_ceiling:.2f} below</div></div>', unsafe_allow_html=True)
+            
+            with col4:
+                width = vix_channel_levels.get("channel_width_current", 0)
+                if vix > vix_ceiling:
+                    pos_text = "ABOVE CEILING ↑"
+                    pos_color = "var(--bear)"
+                    signal = "VIX broke out → SELL SPX bias"
+                elif vix < vix_floor:
+                    pos_text = "BELOW FLOOR ↓"
+                    pos_color = "var(--bull)"
+                    signal = "VIX broke down → BUY SPX bias"
                 else:
-                    pos_text = "IN CHANNEL"
-                pos_color = "var(--accent-cyan)"
-                signal = "Trade bounces off walls"
-            st.markdown(f'<div class="metric-card" style="border-left:4px solid {pos_color};"><div class="metric-icon">📍</div><div class="metric-label">VIX: {vix:.2f}</div><div class="metric-value" style="color:{pos_color};font-size:0.9rem;">{pos_text}</div><div class="metric-delta">{signal}</div></div>', unsafe_allow_html=True)
-        
-        # Channel shape description
-        channel_desc = vix_channel_levels.get("channel_description", "")
-        if channel_desc:
-            st.markdown(f'<div style="text-align:center;padding:8px;font-size:0.8rem;color:var(--text-muted);font-style:italic;">{channel_desc} | Width: {width:.2f} VIX pts</div>', unsafe_allow_html=True)
-        
-        # Alert if VIX broke channel
-        if vix > vix_ceiling:
-            st.markdown(f'<div class="alert-box alert-box-danger" style="margin-top:10px;"><div class="alert-icon-large">🚨</div><div class="alert-content"><div class="alert-title">VIX BROKE ABOVE CEILING!</div><div class="alert-text">Wait for 8:30 AM candle to retest {vix_ceiling:.2f}. VIX springboard UP = SELL SPX</div></div></div>', unsafe_allow_html=True)
-        elif vix < vix_floor:
-            st.markdown(f'<div class="alert-box alert-box-success" style="margin-top:10px;"><div class="alert-icon-large">🚨</div><div class="alert-content"><div class="alert-title">VIX BROKE BELOW FLOOR!</div><div class="alert-text">Wait for 8:30 AM candle to retest {vix_floor:.2f}. VIX springboard DOWN = BUY SPX</div></div></div>', unsafe_allow_html=True)
+                    if width > 0:
+                        pct_pos = round(((vix - vix_floor) / width) * 100)
+                        pos_text = f"IN CHANNEL ({pct_pos}%)"
+                    else:
+                        pos_text = "IN CHANNEL"
+                    pos_color = "var(--accent-cyan)"
+                    signal = "Trade bounces off walls"
+                st.markdown(f'<div class="metric-card" style="border-left:4px solid {pos_color};"><div class="metric-icon">📍</div><div class="metric-label">VIX: {vix:.2f}</div><div class="metric-value" style="color:{pos_color};font-size:0.9rem;">{pos_text}</div><div class="metric-delta">{signal}</div></div>', unsafe_allow_html=True)
+            
+            # Channel shape description
+            channel_desc = vix_channel_levels.get("channel_description", "")
+            if channel_desc:
+                st.markdown(f'<div style="text-align:center;padding:8px;font-size:0.8rem;color:var(--text-muted);font-style:italic;">{channel_desc} | Width: {width:.2f} VIX pts</div>', unsafe_allow_html=True)
+            
+            # Alert if VIX broke channel — ONLY when LOCKED
+            if vix > vix_ceiling:
+                st.markdown(f'<div class="alert-box alert-box-danger" style="margin-top:10px;"><div class="alert-icon-large">🚨</div><div class="alert-content"><div class="alert-title">VIX BROKE ABOVE CEILING!</div><div class="alert-text">Wait for 8:30 AM candle to retest {vix_ceiling:.2f}. VIX springboard UP = SELL SPX</div></div></div>', unsafe_allow_html=True)
+            elif vix < vix_floor:
+                st.markdown(f'<div class="alert-box alert-box-success" style="margin-top:10px;"><div class="alert-icon-large">🚨</div><div class="alert-content"><div class="alert-title">VIX BROKE BELOW FLOOR!</div><div class="alert-text">Wait for 8:30 AM candle to retest {vix_floor:.2f}. VIX springboard DOWN = BUY SPX</div></div></div>', unsafe_allow_html=True)
     
     else:
         # No pivots entered - show prompt
