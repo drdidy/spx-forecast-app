@@ -883,6 +883,7 @@ def calculate_vix_structural_channel(
     floor_down = floor_slope < -SLOPE_THRESHOLD
     floor_flat = not floor_up and not floor_down
     
+    # Both moving same direction
     if ceiling_up and floor_up:
         result["channel_type"] = VIXChannelType.ASCENDING
         result["channel_description"] = "Both lines rising → VIX bias UP (SPX bias DOWN)"
@@ -891,6 +892,7 @@ def calculate_vix_structural_channel(
         result["channel_type"] = VIXChannelType.DESCENDING
         result["channel_description"] = "Both lines falling → VIX bias DOWN (SPX bias UP)"
         result["slope_direction"] = -1
+    # Converging (squeeze) and Diverging (expansion)
     elif ceiling_down and floor_up:
         result["channel_type"] = VIXChannelType.CONVERGING
         result["channel_description"] = "Squeeze forming → Breakout likely, wait for direction"
@@ -899,18 +901,32 @@ def calculate_vix_structural_channel(
         result["channel_type"] = VIXChannelType.DIVERGING
         result["channel_description"] = "Expanding → High uncertainty, wider stops needed"
         result["slope_direction"] = 0
+    # Both flat
     elif ceiling_flat and floor_flat:
         result["channel_type"] = VIXChannelType.FLAT
         result["channel_description"] = "Parallel flat → Range-bound, play the walls"
         result["slope_direction"] = 0
-    elif ceiling_up or floor_up:
-        result["channel_type"] = VIXChannelType.ASCENDING
-        result["channel_description"] = "Bias rising → VIX pressure UP"
+    # Mixed: one line moving, one flat → expanding or tilting
+    elif ceiling_up and floor_flat:
+        result["channel_type"] = VIXChannelType.DIVERGING
+        result["channel_description"] = "Ceiling rising, floor flat → Expanding upward, VIX pressure building"
+        result["slope_direction"] = 1
+    elif ceiling_flat and floor_down:
+        result["channel_type"] = VIXChannelType.DIVERGING
+        result["channel_description"] = "Ceiling flat, floor falling → Expanding downward, volatility increasing"
+        result["slope_direction"] = -1
+    elif ceiling_down and floor_flat:
+        result["channel_type"] = VIXChannelType.CONVERGING
+        result["channel_description"] = "Ceiling falling, floor flat → Narrowing from top, compression"
+        result["slope_direction"] = -1
+    elif ceiling_flat and floor_up:
+        result["channel_type"] = VIXChannelType.CONVERGING
+        result["channel_description"] = "Ceiling flat, floor rising → Narrowing from bottom, squeeze building"
         result["slope_direction"] = 1
     else:
-        result["channel_type"] = VIXChannelType.DESCENDING
-        result["channel_description"] = "Bias falling → VIX pressure DOWN"
-        result["slope_direction"] = -1
+        result["channel_type"] = VIXChannelType.FLAT
+        result["channel_description"] = "Indeterminate channel shape"
+        result["slope_direction"] = 0
     
     # Determine channel status: BUILDING until both Europe pivots are past current time
     # Europe session runs 1 AM - 6 AM CT. Channel locks when Europe is done.
@@ -6383,13 +6399,21 @@ Calculated Entry Premium: {p.get('calc_result')}
                 vix_floor = vix_channel_levels.get("floor_at_ref", 0)
                 dist_floor = round(vix - vix_floor, 2) if vix else 0
                 floor_status = "🟢" if dist_floor > 0.1 else "⚠️" if dist_floor > 0 else "🔴"
-                st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--bull);"><div class="metric-icon">{floor_status}</div><div class="metric-label">VIX Floor</div><div class="metric-value" style="color:var(--bull);font-size:1.3rem;">{vix_floor:.2f}</div><div class="metric-delta">VIX {dist_floor:+.2f} above</div></div>', unsafe_allow_html=True)
+                if dist_floor >= 0:
+                    floor_label = f"VIX is {dist_floor:.2f} above floor"
+                else:
+                    floor_label = f"VIX is {abs(dist_floor):.2f} BELOW floor"
+                st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--bull);"><div class="metric-icon">{floor_status}</div><div class="metric-label">VIX Floor</div><div class="metric-value" style="color:var(--bull);font-size:1.3rem;">{vix_floor:.2f}</div><div class="metric-delta">{floor_label}</div></div>', unsafe_allow_html=True)
             
             with col3:
                 vix_ceiling = vix_channel_levels.get("ceiling_at_ref", 0)
                 dist_ceiling = round(vix_ceiling - vix, 2) if vix else 0
                 ceiling_status = "🟢" if dist_ceiling > 0.1 else "⚠️" if dist_ceiling > 0 else "🔴"
-                st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--bear);"><div class="metric-icon">{ceiling_status}</div><div class="metric-label">VIX Ceiling</div><div class="metric-value" style="color:var(--bear);font-size:1.3rem;">{vix_ceiling:.2f}</div><div class="metric-delta">VIX {dist_ceiling:.2f} below</div></div>', unsafe_allow_html=True)
+                if dist_ceiling >= 0:
+                    ceiling_label = f"VIX is {dist_ceiling:.2f} below ceiling"
+                else:
+                    ceiling_label = f"VIX is {abs(dist_ceiling):.2f} ABOVE ceiling"
+                st.markdown(f'<div class="metric-card" style="border-left:4px solid var(--bear);"><div class="metric-icon">{ceiling_status}</div><div class="metric-label">VIX Ceiling</div><div class="metric-value" style="color:var(--bear);font-size:1.3rem;">{vix_ceiling:.2f}</div><div class="metric-delta">{ceiling_label}</div></div>', unsafe_allow_html=True)
             
             with col4:
                 width = vix_channel_levels.get("channel_width_current", 0)
