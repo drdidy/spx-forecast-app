@@ -5234,12 +5234,32 @@ def sidebar():
         
         # Current VIX
         st.markdown("##### Current VIX")
+        # Use session state to persist manual edits across reruns
+        if "vix_manual_override" not in st.session_state:
+            st.session_state.vix_manual_override = None
+        
         if tastytrade_configured and vx_current.get("available"):
-            default_vix = vx_current.get("price", 17.0)
-            manual_vix = st.number_input("Current VIX/VX", value=default_vix, step=0.01, format="%.2f",
-                help=f"Auto-fetched from Yahoo ^VIX. Override if needed.")
+            fetched_vix = vx_current.get("price", 17.0)
+            # Only use fetched value if user hasn't manually edited
+            if st.session_state.vix_manual_override is None:
+                initial_vix = fetched_vix
+            else:
+                initial_vix = st.session_state.vix_manual_override
+            
+            def on_vix_change():
+                new_val = st.session_state.get("manual_vix_input")
+                fetched = vx_current.get("price", 17.0)
+                if new_val is not None and abs(new_val - fetched) > 0.005:
+                    st.session_state.vix_manual_override = new_val
+                else:
+                    st.session_state.vix_manual_override = None
+            
+            manual_vix = st.number_input("Current VIX/VX", value=initial_vix, step=0.01, format="%.2f",
+                key="manual_vix_input", on_change=on_vix_change,
+                help=f"Auto-fetched: {fetched_vix:.2f}. Edit to override (sticky until refresh).")
         else:
             manual_vix = st.number_input("Current VIX/VX", value=17.0, step=0.01, format="%.2f",
+                key="manual_vix_input",
                 help="Enter current VIX from TradingView")
         
         # Store VIX channel data - 4 pivot structural system
