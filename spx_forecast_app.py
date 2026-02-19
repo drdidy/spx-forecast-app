@@ -800,14 +800,17 @@ def calculate_vix_structural_channel(
     """
     Build VIX channel from 4 structural pivots - the REAL methodology.
     
-    ASCENDING lines use: Highest WICK for ceiling, Lowest CLOSE for floor
-    DESCENDING lines use: Highest CLOSE for ceiling, Lowest WICK for floor
+    Ceiling line: Asia High (5PM-2AM CT) → Europe High (2AM-8AM CT), project into NY
+    Floor line:   Asia Low (5PM-2AM CT) → Europe Low (2AM-8AM CT), project into NY
     
-    Since channel direction is unknown until calculated, we use wicks for both ceiling
-    and floor inputs. The channel shape determines which interpretation applies.
+    Each line has its own data-driven slope (NOT the fixed ES slope).
+    Channel shape emerges naturally from the two anchor points per line.
     
-    At RTH open (8:30 AM CT / 9:30 AM ET), project both lines forward. Where VIX sits
-    relative to the projected channel determines the day's directional bias.
+    VIX ENTRY SIGNALS (confluence for ES/SPX trades):
+    1. VIX touches floor, closes above → BUY PUTS (VIX bounced = SPX down)
+    2. VIX touches ceiling, closes below → BUY CALLS (VIX rejected = SPX up)
+    3. VIX breaks ceiling, retests from above, closes above → BUY PUTS (ceiling became support)
+    4. VIX breaks floor, retests from below, closes below → BUY CALLS (floor became resistance)
     """
     if current_time is None:
         current_time = datetime.now(CT)
@@ -928,14 +931,19 @@ def calculate_vix_structural_channel(
         result["channel_description"] = "Indeterminate channel shape"
         result["slope_direction"] = 0
     
-    # Determine channel status: BUILDING until both Europe pivots are past current time
-    # Europe session runs 1 AM - 6 AM CT. Channel locks when Europe is done.
-    europe_complete = (current_time >= europe_high_time and current_time >= europe_low_time)
+    # Determine channel status: BUILDING until Europe session ENDS at 8 AM CT
+    # This gives you 30 minutes (8:00-8:30) to review the locked channel before RTH opens
+    europe_session_end = current_time.replace(hour=8, minute=0, second=0, microsecond=0)
+    # Handle overnight: if current_time is before midnight, europe_session_end is next day
+    if current_time.hour >= 17:
+        europe_session_end += timedelta(days=1)
+    
+    europe_complete = (current_time >= europe_session_end)
     if europe_complete:
         result["channel_status"] = "LOCKED"
     else:
         result["channel_status"] = "BUILDING"
-        result["channel_description"] = "Volatility zone BUILDING — Europe session in progress"
+        result["channel_description"] = "Volatility zone BUILDING — Europe session in progress (locks at 8:00 AM CT)"
     
     return result
 
@@ -2285,35 +2293,73 @@ def analyze_market_state_v2(current_spx, dual_levels, channel_type, channel_reas
     vix_channel_bullish_spx = False
     vix_channel_bearish_spx = False
     vix_channel_squeeze = False
+    vix_entry_signal = None  # Track specific VIX entry scenario
+    
     if vix_channel_data and vix_channel_data.get("floor") is not None:
         vix_floor = vix_channel_data.get("floor", 0)
         vix_ceiling = vix_channel_data.get("ceiling", 0)
         vix_ch_type = vix_channel_data.get("channel_type")
         vix_ch_status = vix_channel_data.get("channel_status", "BUILDING")
         
-        # Floor/ceiling breaks are valid even while BUILDING (VIX is clearly outside range)
-        if vix and vix < vix_floor:
-            vix_channel_bullish_spx = True
-            calls_factors.append("🌊 VIX below channel floor (bullish SPX)")
-        elif vix and vix > vix_ceiling:
-            vix_channel_bearish_spx = True
-            puts_factors.append("🌊 VIX above channel ceiling (bearish SPX)")
-        elif vix_ch_status == "LOCKED":
-            # Only use directional bias once channel shape is confirmed (Europe done)
-            if vix_ch_type == VIXChannelType.DESCENDING:
-                vix_channel_bullish_spx = True
-                calls_factors.append("🌊 VIX channel descending (bullish SPX bias)")
-            elif vix_ch_type == VIXChannelType.ASCENDING:
-                vix_channel_bearish_spx = True
-                puts_factors.append("🌊 VIX channel ascending (bearish SPX bias)")
-            elif vix_ch_type == VIXChannelType.CONVERGING:
-                vix_channel_squeeze = True
-                calls_factors.append("🌊 VIX channel squeezing (breakout pending)")
-                puts_factors.append("🌊 VIX channel squeezing (breakout pending)")
-        else:
+        if vix_ch_status == "BUILDING":
             # BUILDING - note it but don't add directional bias
             calls_factors.append("🌊 VIX zone building (no directional bias yet)")
             puts_factors.append("🌊 VIX zone building (no directional bias yet)")
+        elif vix and vix_ch_status == "LOCKED":
+            # Calculate proximity to channel walls (within 0.15 VIX pts = "touching")
+            TOUCH_THRESHOLD = 0.15
+            dist_to_floor = vix - vix_floor
+            dist_to_ceiling = vix_ceiling - vix
+            
+            # ─── SCENARIO 1: VIX touches floor, closes above → PUTS ───
+            # VIX came down to floor and bounced = VIX going back up = SPX down
+            if dist_to_floor >= 0 and dist_to_floor <= TOUCH_THRESHOLD:
+                vix_channel_bearish_spx = True
+                vix_entry_signal = "floor_bounce"
+                puts_factors.append("🌊 VIX touching floor & closing above → PUTS (VIX bouncing up)")
+            
+            # ─── SCENARIO 2: VIX touches ceiling, closes below → CALLS ───
+            # VIX went up to ceiling and got rejected = VIX going back down = SPX up
+            elif dist_to_ceiling >= 0 and dist_to_ceiling <= TOUCH_THRESHOLD:
+                vix_channel_bullish_spx = True
+                vix_entry_signal = "ceiling_rejection"
+                calls_factors.append("🌊 VIX touching ceiling & closing below → CALLS (VIX rejected)")
+            
+            # ─── SCENARIO 3: VIX broke above ceiling, retesting from above → PUTS ───
+            # VIX is above ceiling (broke out), came back to touch it = ceiling is now support
+            elif vix > vix_ceiling and dist_to_ceiling >= -TOUCH_THRESHOLD and dist_to_ceiling < 0:
+                vix_channel_bearish_spx = True
+                vix_entry_signal = "ceiling_retest"
+                puts_factors.append("🌊 VIX broke ceiling, retesting from above → PUTS (ceiling=support)")
+            
+            # ─── SCENARIO 4: VIX broke below floor, retesting from below → CALLS ───
+            # VIX is below floor (broke down), came back to touch it = floor is now resistance
+            elif vix < vix_floor and dist_to_floor >= -TOUCH_THRESHOLD and dist_to_floor < 0:
+                vix_channel_bullish_spx = True
+                vix_entry_signal = "floor_retest"
+                calls_factors.append("🌊 VIX broke floor, retesting from below → CALLS (floor=resistance)")
+            
+            # ─── NOT AT A WALL: Use position + channel shape for general bias ───
+            elif vix > vix_ceiling:
+                # VIX above ceiling but not near it = established above
+                vix_channel_bearish_spx = True
+                puts_factors.append("🌊 VIX above channel ceiling (bearish SPX)")
+            elif vix < vix_floor:
+                # VIX below floor but not near it = established below
+                vix_channel_bullish_spx = True
+                calls_factors.append("🌊 VIX below channel floor (bullish SPX)")
+            else:
+                # Inside channel - use shape for directional bias
+                if vix_ch_type == VIXChannelType.DESCENDING:
+                    vix_channel_bullish_spx = True
+                    calls_factors.append("🌊 VIX channel descending (bullish SPX bias)")
+                elif vix_ch_type == VIXChannelType.ASCENDING:
+                    vix_channel_bearish_spx = True
+                    puts_factors.append("🌊 VIX channel ascending (bearish SPX bias)")
+                elif vix_ch_type == VIXChannelType.CONVERGING:
+                    vix_channel_squeeze = True
+                    calls_factors.append("🌊 VIX channel squeezing (breakout pending)")
+                    puts_factors.append("🌊 VIX channel squeezing (breakout pending)")
     
     # Confidence calculation
     def calc_conf(direction, at_level, is_break=False):
@@ -5183,51 +5229,51 @@ def sidebar():
                     st.metric("Current VIX", f"{vx_current.get('price'):.2f}", 
                               delta=None, help="From Yahoo ^VIX (proxy for VX)")
         
-        # Time options for overnight VIX (5 PM - 6 AM next day)
+        # Time options for overnight VIX (5 PM - 8 AM next day)
         vix_time_options = []
         # Evening (5 PM - 11:30 PM)
         for h in range(17, 24):
             for m in [0, 30]:
                 vix_time_options.append(f"{h}:{m:02d}")
-        # Morning (12 AM - 6:00 AM)
-        for h in range(0, 7):
+        # Morning (12 AM - 8:00 AM)
+        for h in range(0, 9):
             for m in [0, 30]:
-                if h == 6 and m == 30:
+                if h == 8 and m == 30:
                     break
                 vix_time_options.append(f"{h}:{m:02d}")
         
-        # ASIA SESSION (5 PM - 1 AM CT)
-        st.markdown("##### 🦘 Asia Session (5 PM – 1 AM CT)")
-        st.caption("High wick/close = ceiling anchor #1 | Low wick/close = floor anchor #1")
+        # ASIA SESSION (5 PM - 2 AM CT)
+        st.markdown("##### 🦘 Asia Session (5 PM – 2 AM CT)")
+        st.caption("High = ceiling anchor #1 | Low = floor anchor #1")
         
         col1, col2 = st.columns(2)
-        asia_vix_high = col1.number_input("Asia High Wick", value=18.0, step=0.01, format="%.2f",
-            key="vix_asia_high", help="Highest VIX wick from 5 PM to 1 AM CT (ascending ceiling)")
+        asia_vix_high = col1.number_input("Asia High", value=18.0, step=0.01, format="%.2f",
+            key="vix_asia_high", help="Highest VIX point from 5 PM to 2 AM CT")
         asia_vix_high_time = col2.selectbox("High Time (CT)", options=vix_time_options, 
             index=vix_time_options.index("19:00") if "19:00" in vix_time_options else 4,
             key="vix_asia_high_time")
         
         col1, col2 = st.columns(2)
-        asia_vix_low = col1.number_input("Asia Low Wick", value=16.5, step=0.01, format="%.2f",
-            key="vix_asia_low", help="Lowest VIX wick from 5 PM to 1 AM CT (descending floor)")
+        asia_vix_low = col1.number_input("Asia Low", value=16.5, step=0.01, format="%.2f",
+            key="vix_asia_low", help="Lowest VIX point from 5 PM to 2 AM CT")
         asia_vix_low_time = col2.selectbox("Low Time (CT)", options=vix_time_options,
             index=vix_time_options.index("22:00") if "22:00" in vix_time_options else 10,
             key="vix_asia_low_time")
         
-        # EUROPE SESSION (1 AM - 6 AM CT)
-        st.markdown("##### 🏛 Europe Session (1 AM – 6 AM CT)")
-        st.caption("High wick/close = ceiling anchor #2 | Low wick/close = floor anchor #2")
+        # EUROPE SESSION (2 AM - 8 AM CT)
+        st.markdown("##### 🏛 Europe Session (2 AM – 8 AM CT)")
+        st.caption("High = ceiling anchor #2 | Low = floor anchor #2")
         
         col1, col2 = st.columns(2)
         europe_vix_high = col1.number_input("Europe High", value=17.8, step=0.01, format="%.2f",
-            key="vix_europe_high", help="Highest VIX point from 1 AM to 6 AM CT")
+            key="vix_europe_high", help="Highest VIX point from 2 AM to 8 AM CT")
         europe_vix_high_time = col2.selectbox("High Time (CT)", options=vix_time_options,
             index=vix_time_options.index("3:00") if "3:00" in vix_time_options else 20,
             key="vix_europe_high_time")
         
         col1, col2 = st.columns(2)
-        europe_vix_low = col1.number_input("Europe Low Wick", value=16.8, step=0.01, format="%.2f",
-            key="vix_europe_low", help="Lowest VIX wick from 1 AM to 6 AM CT")
+        europe_vix_low = col1.number_input("Europe Low", value=16.8, step=0.01, format="%.2f",
+            key="vix_europe_low", help="Lowest VIX point from 2 AM to 8 AM CT")
         europe_vix_low_time = col2.selectbox("Low Time (CT)", options=vix_time_options,
             index=vix_time_options.index("4:00") if "4:00" in vix_time_options else 22,
             key="vix_europe_low_time")
@@ -6591,22 +6637,48 @@ Calculated Entry Premium: {p.get('calc_result')}
             
             with col4:
                 width = vix_channel_levels.get("channel_width_current", 0)
+                TOUCH_THRESHOLD = 0.15
+                dist_floor_raw = vix - vix_floor if vix else 0
+                dist_ceiling_raw = vix_ceiling - vix if vix else 0
+                
                 if vix > vix_ceiling:
-                    pos_text = "ABOVE CEILING ↑"
-                    pos_color = "var(--bear)"
-                    signal = "VIX broke out → SELL SPX bias"
-                elif vix < vix_floor:
-                    pos_text = "BELOW FLOOR ↓"
-                    pos_color = "var(--bull)"
-                    signal = "VIX broke down → BUY SPX bias"
-                else:
-                    if width > 0:
-                        pct_pos = round(((vix - vix_floor) / width) * 100)
-                        pos_text = f"IN CHANNEL ({pct_pos}%)"
+                    if dist_ceiling_raw >= -TOUCH_THRESHOLD:
+                        # Just above ceiling, retesting
+                        pos_text = "RETESTING CEILING"
+                        pos_color = "var(--bear)"
+                        signal = "Broke ceiling, back at it → PUTS"
                     else:
-                        pos_text = "IN CHANNEL"
-                    pos_color = "var(--accent-cyan)"
-                    signal = "Trade bounces off walls"
+                        pos_text = "ABOVE CEILING ↑"
+                        pos_color = "var(--bear)"
+                        signal = "VIX established above → PUTS bias"
+                elif vix < vix_floor:
+                    if dist_floor_raw >= -TOUCH_THRESHOLD:
+                        # Just below floor, retesting
+                        pos_text = "RETESTING FLOOR"
+                        pos_color = "var(--bull)"
+                        signal = "Broke floor, back at it → CALLS"
+                    else:
+                        pos_text = "BELOW FLOOR ↓"
+                        pos_color = "var(--bull)"
+                        signal = "VIX established below → CALLS bias"
+                else:
+                    # Inside channel
+                    if dist_floor_raw <= TOUCH_THRESHOLD:
+                        pos_text = "AT FLOOR"
+                        pos_color = "var(--bear)"
+                        signal = "VIX bouncing off floor → PUTS"
+                    elif dist_ceiling_raw <= TOUCH_THRESHOLD:
+                        pos_text = "AT CEILING"
+                        pos_color = "var(--bull)"
+                        signal = "VIX rejected at ceiling → CALLS"
+                    else:
+                        if width > 0:
+                            pct_pos = round(((vix - vix_floor) / width) * 100)
+                            pos_text = f"IN CHANNEL ({pct_pos}%)"
+                        else:
+                            pos_text = "IN CHANNEL"
+                        pos_color = "var(--accent-cyan)"
+                        signal = "Wait for wall touch to trade"
                 st.markdown(f'<div class="metric-card" style="border-left:4px solid {pos_color};"><div class="metric-icon">📍</div><div class="metric-label">VIX: {vix:.2f}</div><div class="metric-value" style="color:{pos_color};font-size:0.9rem;">{pos_text}</div><div class="metric-delta">{signal}</div></div>', unsafe_allow_html=True)
             
             # Channel shape description
@@ -6614,11 +6686,32 @@ Calculated Entry Premium: {p.get('calc_result')}
             if channel_desc:
                 st.markdown(f'<div style="text-align:center;padding:8px;font-size:0.8rem;color:var(--text-muted);font-style:italic;">{channel_desc} | Width: {width:.2f} VIX pts</div>', unsafe_allow_html=True)
             
-            # Alert if VIX broke channel — ONLY when LOCKED
-            if vix > vix_ceiling:
-                st.markdown(f'<div class="alert-box alert-box-danger" style="margin-top:10px;"><div class="alert-icon-large">🚨</div><div class="alert-content"><div class="alert-title">VIX BROKE ABOVE CEILING!</div><div class="alert-text">Wait for 8:30 AM candle to retest {vix_ceiling:.2f}. VIX springboard UP = SELL SPX</div></div></div>', unsafe_allow_html=True)
+            # ── VIX Entry Signal Alerts (4 scenarios) ──
+            TOUCH_ALERT = 0.15
+            d_floor = vix - vix_floor if vix else 0
+            d_ceiling = vix_ceiling - vix if vix else 0
+            
+            # Scenario 1: VIX at floor, closing above → PUTS
+            if d_floor >= 0 and d_floor <= TOUCH_ALERT:
+                st.markdown(f'<div class="alert-box alert-box-danger" style="margin-top:10px;"><div class="alert-icon-large">🔴</div><div class="alert-content"><div class="alert-title">VIX AT FLOOR — PUTS SIGNAL</div><div class="alert-text">VIX touching {vix_floor:.2f} and closing above. VIX bouncing up = SPX heading down. Enter PUTS.</div></div></div>', unsafe_allow_html=True)
+            
+            # Scenario 2: VIX at ceiling, closing below → CALLS
+            elif d_ceiling >= 0 and d_ceiling <= TOUCH_ALERT:
+                st.markdown(f'<div class="alert-box alert-box-success" style="margin-top:10px;"><div class="alert-icon-large">🟢</div><div class="alert-content"><div class="alert-title">VIX AT CEILING — CALLS SIGNAL</div><div class="alert-text">VIX touching {vix_ceiling:.2f} and closing below. VIX rejected = SPX heading up. Enter CALLS.</div></div></div>', unsafe_allow_html=True)
+            
+            # Scenario 3: VIX broke above ceiling, retesting → PUTS
+            elif vix > vix_ceiling and d_ceiling >= -TOUCH_ALERT:
+                st.markdown(f'<div class="alert-box alert-box-danger" style="margin-top:10px;"><div class="alert-icon-large">🚨</div><div class="alert-content"><div class="alert-title">VIX CEILING RETEST — PUTS SIGNAL</div><div class="alert-text">VIX broke above {vix_ceiling:.2f}, came back to retest. Ceiling is now support. Enter PUTS.</div></div></div>', unsafe_allow_html=True)
+            
+            # Scenario 4: VIX broke below floor, retesting → CALLS
+            elif vix < vix_floor and d_floor >= -TOUCH_ALERT:
+                st.markdown(f'<div class="alert-box alert-box-success" style="margin-top:10px;"><div class="alert-icon-large">🚨</div><div class="alert-content"><div class="alert-title">VIX FLOOR RETEST — CALLS SIGNAL</div><div class="alert-text">VIX broke below {vix_floor:.2f}, came back to retest. Floor is now resistance. Enter CALLS.</div></div></div>', unsafe_allow_html=True)
+            
+            # Established breaks (far from wall)
+            elif vix > vix_ceiling:
+                st.markdown(f'<div class="alert-box alert-box-danger" style="margin-top:10px;"><div class="alert-icon-large">🚨</div><div class="alert-content"><div class="alert-title">VIX ABOVE CEILING</div><div class="alert-text">VIX established above {vix_ceiling:.2f}. Bearish SPX. Watch for retest of ceiling for PUTS entry.</div></div></div>', unsafe_allow_html=True)
             elif vix < vix_floor:
-                st.markdown(f'<div class="alert-box alert-box-success" style="margin-top:10px;"><div class="alert-icon-large">🚨</div><div class="alert-content"><div class="alert-title">VIX BROKE BELOW FLOOR!</div><div class="alert-text">Wait for 8:30 AM candle to retest {vix_floor:.2f}. VIX springboard DOWN = BUY SPX</div></div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="alert-box alert-box-success" style="margin-top:10px;"><div class="alert-icon-large">🚨</div><div class="alert-content"><div class="alert-title">VIX BELOW FLOOR</div><div class="alert-text">VIX established below {vix_floor:.2f}. Bullish SPX. Watch for retest of floor for CALLS entry.</div></div></div>', unsafe_allow_html=True)
     
     else:
         # No pivots entered - show prompt
